@@ -1,0 +1,80 @@
+syntax = "proto3";
+package base.types.gfspserver;
+
+import "base/types/gfsperrors/error.proto";
+import "base/types/gfspp2p/p2p.proto";
+import "base/types/gfsptask/task.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "moca/sp/tx.proto";
+import "moca/storage/common.proto";
+import "moca/storage/tx.proto";
+import "moca/virtualgroup/tx.proto";
+
+option go_package = "github.com/mocachain/moca-storage-provider/base/types/gfspserver";
+
+message GfSpSignSecondarySealBls {
+  uint64 object_id = 1;
+  uint32 global_virtual_group_id = 2;
+  repeated bytes checksums = 3;
+}
+
+// TODO: use chain MsgCreateGlobalVirtualGroup replace it.
+message GfSpCreateGlobalVirtualGroup {
+  uint32 virtual_group_family_id = 1;
+  string primary_sp_address = 2;
+  repeated uint32 secondary_sp_ids = 3;
+  cosmos.base.v1beta1.Coin deposit = 4;
+}
+
+message GfSpSignRequest {
+  oneof request {
+    moca.storage.MsgCreateBucket create_bucket_info = 1;
+    moca.storage.MsgMigrateBucket migrate_bucket_info = 2;
+    moca.storage.MsgCreateObject create_object_info = 3;
+    moca.storage.MsgSealObject seal_object_info = 4;
+    moca.storage.MsgDiscontinueBucket discontinue_bucket_info = 5;
+    GfSpSignSecondarySealBls sign_secondary_seal_bls = 6;
+    base.types.gfspp2p.GfSpPing ping_msg = 7;
+    base.types.gfspp2p.GfSpPong pong_msg = 8;
+    base.types.gfsptask.GfSpReplicatePieceApprovalTask
+        gfsp_replicate_piece_approval_task = 9;
+    base.types.gfsptask.GfSpReceivePieceTask gfsp_receive_piece_task = 10;
+    base.types.gfsptask.GfSpRecoverPieceTask gfsp_recover_piece_task = 11;
+    moca.storage.MsgRejectSealObject reject_object_info = 12;
+    GfSpCreateGlobalVirtualGroup create_global_virtual_group = 13;
+    base.types.gfsptask.GfSpMigratePieceTask gfsp_migrate_piece_task = 14;
+    moca.storage.MsgCompleteMigrateBucket complete_migrate_bucket = 15;
+    moca.storage.SecondarySpMigrationBucketSignDoc
+        sign_secondary_sp_migration_bucket = 16;
+    moca.virtualgroup.MsgSwapOut swap_out = 17;
+    moca.virtualgroup.MsgSwapOut sign_swap_out = 18;
+    moca.virtualgroup.MsgCompleteSwapOut complete_swap_out = 19;
+    moca.virtualgroup.MsgStorageProviderExit sp_exit = 20;
+    moca.virtualgroup.MsgCompleteStorageProviderExit complete_sp_exit =
+        21;
+    moca.sp.MsgUpdateSpStoragePrice sp_storage_price = 22;
+    base.types.gfsptask.GfSpMigrateGVGTask gfsp_migrate_gvg_task = 23;
+    base.types.gfsptask.GfSpBucketMigrationInfo gfsp_bucket_migrate_info = 24;
+    moca.storage.MsgRejectMigrateBucket reject_migrate_bucket = 25;
+    moca.virtualgroup.MsgDeposit deposit = 26;
+    moca.virtualgroup.MsgDeleteGlobalVirtualGroup
+        delete_global_virtual_group = 27;
+    moca.virtualgroup.MsgReserveSwapIn reserve_swap_in = 28;
+    moca.virtualgroup.MsgCompleteSwapIn complete_swap_in = 29;
+    moca.virtualgroup.MsgCancelSwapIn cancel_swap_in = 30;
+    moca.storage.MsgDelegateCreateObject delegate_create_object = 31;
+    moca.storage.MsgDelegateUpdateObjectContent
+        delegate_update_object_content = 32;
+    moca.storage.MsgSealObjectV2 seal_object_info_v2 = 33;
+  }
+}
+
+message GfSpSignResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+  bytes signature = 2;
+  string tx_hash = 3;
+}
+
+service GfSpSignService {
+  rpc GfSpSign(GfSpSignRequest) returns (GfSpSignResponse) {}
+}

@@ -1,0 +1,69 @@
+syntax = "proto3";
+package base.types.gfspserver;
+
+import "base/types/gfsperrors/error.proto";
+import "base/types/gfsptask/task.proto";
+
+option go_package = "github.com/mocachain/moca-storage-provider/base/types/gfspserver";
+
+message GfSpDownloadObjectRequest {
+  base.types.gfsptask.GfSpDownloadObjectTask download_object_task = 1;
+}
+
+message GfSpDownloadObjectResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+  bytes data = 2;
+}
+
+message GfSpDownloadPieceRequest {
+  base.types.gfsptask.GfSpDownloadPieceTask download_piece_task = 1;
+}
+
+message GfSpDownloadPieceResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+  bytes data = 2;
+}
+
+message GfSpGetChallengeInfoRequest {
+  base.types.gfsptask.GfSpChallengePieceTask challenge_piece_task = 1;
+}
+
+message GfSpGetChallengeInfoResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+  bytes data = 2;
+  bytes integrity_hash = 3;
+  repeated bytes checksums = 4;
+}
+
+message GfSpReimburseQuotaRequest {
+  uint64 bucket_id = 1;
+  uint64 extra_quota = 2;
+  // year_month is the query bucket quota's month, like "2023-03"
+  string year_month = 3;
+}
+
+message GfSpReimburseQuotaResponse { base.types.gfsperrors.GfSpError err = 1; }
+
+message GfSpDeductQuotaForBucketMigrateRequest {
+  uint64 bucket_id = 1;
+  uint64 deduct_quota = 2;
+  // year_month is the query bucket quota's month, like "2023-03"
+  string year_month = 3;
+}
+
+message GfSpDeductQuotaForBucketMigrateResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+}
+
+service GfSpDownloadService {
+  rpc GfSpDownloadObject(GfSpDownloadObjectRequest)
+      returns (GfSpDownloadObjectResponse) {}
+  rpc GfSpDownloadPiece(GfSpDownloadPieceRequest)
+      returns (GfSpDownloadPieceResponse) {}
+  rpc GfSpGetChallengeInfo(GfSpGetChallengeInfoRequest)
+      returns (GfSpGetChallengeInfoResponse) {}
+  rpc GfSpReimburseQuota(GfSpReimburseQuotaRequest)
+      returns (GfSpReimburseQuotaResponse) {}
+  rpc GfSpDeductQuotaForBucketMigrate(GfSpDeductQuotaForBucketMigrateRequest)
+      returns (GfSpDeductQuotaForBucketMigrateResponse) {}
+}

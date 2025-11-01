@@ -1,0 +1,890 @@
+package gfsptask
+
+import (
+	"encoding/hex"
+	"fmt"
+	"math"
+	"sync/atomic"
+	"time"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsplimit"
+	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
+	coretask "github.com/mocachain/moca-storage-provider/core/task"
+)
+
+var (
+	_ coretask.UploadObjectTask          = &GfSpUploadObjectTask{}
+	_ coretask.ResumableUploadObjectTask = &GfSpResumableUploadObjectTask{}
+	_ coretask.ReplicatePieceTask        = &GfSpReplicatePieceTask{}
+	_ coretask.SealObjectTask            = &GfSpSealObjectTask{}
+	_ coretask.ReceivePieceTask          = &GfSpReceivePieceTask{}
+)
+
+func (m *GfSpUploadObjectTask) InitUploadObjectTask(vgfID uint32, object *storagetypes.ObjectInfo, params *storagetypes.Params, timeout int64, isAgentUpload bool) {
+	m.Reset()
+	m.Task = &GfSpTask{}
+	m.VirtualGroupFamilyId = vgfID
+	m.IsAgentUpload = isAgentUpload
+	m.SetCreateTime(time.Now().Unix())
+	m.SetUpdateTime(time.Now().Unix())
+	m.SetTimeout(timeout)
+	m.SetObjectInfo(object)
+	m.SetStorageParams(params)
+}
+
+func (m *GfSpUploadObjectTask) Key() coretask.TKey {
+	return GfSpUploadObjectTaskKey(
+		m.GetObjectInfo().GetBucketName(),
+		m.GetObjectInfo().GetObjectName(),
+		m.GetObjectInfo().Id.String())
+}
+
+func (m *GfSpUploadObjectTask) Type() coretask.TType {
+	return coretask.TypeTaskUpload
+}
+
+func (m *GfSpUploadObjectTask) Info() string {
+	return fmt.Sprintf("key[%s], type[%s], priority[%d], limit[%s], %s",
+		m.Key(), coretask.TaskTypeName(m.Type()), m.GetPriority(),
+		m.EstimateLimit().String(), m.GetTask().Info())
+}
+
+func (m *GfSpUploadObjectTask) GetAddress() string {
+	return m.GetTask().GetAddress()
+}
+
+func (m *GfSpUploadObjectTask) SetAddress(address string) {
+	m.GetTask().SetAddress(address)
+}
+
+func (m *GfSpUploadObjectTask) GetCreateTime() int64 {
+	return m.GetTask().GetCreateTime()
+}
+
+func (m *GfSpUploadObjectTask) SetCreateTime(time int64) {
+	m.GetTask().SetCreateTime(time)
+}
+
+func (m *GfSpUploadObjectTask) GetUpdateTime() int64 {
+	return m.GetTask().GetUpdateTime()
+}
+
+func (m *GfSpUploadObjectTask) SetUpdateTime(time int64) {
+	m.GetTask().SetUpdateTime(time)
+}
+
+func (m *GfSpUploadObjectTask) GetTimeout() int64 {
+	return m.GetTask().GetTimeout()
+}
+
+func (m *GfSpUploadObjectTask) SetTimeout(time int64) {
+	m.GetTask().SetTimeout(time)
+}
+
+func (m *GfSpUploadObjectTask) ExceedTimeout() bool {
+	return m.GetTask().ExceedTimeout()
+}
+
+func (m *GfSpUploadObjectTask) GetRetry() int64 {
+	return m.GetTask().GetRetry()
+}
+
+func (m *GfSpUploadObjectTask) IncRetry() {
+	m.GetTask().IncRetry()
+}
+
+func (m *GfSpUploadObjectTask) SetRetry(retry int64) {
+	m.GetTask().SetRetry(retry)
+}
+
+func (m *GfSpUploadObjectTask) GetMaxRetry() int64 {
+	return m.GetTask().GetMaxRetry()
+}
+
+func (m *GfSpUploadObjectTask) SetMaxRetry(limit int64) {
+	m.GetTask().SetMaxRetry(limit)
+}
+
+func (m *GfSpUploadObjectTask) ExceedRetry() bool {
+	return m.GetTask().ExceedRetry()
+}
+
+func (m *GfSpUploadObjectTask) Expired() bool {
+	return m.GetTask().Expired()
+}
+
+func (m *GfSpUploadObjectTask) GetPriority() coretask.TPriority {
+	return m.GetTask().GetPriority()
+}
+
+func (m *GfSpUploadObjectTask) SetPriority(priority coretask.TPriority) {
+	m.GetTask().SetPriority(priority)
+}
+
+func (m *GfSpUploadObjectTask) EstimateLimit() corercmgr.Limit {
+	l := &gfsplimit.GfSpLimit{}
+	if m.GetObjectInfo().GetPayloadSize() >= m.GetStorageParams().GetMaxSegmentSize() {
+		l.Memory = int64(m.GetStorageParams().GetMaxSegmentSize()) * 2
+	} else {
+		l.Memory = int64(m.GetObjectInfo().GetPayloadSize()) * 2
+	}
+	l.Add(LimitEstimateByPriority(m.GetPriority()))
+	return l
+}
+
+func (m *GfSpUploadObjectTask) GetUserAddress() string {
+	return m.GetTask().GetUserAddress()
+}
+
+func (m *GfSpUploadObjectTask) SetUserAddress(address string) {
+	m.GetTask().SetUserAddress(address)
+}
+
+func (m *GfSpUploadObjectTask) SetLogs(logs string) {
+	m.GetTask().SetLogs(logs)
+}
+
+func (m *GfSpUploadObjectTask) GetLogs() string {
+	return m.GetTask().GetLogs()
+}
+
+func (m *GfSpUploadObjectTask) AppendLog(log string) {
+	m.GetTask().AppendLog(log)
+}
+
+func (m *GfSpUploadObjectTask) Error() error {
+	return m.GetTask().Error()
+}
+
+func (m *GfSpUploadObjectTask) SetError(err error) {
+	m.GetTask().SetError(err)
+}
+
+func (m *GfSpUploadObjectTask) SetObjectInfo(object *storagetypes.ObjectInfo) {
+	m.ObjectInfo = object
+}
+
+func (m *GfSpUploadObjectTask) SetStorageParams(param *storagetypes.Params) {
+	m.StorageParams = param
+}
+
+func (m *GfSpResumableUploadObjectTask) InitResumableUploadObjectTask(vgfID uint32, object *storagetypes.ObjectInfo, params *storagetypes.Params,
+	timeout int64, complete bool, offset uint64, isAgentUpload bool,
+) {
+	m.Reset()
+	m.Task = &GfSpTask{}
+	m.VirtualGroupFamilyId = vgfID
+	m.IsAgentUpload = isAgentUpload
+	m.SetCreateTime(time.Now().Unix())
+	m.SetUpdateTime(time.Now().Unix())
+	m.SetTimeout(timeout)
+	m.SetObjectInfo(object)
+	m.SetStorageParams(params)
+	m.SetCompleted(complete)
+	m.SetResumeOffset(offset)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetResumeOffset() uint64 {
+	return m.Offset
+}
+
+func (m *GfSpResumableUploadObjectTask) SetResumeOffset(offset uint64) {
+	m.Offset = offset
+}
+
+func (m *GfSpResumableUploadObjectTask) SetCompleted(completed bool) {
+	m.Completed = completed
+}
+
+func (m *GfSpResumableUploadObjectTask) Key() coretask.TKey {
+	return GfSpResumableUploadObjectTaskKey(
+		m.GetObjectInfo().GetBucketName(),
+		m.GetObjectInfo().GetObjectName(),
+		m.GetObjectInfo().Id.String(), m.GetResumeOffset())
+}
+
+func (m *GfSpResumableUploadObjectTask) Type() coretask.TType {
+	return coretask.TypeTaskUpload
+}
+
+func (m *GfSpResumableUploadObjectTask) Info() string {
+	return fmt.Sprintf("key[%s], type[%s], priority[%d], limit[%s], %s",
+		m.Key(), coretask.TaskTypeName(m.Type()), m.GetPriority(),
+		m.EstimateLimit().String(), m.GetTask().Info())
+}
+
+func (m *GfSpResumableUploadObjectTask) GetAddress() string {
+	return m.GetTask().GetAddress()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetAddress(address string) {
+	m.GetTask().SetAddress(address)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetCreateTime() int64 {
+	return m.GetTask().GetCreateTime()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetCreateTime(time int64) {
+	m.GetTask().SetCreateTime(time)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetUpdateTime() int64 {
+	return m.GetTask().GetUpdateTime()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetUpdateTime(time int64) {
+	m.GetTask().SetUpdateTime(time)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetTimeout() int64 {
+	return m.GetTask().GetTimeout()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetTimeout(time int64) {
+	m.GetTask().SetTimeout(time)
+}
+
+func (m *GfSpResumableUploadObjectTask) ExceedTimeout() bool {
+	return m.GetTask().ExceedTimeout()
+}
+
+func (m *GfSpResumableUploadObjectTask) GetRetry() int64 {
+	return m.GetTask().GetRetry()
+}
+
+func (m *GfSpResumableUploadObjectTask) IncRetry() {
+	m.GetTask().IncRetry()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetRetry(retry int64) {
+	m.GetTask().SetRetry(retry)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetMaxRetry() int64 {
+	return m.GetTask().GetMaxRetry()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetMaxRetry(limit int64) {
+	m.GetTask().SetMaxRetry(limit)
+}
+
+func (m *GfSpResumableUploadObjectTask) ExceedRetry() bool {
+	return m.GetTask().ExceedRetry()
+}
+
+func (m *GfSpResumableUploadObjectTask) Expired() bool {
+	return m.GetTask().Expired()
+}
+
+func (m *GfSpResumableUploadObjectTask) GetPriority() coretask.TPriority {
+	return m.GetTask().GetPriority()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetPriority(priority coretask.TPriority) {
+	m.GetTask().SetPriority(priority)
+}
+
+func (m *GfSpResumableUploadObjectTask) EstimateLimit() corercmgr.Limit {
+	l := &gfsplimit.GfSpLimit{}
+	if m.GetObjectInfo().GetPayloadSize() >= m.GetStorageParams().GetMaxSegmentSize() {
+		l.Memory = int64(m.GetStorageParams().GetMaxSegmentSize()) * 2
+	} else {
+		l.Memory = int64(m.GetObjectInfo().GetPayloadSize()) * 2
+	}
+	l.Add(LimitEstimateByPriority(m.GetPriority()))
+	return l
+}
+
+func (m *GfSpResumableUploadObjectTask) GetUserAddress() string {
+	return m.GetTask().GetUserAddress()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetUserAddress(address string) {
+	m.GetTask().SetUserAddress(address)
+}
+
+func (m *GfSpResumableUploadObjectTask) SetLogs(logs string) {
+	m.GetTask().SetLogs(logs)
+}
+
+func (m *GfSpResumableUploadObjectTask) GetLogs() string {
+	return m.GetTask().GetLogs()
+}
+
+func (m *GfSpResumableUploadObjectTask) AppendLog(log string) {
+	m.GetTask().AppendLog(log)
+}
+
+func (m *GfSpResumableUploadObjectTask) Error() error {
+	return m.GetTask().Error()
+}
+
+func (m *GfSpResumableUploadObjectTask) SetError(err error) {
+	m.GetTask().SetError(err)
+}
+
+func (m *GfSpResumableUploadObjectTask) SetObjectInfo(object *storagetypes.ObjectInfo) {
+	m.ObjectInfo = object
+}
+
+func (m *GfSpResumableUploadObjectTask) SetStorageParams(param *storagetypes.Params) {
+	m.StorageParams = param
+}
+
+func (m *GfSpReplicatePieceTask) InitReplicatePieceTask(object *storagetypes.ObjectInfo, params *storagetypes.Params,
+	priority coretask.TPriority, timeout int64, retry int64, isAgentUploadTask bool,
+) {
+	m.Reset()
+	m.IsAgentUploadTask = isAgentUploadTask
+	m.Task = &GfSpTask{}
+	m.SetCreateTime(time.Now().Unix())
+	m.SetUpdateTime(time.Now().Unix())
+	m.SetObjectInfo(object)
+	m.SetStorageParams(params)
+	m.SetPriority(priority)
+	m.SetTimeout(timeout)
+	m.SetMaxRetry(retry)
+	m.NotAvailableSpIdx = -1
+}
+
+func (m *GfSpReplicatePieceTask) Key() coretask.TKey {
+	return GfSpReplicatePieceTaskKey(
+		m.GetObjectInfo().GetBucketName(),
+		m.GetObjectInfo().GetObjectName(),
+		m.GetObjectInfo().Id.String())
+}
+
+func (m *GfSpReplicatePieceTask) Type() coretask.TType {
+	return coretask.TypeTaskReplicatePiece
+}
+
+func (m *GfSpReplicatePieceTask) Info() string {
+	return fmt.Sprintf("key[%s], type[%s], priority[%d], limit[%s], %s",
+		m.Key(), coretask.TaskTypeName(m.Type()), m.GetPriority(),
+		m.EstimateLimit().String(), m.GetTask().Info())
+}
+
+func (m *GfSpReplicatePieceTask) GetAddress() string {
+	return m.GetTask().GetAddress()
+}
+
+func (m *GfSpReplicatePieceTask) SetAddress(address string) {
+	m.GetTask().SetAddress(address)
+}
+
+func (m *GfSpReplicatePieceTask) GetCreateTime() int64 {
+	return m.GetTask().GetCreateTime()
+}
+
+func (m *GfSpReplicatePieceTask) SetCreateTime(time int64) {
+	m.GetTask().SetCreateTime(time)
+}
+
+func (m *GfSpReplicatePieceTask) GetUpdateTime() int64 {
+	return m.GetTask().GetUpdateTime()
+}
+
+func (m *GfSpReplicatePieceTask) SetUpdateTime(time int64) {
+	m.GetTask().SetUpdateTime(time)
+}
+
+func (m *GfSpReplicatePieceTask) GetTimeout() int64 {
+	return m.GetTask().GetTimeout()
+}
+
+func (m *GfSpReplicatePieceTask) SetTimeout(time int64) {
+	m.GetTask().SetTimeout(time)
+}
+
+func (m *GfSpReplicatePieceTask) ExceedTimeout() bool {
+	return m.GetTask().ExceedTimeout()
+}
+
+func (m *GfSpReplicatePieceTask) GetRetry() int64 {
+	return m.GetTask().GetRetry()
+}
+
+func (m *GfSpReplicatePieceTask) IncRetry() {
+	m.GetTask().IncRetry()
+}
+
+func (m *GfSpReplicatePieceTask) SetRetry(retry int64) {
+	m.GetTask().SetRetry(retry)
+}
+
+func (m *GfSpReplicatePieceTask) GetMaxRetry() int64 {
+	return m.GetTask().GetMaxRetry()
+}
+
+func (m *GfSpReplicatePieceTask) SetMaxRetry(limit int64) {
+	m.GetTask().SetMaxRetry(limit)
+}
+
+func (m *GfSpReplicatePieceTask) ExceedRetry() bool {
+	return m.GetTask().ExceedRetry()
+}
+
+func (m *GfSpReplicatePieceTask) Expired() bool {
+	return m.GetTask().Expired()
+}
+
+func (m *GfSpReplicatePieceTask) GetPriority() coretask.TPriority {
+	return m.GetTask().GetPriority()
+}
+
+func (m *GfSpReplicatePieceTask) SetPriority(priority coretask.TPriority) {
+	m.GetTask().SetPriority(priority)
+}
+
+func (m *GfSpReplicatePieceTask) SetNotAvailableSpIdx(idx int32) {
+	atomic.CompareAndSwapInt32(&m.NotAvailableSpIdx, -1, idx)
+}
+
+func (m *GfSpReplicatePieceTask) EstimateLimit() corercmgr.Limit {
+	l := &gfsplimit.GfSpLimit{}
+	if m.GetObjectInfo().GetRedundancyType() == storagetypes.REDUNDANCY_REPLICA_TYPE {
+		if m.GetObjectInfo().GetPayloadSize() < m.GetStorageParams().GetMaxPayloadSize() {
+			l.Memory = int64(m.GetObjectInfo().GetPayloadSize())
+		} else {
+			l.Memory = int64(m.GetStorageParams().VersionedParams.GetMaxSegmentSize())
+		}
+	} else {
+		if m.GetObjectInfo().GetPayloadSize() < m.GetStorageParams().GetMaxPayloadSize() {
+			size := float64(m.GetStorageParams().VersionedParams.GetMaxSegmentSize()) *
+				(float64(m.GetStorageParams().VersionedParams.GetRedundantDataChunkNum()) +
+					float64(m.GetStorageParams().VersionedParams.GetRedundantParityChunkNum())) /
+				float64(m.GetStorageParams().VersionedParams.GetRedundantDataChunkNum())
+			l.Memory = int64(math.Ceil(size))
+		} else {
+			// it is an estimation method, within a few bytes of error
+			size := float64(m.GetStorageParams().VersionedParams.GetMaxSegmentSize()) *
+				(float64(m.GetStorageParams().VersionedParams.GetRedundantDataChunkNum()) +
+					float64(m.GetStorageParams().VersionedParams.GetRedundantParityChunkNum())) /
+				float64(m.GetStorageParams().VersionedParams.GetRedundantDataChunkNum())
+			l.Memory = int64(math.Ceil(size))
+		}
+	}
+	l.Add(LimitEstimateByPriority(m.GetPriority()))
+	return l
+}
+
+func (m *GfSpReplicatePieceTask) SetSealed(sealed bool) {
+	m.Sealed = sealed
+}
+
+func (m *GfSpReplicatePieceTask) SetSecondarySignatures(signatures [][]byte) {
+	m.SecondarySignatures = signatures
+}
+
+func (m *GfSpReplicatePieceTask) SetSecondaryAddresses(addresses []string) {
+	m.SecondaryAddresses = addresses
+}
+
+func (m *GfSpReplicatePieceTask) SetObjectInfo(object *storagetypes.ObjectInfo) {
+	m.ObjectInfo = object
+}
+
+func (m *GfSpReplicatePieceTask) SetStorageParams(param *storagetypes.Params) {
+	m.StorageParams = param
+}
+
+func (m *GfSpReplicatePieceTask) GetUserAddress() string {
+	return m.GetTask().GetUserAddress()
+}
+
+func (m *GfSpReplicatePieceTask) SetUserAddress(address string) {
+	m.GetTask().SetUserAddress(address)
+}
+
+func (m *GfSpReplicatePieceTask) SetLogs(logs string) {
+	m.GetTask().SetLogs(logs)
+}
+
+func (m *GfSpReplicatePieceTask) GetLogs() string {
+	return m.GetTask().GetLogs()
+}
+
+func (m *GfSpReplicatePieceTask) AppendLog(log string) {
+	m.GetTask().AppendLog(log)
+}
+
+func (m *GfSpReplicatePieceTask) Error() error {
+	return m.GetTask().Error()
+}
+
+func (m *GfSpReplicatePieceTask) SetError(err error) {
+	m.GetTask().SetError(err)
+}
+
+func (m *GfSpReplicatePieceTask) GetIsAgentUpload() bool {
+	return m.IsAgentUploadTask
+}
+
+func (m *GfSpSealObjectTask) InitSealObjectTask(vgfID uint32, object *storagetypes.ObjectInfo, params *storagetypes.Params, priority coretask.TPriority,
+	endpoints []string, signatures [][]byte, timeout int64, retry int64, isAgentUpload bool,
+) {
+	m.Reset()
+	m.Task = &GfSpTask{}
+	m.GlobalVirtualGroupId = vgfID
+	m.SecondaryEndpoints = endpoints
+	m.SetCreateTime(time.Now().Unix())
+	m.SetUpdateTime(time.Now().Unix())
+	m.SetObjectInfo(object)
+	m.SetStorageParams(params)
+	m.SetPriority(priority)
+	m.SetTimeout(timeout)
+	m.SetMaxRetry(retry)
+	m.SetSecondarySignatures(signatures)
+	m.IsAgentUploadTask = isAgentUpload
+}
+
+func (m *GfSpSealObjectTask) Key() coretask.TKey {
+	return GfSpSealObjectTaskKey(
+		m.GetObjectInfo().GetBucketName(),
+		m.GetObjectInfo().GetObjectName(),
+		m.GetObjectInfo().Id.String())
+}
+
+func (m *GfSpSealObjectTask) Type() coretask.TType {
+	return coretask.TypeTaskSealObject
+}
+
+func (m *GfSpSealObjectTask) Info() string {
+	return fmt.Sprintf("key[%s], type[%s], priority[%d], limit[%s], %s",
+		m.Key(), coretask.TaskTypeName(m.Type()), m.GetPriority(),
+		m.EstimateLimit().String(), m.GetTask().Info())
+}
+
+func (m *GfSpSealObjectTask) GetAddress() string {
+	return m.GetTask().GetAddress()
+}
+
+func (m *GfSpSealObjectTask) SetAddress(address string) {
+	m.GetTask().SetAddress(address)
+}
+
+func (m *GfSpSealObjectTask) GetCreateTime() int64 {
+	return m.GetTask().GetCreateTime()
+}
+
+func (m *GfSpSealObjectTask) SetCreateTime(time int64) {
+	m.GetTask().SetCreateTime(time)
+}
+
+func (m *GfSpSealObjectTask) GetUpdateTime() int64 {
+	return m.GetTask().GetUpdateTime()
+}
+
+func (m *GfSpSealObjectTask) SetUpdateTime(time int64) {
+	m.GetTask().SetUpdateTime(time)
+}
+
+func (m *GfSpSealObjectTask) GetTimeout() int64 {
+	return m.GetTask().GetTimeout()
+}
+
+func (m *GfSpSealObjectTask) SetTimeout(time int64) {
+	m.GetTask().SetTimeout(time)
+}
+
+func (m *GfSpSealObjectTask) ExceedTimeout() bool {
+	return m.GetTask().ExceedTimeout()
+}
+
+func (m *GfSpSealObjectTask) GetRetry() int64 {
+	return m.GetTask().GetRetry()
+}
+
+func (m *GfSpSealObjectTask) IncRetry() {
+	m.GetTask().IncRetry()
+}
+
+func (m *GfSpSealObjectTask) SetRetry(retry int64) {
+	m.GetTask().SetRetry(retry)
+}
+
+func (m *GfSpSealObjectTask) GetMaxRetry() int64 {
+	return m.GetTask().GetMaxRetry()
+}
+
+func (m *GfSpSealObjectTask) SetMaxRetry(limit int64) {
+	m.GetTask().SetMaxRetry(limit)
+}
+
+func (m *GfSpSealObjectTask) ExceedRetry() bool {
+	return m.GetTask().ExceedRetry()
+}
+
+func (m *GfSpSealObjectTask) Expired() bool {
+	return m.GetTask().Expired()
+}
+
+func (m *GfSpSealObjectTask) GetPriority() coretask.TPriority {
+	return m.GetTask().GetPriority()
+}
+
+func (m *GfSpSealObjectTask) GetIsAgentUpload() bool {
+	return m.IsAgentUploadTask
+}
+
+func (m *GfSpSealObjectTask) SetPriority(priority coretask.TPriority) {
+	m.GetTask().SetPriority(priority)
+}
+
+func (m *GfSpSealObjectTask) EstimateLimit() corercmgr.Limit {
+	l := &gfsplimit.GfSpLimit{}
+	l.Add(LimitEstimateByPriority(m.GetPriority()))
+	return l
+}
+
+func (m *GfSpSealObjectTask) SetSecondaryAddresses(addresses []string) {
+	m.SecondaryAddresses = addresses
+}
+
+func (m *GfSpSealObjectTask) SetSecondarySignatures(signatures [][]byte) {
+	m.SecondarySignatures = signatures
+}
+
+func (m *GfSpSealObjectTask) SetObjectInfo(object *storagetypes.ObjectInfo) {
+	m.ObjectInfo = object
+}
+
+func (m *GfSpSealObjectTask) SetStorageParams(param *storagetypes.Params) {
+	m.StorageParams = param
+}
+
+func (m *GfSpSealObjectTask) GetUserAddress() string {
+	return m.GetTask().GetUserAddress()
+}
+
+func (m *GfSpSealObjectTask) SetUserAddress(address string) {
+	m.GetTask().SetUserAddress(address)
+}
+
+func (m *GfSpSealObjectTask) SetLogs(logs string) {
+	m.GetTask().SetLogs(logs)
+}
+
+func (m *GfSpSealObjectTask) GetLogs() string {
+	return m.GetTask().GetLogs()
+}
+
+func (m *GfSpSealObjectTask) AppendLog(log string) {
+	m.GetTask().AppendLog(log)
+}
+
+func (m *GfSpSealObjectTask) Error() error {
+	return m.GetTask().Error()
+}
+
+func (m *GfSpSealObjectTask) SetError(err error) {
+	m.GetTask().SetError(err)
+}
+
+func (m *GfSpReceivePieceTask) InitReceivePieceTask(gvgID uint32, object *storagetypes.ObjectInfo, params *storagetypes.Params,
+	priority coretask.TPriority, segmentIdx uint32, redundancyIdx int32, pieceSize int64, isAgentUpload bool,
+) {
+	m.Reset()
+	m.Task = &GfSpTask{}
+	m.GlobalVirtualGroupId = gvgID
+	m.IsAgentUploadTask = isAgentUpload
+	m.SetCreateTime(time.Now().Unix())
+	m.SetUpdateTime(time.Now().Unix())
+	m.SetObjectInfo(object)
+	m.SetStorageParams(params)
+	m.SetPriority(priority)
+	m.SetSegmentIdx(segmentIdx)
+	m.SetRedundancyIdx(redundancyIdx)
+	m.SetPieceSize(pieceSize)
+}
+
+func (m *GfSpReceivePieceTask) GetSignBytes() []byte {
+	fakeMsg := &GfSpReceivePieceTask{
+		ObjectInfo:    m.GetObjectInfo(),
+		StorageParams: m.GetStorageParams(),
+		Task:          &GfSpTask{CreateTime: m.GetCreateTime(), UpdateTime: m.GetUpdateTime()},
+		SegmentIdx:    m.GetSegmentIdx(),
+		RedundancyIdx: m.GetRedundancyIdx(),
+		PieceSize:     m.GetPieceSize(),
+		PieceChecksum: m.GetPieceChecksum(),
+	}
+	bz := ModuleCdc.MustMarshalJSON(fakeMsg)
+	return sdk.MustSortJSON(bz)
+}
+
+func (m *GfSpReceivePieceTask) Key() coretask.TKey {
+	return GfSpReceivePieceTaskKey(
+		m.GetObjectInfo().GetBucketName(),
+		m.GetObjectInfo().GetObjectName(),
+		m.GetObjectInfo().Id.String(),
+		m.GetSegmentIdx(),
+		m.GetRedundancyIdx())
+}
+
+func (m *GfSpReceivePieceTask) Type() coretask.TType {
+	return coretask.TypeTaskReceivePiece
+}
+
+func (m *GfSpReceivePieceTask) Info() string {
+	return fmt.Sprintf("key[%s], type[%s], priority[%d], limit[%s] segmentIdx[%d], redundancyIdx[%d], size[%d], checksum[%s], %s",
+		m.Key(), coretask.TaskTypeName(m.Type()), m.GetPriority(), m.EstimateLimit().String(), m.GetSegmentIdx(),
+		m.GetRedundancyIdx(), m.GetPieceSize(), hex.EncodeToString(m.GetPieceChecksum()), m.GetTask().Info())
+}
+
+func (m *GfSpReceivePieceTask) GetAddress() string {
+	return m.GetTask().GetAddress()
+}
+
+func (m *GfSpReceivePieceTask) SetAddress(address string) {
+	m.GetTask().SetAddress(address)
+}
+
+func (m *GfSpReceivePieceTask) GetCreateTime() int64 {
+	return m.GetTask().GetCreateTime()
+}
+
+func (m *GfSpReceivePieceTask) SetCreateTime(time int64) {
+	m.GetTask().SetCreateTime(time)
+}
+
+func (m *GfSpReceivePieceTask) GetUpdateTime() int64 {
+	return m.GetTask().GetUpdateTime()
+}
+
+func (m *GfSpReceivePieceTask) SetUpdateTime(time int64) {
+	m.GetTask().SetUpdateTime(time)
+}
+
+func (m *GfSpReceivePieceTask) GetTimeout() int64 {
+	return m.GetTask().GetTimeout()
+}
+
+func (m *GfSpReceivePieceTask) SetTimeout(time int64) {
+	m.GetTask().SetTimeout(time)
+}
+
+func (m *GfSpReceivePieceTask) ExceedTimeout() bool {
+	return m.GetTask().ExceedTimeout()
+}
+
+func (m *GfSpReceivePieceTask) GetRetry() int64 {
+	return m.GetTask().GetRetry()
+}
+
+func (m *GfSpReceivePieceTask) IncRetry() {
+	m.GetTask().IncRetry()
+}
+
+func (m *GfSpReceivePieceTask) SetRetry(retry int64) {
+	m.GetTask().SetRetry(retry)
+}
+
+func (m *GfSpReceivePieceTask) GetMaxRetry() int64 {
+	return m.GetTask().GetMaxRetry()
+}
+
+func (m *GfSpReceivePieceTask) SetMaxRetry(limit int64) {
+	m.GetTask().SetMaxRetry(limit)
+}
+
+func (m *GfSpReceivePieceTask) ExceedRetry() bool {
+	return m.GetTask().ExceedRetry()
+}
+
+func (m *GfSpReceivePieceTask) Expired() bool {
+	return m.GetTask().Expired()
+}
+
+func (m *GfSpReceivePieceTask) GetPriority() coretask.TPriority {
+	return m.GetTask().GetPriority()
+}
+
+func (m *GfSpReceivePieceTask) SetPriority(priority coretask.TPriority) {
+	m.GetTask().SetPriority(priority)
+}
+
+func (m *GfSpReceivePieceTask) EstimateLimit() corercmgr.Limit {
+	l := &gfsplimit.GfSpLimit{Memory: m.GetPieceSize()}
+	l.Add(LimitEstimateByPriority(m.GetPriority()))
+	return l
+}
+
+func (m *GfSpReceivePieceTask) SetObjectInfo(object *storagetypes.ObjectInfo) {
+	m.ObjectInfo = object
+}
+
+func (m *GfSpReceivePieceTask) SetStorageParams(param *storagetypes.Params) {
+	m.StorageParams = param
+}
+
+func (m *GfSpReceivePieceTask) GetUserAddress() string {
+	return m.GetTask().GetUserAddress()
+}
+
+func (m *GfSpReceivePieceTask) SetUserAddress(address string) {
+	m.GetTask().SetUserAddress(address)
+}
+
+func (m *GfSpReceivePieceTask) SetLogs(logs string) {
+	m.GetTask().SetLogs(logs)
+}
+
+func (m *GfSpReceivePieceTask) GetLogs() string {
+	return m.GetTask().GetLogs()
+}
+
+func (m *GfSpReceivePieceTask) AppendLog(log string) {
+	m.GetTask().AppendLog(log)
+}
+
+func (m *GfSpReceivePieceTask) Error() error {
+	return m.GetTask().Error()
+}
+
+func (m *GfSpReceivePieceTask) SetError(err error) {
+	m.GetTask().SetError(err)
+}
+
+func (m *GfSpReceivePieceTask) SetSegmentIdx(idx uint32) {
+	m.SegmentIdx = idx
+}
+
+func (m *GfSpReceivePieceTask) SetRedundancyIdx(idx int32) {
+	m.RedundancyIdx = idx
+}
+
+func (m *GfSpReceivePieceTask) SetPieceSize(size int64) {
+	m.PieceSize = size
+}
+
+func (m *GfSpReceivePieceTask) SetPieceChecksum(checksum []byte) {
+	m.PieceChecksum = checksum
+}
+
+func (m *GfSpReceivePieceTask) SetSealed(seal bool) {
+	m.Sealed = seal
+}
+
+func (m *GfSpReceivePieceTask) SetFinished(finished bool) {
+	m.Finished = finished
+}
+
+func (m *GfSpReceivePieceTask) SetSignature(signature []byte) {
+	m.Signature = signature
+}
+
+func (m *GfSpReceivePieceTask) GetGlobalVirtualGroupID() uint32 {
+	return m.GetGlobalVirtualGroupId()
+}
+
+func (m *GfSpReceivePieceTask) SetGlobalVirtualGroupID(gvgID uint32) {
+	m.GlobalVirtualGroupId = gvgID
+}
+
+func (m *GfSpReceivePieceTask) SetBucketMigration(migration bool) {
+	m.BucketMigration = migration
+}

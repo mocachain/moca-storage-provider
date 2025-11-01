@@ -1,0 +1,169 @@
+package gnfd
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"sync"
+	"time"
+
+	chttp "github.com/cometbft/cometbft/rpc/client/http"
+
+	chainClient "github.com/evmos/evmos/v12/sdk/client"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
+	jsonclient "github.com/mocachain/moca-storage-provider/util/rpc/jsonrpc/client"
+)
+
+const (
+	MocaChain = "MocaChain"
+	// UpdateClientInternal defines the period of updating the best chain client
+	UpdateClientInternal = 60
+	// ExpectedOutputBlockInternal defines the time of estimating output block time
+	ExpectedOutputBlockInternal = 2
+)
+
+var (
+	ErrNoSuchBucket        = gfsperrors.Register(MocaChain, http.StatusBadRequest, 500001, "no such bucket")
+	ErrSealTimeout         = gfsperrors.Register(MocaChain, http.StatusBadRequest, 500002, "seal failed")
+	ErrRejectUnSealTimeout = gfsperrors.Register(MocaChain, http.StatusBadRequest, 500003, "reject unseal failed")
+)
+
+// MocaClient the moca chain client, only use to query.
+type MocaClient struct {
+	chainClient   *chainClient.MocaClient
+	currentHeight int64
+	updatedAt     time.Time
+	Provider      string
+}
+
+// GnfdClient returns the moca chain client.
+func (client *MocaClient) GnfdClient() *chainClient.MocaClient {
+	return client.chainClient
+}
+
+var _ consensus.Consensus = &Gnfd{}
+
+type GnfdChainConfig struct {
+	ChainID      string
+	ChainAddress []string
+	RpcAddress   []string
+}
+
+type Gnfd struct {
+	client          *MocaClient
+	backUpClients   []*MocaClient
+	wsClient        *chttp.HTTP
+	backUpWsClients []*chttp.HTTP
+	stopCh          chan struct{}
+	mutex           sync.RWMutex
+}
+
+// NewGnfd returns the Moca instance.
+func NewGnfd(cfg *GnfdChainConfig) (*Gnfd, error) {
+	if len(cfg.ChainAddress) == 0 {
+		return nil, errors.New("moca nodes missing")
+	}
+
+	var clients []*MocaClient
+	var wsClients []*chttp.HTTP
+	for _, address := range cfg.ChainAddress {
+		cc, err := chainClient.NewCustomMocaClient(address, cfg.RpcAddress[0], cfg.ChainID, jsonclient.DefaultHTTPClient)
+		if err != nil {
+			return nil, err
+		}
+
+		client := &MocaClient{
+			Provider:    address,
+			chainClient: cc,
+		}
+		clients = append(clients, client)
+		wsClient, err := chttp.New(address, "/websocket")
+		if err != nil {
+			return nil, err
+		}
+		wsClients = append(wsClients, wsClient)
+	}
+	moca := &Gnfd{
+		client:          clients[0],
+		backUpClients:   clients,
+		wsClient:        wsClients[0],
+		backUpWsClients: wsClients,
+		stopCh:          make(chan struct{}),
+	}
+
+	go moca.updateClient()
+	return moca, nil
+}
+
+// Close the Moca instance.
+func (g *Gnfd) Close() error {
+	close(g.stopCh)
+	return nil
+}
+
+// getCurrentClient returns the current client to use.
+func (g *Gnfd) getCurrentClient() *MocaClient {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.client
+}
+
+// setCurrentClient sets client to current client for using.
+func (g *Gnfd) setCurrentClient(client *MocaClient) {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+	g.client = client
+}
+
+// getCurrentWsClient returns the current websocket client to get last block height use.
+func (g *Gnfd) getCurrentWsClient() *chttp.HTTP {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return g.wsClient
+}
+
+// setCurrentWsAddress sets client to current websocket client for get last block height using.
+func (g *Gnfd) setCurrentWsAddress(client *chttp.HTTP) {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	g.wsClient = client
+}
+
+// updateClient selects the client that block height is the largest and set to current client.
+func (g *Gnfd) updateClient() {
+	ticker := time.NewTicker(UpdateClientInternal * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			var (
+				maxHeight, _      = g.CurrentHeight(context.Background())
+				maxHeightClient   = g.getCurrentClient()
+				maxHeightWsClient = g.getCurrentWsClient()
+			)
+			for idx, client := range g.backUpWsClients {
+				info, err := client.ABCIInfo(context.Background())
+				if err != nil {
+					log.Errorw("failed to get latest block height",
+						"node_addr", g.backUpClients[idx].Provider, "error", err)
+					continue
+				}
+				currentHeight := uint64(info.Response.LastBlockHeight)
+				if currentHeight > maxHeight {
+					maxHeight = currentHeight
+					maxHeightClient = g.backUpClients[idx]
+					maxHeightWsClient = client
+				}
+				g.backUpClients[idx].currentHeight = (int64)(currentHeight)
+				g.backUpClients[idx].updatedAt = time.Now()
+			}
+			if maxHeightClient != g.getCurrentClient() {
+				g.setCurrentClient(maxHeightClient)
+				g.setCurrentWsAddress(maxHeightWsClient)
+			}
+		case <-g.stopCh:
+			return
+		}
+	}
+}

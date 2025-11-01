@@ -1,0 +1,152 @@
+package gfsptask
+
+import (
+	"encoding/hex"
+	"fmt"
+	"strconv"
+
+	"github.com/mocachain/moca-storage-provider/core/task"
+)
+
+const (
+	Delimiter                               = "-"
+	KeyPrefixGfSpCreateBucketApprovalTask   = "CreateBucketApproval"
+	KeyPrefixGfSpMigrateBucketApprovalTask  = "MigrateBucketApproval"
+	KeyPrefixGfSpCreateObjectApprovalTask   = "CreateObjectApproval"
+	KeyPrefixGfSpReplicatePieceApprovalTask = "ReplicatePieceApproval"
+	KeyPrefixGfSpDownloadObjectTask         = "DownloadObject"
+	KeyPrefixGfSpDownloadPieceTask          = "DownloadPiece"
+	KeyPrefixGfSpChallengeTask              = "ChallengePiece"
+	KeyPrefixGfSpUploadObjectTask           = "Uploading"
+	KeyPrefixGfSpReplicatePieceTask         = "Uploading"
+	KeyPrefixGfSpSealObjectTask             = "Uploading"
+	KeyPrefixGfSpResumableUploadObjectTask  = "ResumableUploading"
+	KeyPrefixGfSpRecoverPieceTask           = "Recovering"
+	KeyPrefixGfSpReceivePieceTask           = "ReceivePiece"
+	KeyPrefixGfSpGCObjectTask               = "GCObject"
+	KeyPrefixGfSpGCZombiePieceTask          = "GCZombiePiece"
+	KeyPrefixGfSpGCStaleVersionObjectTask   = "GCStaleVersionObject"
+	KeyPrefixGfSpGfSpGCMetaTask             = "GCMeta"
+	KeyPrefixGfSpGCBucketMigrationTask      = "GCBucketMigration"
+	KeyPrefixGfSpMigrateBucketTask          = "MigrateBucket"
+	KeyPrefixGfSpMigrateGVGTask             = "MigrateGVG"
+	KeyPrefixGfSpMigratePieceTask           = "MigratePiece"
+)
+
+func GfSpCreateBucketApprovalTaskKey(bucket string, account string, fingerprint []byte) task.TKey {
+	return task.TKey(KeyPrefixGfSpCreateBucketApprovalTask + CombineKey("bucket:"+bucket, "account:"+account,
+		"fingerprint:"+hex.EncodeToString(fingerprint)))
+}
+
+func GfSpCreateObjectApprovalTaskKey(bucket, object string, account string, fingerprint []byte) task.TKey {
+	return task.TKey(KeyPrefixGfSpCreateObjectApprovalTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "account:"+account,
+			"fingerprint:"+hex.EncodeToString(fingerprint)))
+}
+
+func GfSpMigrateBucketApprovalTaskKey(bucket string, migrateBucketHash string) task.TKey {
+	return task.TKey(KeyPrefixGfSpMigrateBucketApprovalTask + CombineKey("bucket:"+bucket, "hash:"+migrateBucketHash))
+}
+
+func GfSpReplicatePieceApprovalTaskKey(bucket, object, id string) task.TKey {
+	return task.TKey(KeyPrefixGfSpReplicatePieceApprovalTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id))
+}
+
+func GfSpDownloadObjectTaskKey(bucket, object, id string, low, high int64) task.TKey {
+	return task.TKey(KeyPrefixGfSpDownloadObjectTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id,
+			"low:"+fmt.Sprint(low), "high:"+fmt.Sprint(high)))
+}
+
+func GfSpDownloadPieceTaskKey(bucket, object, pieceKey string, pieceOffset, pieceLength uint64) task.TKey {
+	return task.TKey(KeyPrefixGfSpDownloadPieceTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "piece:"+pieceKey,
+			"offset:"+fmt.Sprint(pieceOffset), "length:"+fmt.Sprint(pieceLength)))
+}
+
+func GfSpChallengePieceTaskKey(bucket, object, id string, sIdx uint32, rIdx int32, user string) task.TKey {
+	return task.TKey(KeyPrefixGfSpChallengeTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id,
+			"sIdx:"+fmt.Sprint(sIdx), "rIdx:"+fmt.Sprint(rIdx), user))
+}
+
+func GfSpUploadObjectTaskKey(bucket, object, id string) task.TKey {
+	return task.TKey(KeyPrefixGfSpUploadObjectTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id))
+}
+
+func GfSpResumableUploadObjectTaskKey(bucket, object, id string, offset uint64) task.TKey {
+	return task.TKey(KeyPrefixGfSpResumableUploadObjectTask + CombineKey(bucket, object, id, strconv.FormatUint(offset, 10)))
+}
+
+func GfSpReplicatePieceTaskKey(bucket, object, id string) task.TKey {
+	return task.TKey(KeyPrefixGfSpReplicatePieceTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id))
+}
+
+func GfSpRecoverPieceTaskKey(bucket, object, id string, pIdx uint32, replicateIdx int32) task.TKey {
+	if replicateIdx >= 0 {
+		return task.TKey(KeyPrefixGfSpRecoverPieceTask +
+			CombineKey("bucket:"+bucket, "object:"+object, "id:"+id, "segIdx:"+fmt.Sprint(pIdx), "ecIdx:"+fmt.Sprint(replicateIdx)))
+	}
+	return task.TKey(KeyPrefixGfSpRecoverPieceTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id, "segIdx:"+fmt.Sprint(pIdx)))
+}
+
+func GfSpSealObjectTaskKey(bucket, object, id string) task.TKey {
+	return task.TKey(KeyPrefixGfSpSealObjectTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id))
+}
+
+func GfSpReceivePieceTaskKey(bucket, object, id string, rIdx uint32, pIdx int32) task.TKey {
+	return task.TKey(KeyPrefixGfSpReceivePieceTask +
+		CombineKey("bucket:"+bucket, "object:"+object, "id:"+id,
+			"segmentIdx:"+fmt.Sprint(rIdx), "redundancyIdx:"+fmt.Sprint(pIdx)))
+}
+
+func GfSpGCObjectTaskKey(start, end uint64, time int64) task.TKey {
+	return task.TKey(KeyPrefixGfSpGCObjectTask + CombineKey(
+		"start"+fmt.Sprint(start), "end"+fmt.Sprint(end), "time"+fmt.Sprint(time)))
+}
+
+func GfSpGCZombiePieceTaskKey(start, end uint64, time int64) task.TKey {
+	return task.TKey(KeyPrefixGfSpGCZombiePieceTask + CombineKey(
+		"start"+fmt.Sprint(start), "end"+fmt.Sprint(end), "time"+fmt.Sprint(time)))
+}
+
+func GfSpGCStaleVersionObjectTaskKey(objectID uint64, redundancyIndex int32, version, time int64) task.TKey {
+	return task.TKey(KeyPrefixGfSpGCStaleVersionObjectTask + CombineKey(
+		"object_id"+fmt.Sprint(objectID), "version"+fmt.Sprint(version), "redundancy_index"+fmt.Sprint(redundancyIndex), "time"+fmt.Sprint(time)))
+}
+
+func GfSpGfSpGCMetaTaskKey(time int64) task.TKey {
+	return task.TKey(KeyPrefixGfSpGfSpGCMetaTask + CombineKey("time"+fmt.Sprint(time)))
+}
+
+func GfSpGCBucketMigrationTaskKey(bucketID uint64) task.TKey {
+	return task.TKey(KeyPrefixGfSpGCBucketMigrationTask + CombineKey("bucketID"+fmt.Sprint(bucketID)))
+}
+
+func GfSpMigrateGVGTaskKey(oldGvgID uint32, bucketID uint64, redundancyIndex int32) task.TKey {
+	return task.TKey(KeyPrefixGfSpMigrateGVGTask + CombineKey(
+		"oldGvgID"+fmt.Sprint(oldGvgID), "bucketID"+fmt.Sprint(bucketID), "redundancyIndex"+fmt.Sprint(redundancyIndex)))
+}
+
+func GfSpMigrateBucketTaskKey(bucketID uint64) task.TKey {
+	return task.TKey(KeyPrefixGfSpMigrateBucketTask + CombineKey(
+		"bucketID"+fmt.Sprint(bucketID)))
+}
+
+func GfSpMigratePieceTaskKey(object, id string, redundancyIdx uint32, ecIdx int32) task.TKey {
+	return task.TKey(KeyPrefixGfSpMigratePieceTask + CombineKey("object:"+object, "id:", id, "segIdx:",
+		fmt.Sprint(redundancyIdx), "redundancyIndex:", fmt.Sprint(ecIdx)))
+}
+
+func CombineKey(field ...string) string {
+	key := ""
+	for _, f := range field {
+		key = key + Delimiter + f
+	}
+	return key
+}

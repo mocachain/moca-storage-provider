@@ -1,0 +1,41 @@
+# This file configures github.com/golangci/golangci-lint.
+
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+  # default is true. Enables skipping of directories:
+  #   vendor$, third_party$, testdata$, examples$, Godeps$, builtin$
+  skip-dirs-use-default: true
+
+linters:
+  disable-all: true
+  enable:
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unused
+#    - goconst
+#    - errcheck
+#    - depguard
+#    - dogsled
+#    - exportloopref
+#    - gocritic
+#    - gofumpt
+#    - gosec
+#    - nakedret
+#    - nolintlint
+#    - stylecheck
+#    - typecheck
+#    - goconst
+
+linters-settings:
+  gofmt:
+    simplify: true
+  staticcheck:
+    checks:
+      - '-SA1029'

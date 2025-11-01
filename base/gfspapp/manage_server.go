@@ -1,0 +1,452 @@
+package gfspapp
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
+	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
+	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/mocachain/moca-storage-provider/util"
+)
+
+var (
+	ErrUploadTaskDangling  = gfsperrors.Register(BaseCodeSpace, http.StatusBadRequest, 990601, "OoooH... request lost")
+	ErrUnsupportedTaskType = gfsperrors.Register(BaseCodeSpace, http.StatusNotFound, 990602, "unsupported task type")
+	ErrNoTaskMatchLimit    = gfsperrors.Register(BaseCodeSpace, http.StatusNotFound, 990603, "no task to dispatch below the require limits")
+)
+
+var _ gfspserver.GfSpManageServiceServer = &GfSpBaseApp{}
+
+func (g *GfSpBaseApp) GfSpBeginTask(ctx context.Context, req *gfspserver.GfSpBeginTaskRequest) (*gfspserver.GfSpBeginTaskResponse, error) {
+	if req == nil || req.GetRequest() == nil {
+		log.Error("failed to begin task due to pointer dangling")
+		return &gfspserver.GfSpBeginTaskResponse{Err: ErrUploadTaskDangling}, nil
+	}
+	switch task := req.GetRequest().(type) {
+	case *gfspserver.GfSpBeginTaskRequest_UploadObjectTask:
+		err := g.OnBeginUploadObjectTask(ctx, task.UploadObjectTask)
+		return &gfspserver.GfSpBeginTaskResponse{Err: gfsperrors.MakeGfSpError(err)}, nil
+	case *gfspserver.GfSpBeginTaskRequest_ResumableUploadObjectTask:
+		err := g.OnBeginResumableUploadObjectTask(ctx, task.ResumableUploadObjectTask)
+		return &gfspserver.GfSpBeginTaskResponse{Err: gfsperrors.MakeGfSpError(err)}, nil
+	default:
+		return &gfspserver.GfSpBeginTaskResponse{Err: ErrUnsupportedTaskType}, nil
+	}
+}
+
+func (g *GfSpBaseApp) OnBeginUploadObjectTask(ctx context.Context, task coretask.UploadObjectTask) (err error) {
+	if task == nil || task.GetObjectInfo() == nil {
+		log.CtxError(ctx, "failed to begin upload object task due to object info pointer dangling")
+		return ErrUploadTaskDangling
+	}
+	startTime := time.Now()
+	defer func() {
+		if err != nil {
+			metrics.ReqCounter.WithLabelValues(ManagerFailureBeginUpload).Inc()
+			metrics.ReqTime.WithLabelValues(ManagerFailureBeginUpload).Observe(time.Since(startTime).Seconds())
+		} else {
+			metrics.ReqCounter.WithLabelValues(ManagerBeginUpload).Inc()
+			metrics.ReqTime.WithLabelValues(ManagerBeginUpload).Observe(time.Since(startTime).Seconds())
+		}
+	}()
+
+	ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+	err = g.manager.HandleCreateUploadObjectTask(ctx, task)
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to begin upload object task", "info", task.Info(), "error", err)
+		return err
+	}
+	log.CtxDebugw(ctx, "succeed to begin upload object task", "info", task.Info())
+	return nil
+}
+
+func (g *GfSpBaseApp) OnBeginResumableUploadObjectTask(ctx context.Context, task coretask.ResumableUploadObjectTask) error {
+	if task == nil || task.GetObjectInfo() == nil {
+		log.CtxError(ctx, "failed to begin resumable upload object task due to object info pointer dangling")
+		return ErrUploadTaskDangling
+	}
+	ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+	err := g.manager.HandleCreateResumableUploadObjectTask(ctx, task)
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to begin resumable upload object task", "info", task.Info(), "error", err)
+		return err
+	}
+	log.CtxDebugw(ctx, "succeed to begin resumable upload object task", "info", task.Info())
+	return nil
+}
+
+func (g *GfSpBaseApp) GfSpAskTask(ctx context.Context, req *gfspserver.GfSpAskTaskRequest) (*gfspserver.GfSpAskTaskResponse, error) {
+	startTime := time.Now()
+	gfspTask, err := g.OnAskTask(ctx, req.GetNodeLimit())
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to dispatch task", "error", err)
+		return &gfspserver.GfSpAskTaskResponse{Err: gfsperrors.MakeGfSpError(err)}, nil
+	}
+	if gfspTask == nil {
+		return &gfspserver.GfSpAskTaskResponse{Err: ErrNoTaskMatchLimit}, nil
+	}
+	ctx = log.WithValue(ctx, log.CtxKeyTask, gfspTask.Key().String())
+	resp := &gfspserver.GfSpAskTaskResponse{}
+
+	defer func() {
+		metrics.ReqCounter.WithLabelValues(ManagerSuccessDispatchTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerSuccessDispatchTask).Observe(time.Since(startTime).Seconds())
+	}()
+
+	switch t := gfspTask.(type) {
+	case *gfsptask.GfSpReplicatePieceTask:
+		t.AppendLog(fmt.Sprintf("manager-dispatch-replicate-task-retry:%d", t.GetRetry()))
+		resp.Response = &gfspserver.GfSpAskTaskResponse_ReplicatePieceTask{
+			ReplicatePieceTask: t,
+		}
+		if t.GetRetry() == 1 {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_replicate_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_wait_replicate_first_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetUpdateTime(), 0)).Seconds())
+		} else {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_replicate_retry_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+		}
+		metrics.ReqCounter.WithLabelValues(ManagerDispatchReplicateTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerDispatchReplicateTask).Observe(time.Since(startTime).Seconds())
+	case *gfsptask.GfSpSealObjectTask:
+		t.AppendLog(fmt.Sprintf("manager-dispatch-seal-task-retry:%d", t.GetRetry()))
+		resp.Response = &gfspserver.GfSpAskTaskResponse_SealObjectTask{
+			SealObjectTask: t,
+		}
+		if t.GetRetry() == 1 {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_seal_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+		} else {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_seal_retry_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+		}
+		metrics.ReqCounter.WithLabelValues(ManagerDispatchSealTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerDispatchSealTask).Observe(time.Since(startTime).Seconds())
+	case *gfsptask.GfSpReceivePieceTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_ReceivePieceTask{
+			ReceivePieceTask: t,
+		}
+		if t.GetRetry() == 1 {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_receive_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+		} else {
+			metrics.PerfPutObjectTime.WithLabelValues("manager_put_object_receive_retry_schedule_cost").Observe(
+				time.Since(time.Unix(t.GetCreateTime(), 0)).Seconds())
+		}
+		metrics.ReqCounter.WithLabelValues(ManagerDispatchReceiveTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerDispatchReceiveTask).Observe(time.Since(startTime).Seconds())
+	case *gfsptask.GfSpGCObjectTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_GcObjectTask{
+			GcObjectTask: t,
+		}
+		metrics.ReqCounter.WithLabelValues(ManagerDispatchGCObjectTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerDispatchGCObjectTask).Observe(time.Since(startTime).Seconds())
+	case *gfsptask.GfSpGCZombiePieceTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_GcZombiePieceTask{
+			GcZombiePieceTask: t,
+		}
+	case *gfsptask.GfSpGCMetaTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_GcMetaTask{
+			GcMetaTask: t,
+		}
+	case *gfsptask.GfSpRecoverPieceTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_RecoverPieceTask{
+			RecoverPieceTask: t,
+		}
+		metrics.ReqCounter.WithLabelValues(ManagerDispatchRecoveryTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerDispatchRecoveryTask).Observe(time.Since(startTime).Seconds())
+	case *gfsptask.GfSpMigrateGVGTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_MigrateGvgTask{
+			MigrateGvgTask: t,
+		}
+	case *gfsptask.GfSpGCBucketMigrationTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_GcBucketMigrationTask{
+			GcBucketMigrationTask: t,
+		}
+	case *gfsptask.GfSpGCStaleVersionObjectTask:
+		resp.Response = &gfspserver.GfSpAskTaskResponse_GcStaleVersionObjectTask{
+			GcStaleVersionObjectTask: t,
+		}
+	default:
+		log.CtxErrorw(ctx, "[BUG] Unsupported task type to dispatch")
+		return &gfspserver.GfSpAskTaskResponse{Err: ErrUnsupportedTaskType}, nil
+	}
+	log.CtxDebugw(ctx, "succeed to response ask task")
+	return resp, nil
+}
+
+func (g *GfSpBaseApp) OnAskTask(ctx context.Context, limit corercmgr.Limit) (coretask.Task, error) {
+	startTime := time.Now()
+	gfspTask, err := g.manager.DispatchTask(ctx, limit)
+	if err != nil {
+		metrics.ReqCounter.WithLabelValues(ManagerFailureDispatchTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerFailureDispatchTask).Observe(time.Since(startTime).Seconds())
+		return nil, gfsperrors.MakeGfSpError(err)
+	}
+	if gfspTask == nil {
+		metrics.ReqCounter.WithLabelValues(ManagerNoDispatchTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerNoDispatchTask).Observe(time.Since(startTime).Seconds())
+		return nil, nil
+	}
+	ctx = log.WithValue(ctx, log.CtxKeyTask, gfspTask.Key().String())
+	log.CtxDebugw(ctx, "succeed to dispatch task", "info", gfspTask.Info())
+	return gfspTask, nil
+}
+
+func (g *GfSpBaseApp) GfSpReportTask(ctx context.Context, req *gfspserver.GfSpReportTaskRequest) (
+	*gfspserver.GfSpReportTaskResponse, error,
+) {
+	var (
+		reportTask = req.GetRequest()
+		err        error
+	)
+	if reportTask == nil {
+		log.CtxError(ctx, "failed to receive report task due to object info pointer dangling")
+		return &gfspserver.GfSpReportTaskResponse{Err: ErrUploadTaskDangling}, nil
+	}
+
+	startTime := time.Now()
+	defer func() {
+		metrics.ReqCounter.WithLabelValues(ManagerReportTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportTask).Observe(time.Since(startTime).Seconds())
+	}()
+
+	switch t := reportTask.(type) {
+	case *gfspserver.GfSpReportTaskRequest_UploadObjectTask:
+		task := t.UploadObjectTask
+		task.AppendLog(fmt.Sprintf("manager-receive-upload-task-retry:%d", task.GetRetry()))
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		_ = g.GfSpDB().InsertPutEvent(task)
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleDoneUploadObjectTask(ctx, t.UploadObjectTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportUploadTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportUploadTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_ResumableUploadObjectTask:
+		task := t.ResumableUploadObjectTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleDoneResumableUploadObjectTask(ctx, t.ResumableUploadObjectTask)
+	case *gfspserver.GfSpReportTaskRequest_ReplicatePieceTask:
+		task := t.ReplicatePieceTask
+		task.AppendLog(fmt.Sprintf("manager-receive-replicate-task-retry:%d", task.GetRetry()))
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleReplicatePieceTask(ctx, t.ReplicatePieceTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportReplicateTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportReplicateTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_SealObjectTask:
+		task := t.SealObjectTask
+		task.AppendLog(fmt.Sprintf("manager-receive-seal-task-retry:%d", task.GetRetry()))
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleSealObjectTask(ctx, t.SealObjectTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportSealTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportSealTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_ReceivePieceTask:
+		task := t.ReceivePieceTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleReceivePieceTask(ctx, t.ReceivePieceTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportReceiveTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportReceiveTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_GcObjectTask:
+		task := t.GcObjectTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleGCObjectTask(ctx, t.GcObjectTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportGCObjectTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportGCObjectTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_GcZombiePieceTask:
+		task := t.GcZombiePieceTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleGCZombiePieceTask(ctx, t.GcZombiePieceTask)
+	case *gfspserver.GfSpReportTaskRequest_GcStaleVersionObjectTask:
+		task := t.GcStaleVersionObjectTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleGCStaleVersionObjectTask(ctx, t.GcStaleVersionObjectTask)
+	case *gfspserver.GfSpReportTaskRequest_GcMetaTask:
+		task := t.GcMetaTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleGCMetaTask(ctx, t.GcMetaTask)
+	case *gfspserver.GfSpReportTaskRequest_DownloadObjectTask:
+		task := t.DownloadObjectTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleDownloadObjectTask(ctx, t.DownloadObjectTask)
+	case *gfspserver.GfSpReportTaskRequest_ChallengePieceTask:
+		task := t.ChallengePieceTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported task", "task_info", task.Info())
+		err = g.manager.HandleChallengePieceTask(ctx, t.ChallengePieceTask)
+	case *gfspserver.GfSpReportTaskRequest_RecoverPieceTask:
+		task := t.RecoverPieceTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle recovery reported task", "task_info", task.Info())
+		err = g.manager.HandleRecoverPieceTask(ctx, t.RecoverPieceTask)
+		metrics.ReqCounter.WithLabelValues(ManagerReportRecoveryTask).Inc()
+		metrics.ReqTime.WithLabelValues(ManagerReportRecoveryTask).Observe(time.Since(startTime).Seconds())
+	case *gfspserver.GfSpReportTaskRequest_MigrateGvgTask:
+		task := t.MigrateGvgTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported migrate gvg task", "task_info", task.Info())
+		err = g.manager.HandleMigrateGVGTask(ctx, t.MigrateGvgTask)
+	case *gfspserver.GfSpReportTaskRequest_GcBucketMigrationTask:
+		task := t.GcBucketMigrationTask
+		ctx = log.WithValue(ctx, log.CtxKeyTask, task.Key().String())
+		task.SetAddress(util.GetRPCRemoteAddress(ctx))
+		log.CtxInfow(ctx, "begin to handle reported gc bucket migration task", "task_info", task.Info())
+		err = g.manager.HandleGCBucketMigrationTask(ctx, t.GcBucketMigrationTask)
+	default:
+		log.CtxError(ctx, "receive unsupported task type")
+		return &gfspserver.GfSpReportTaskResponse{Err: ErrUnsupportedTaskType}, nil
+	}
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to report task", "error", err)
+		return &gfspserver.GfSpReportTaskResponse{Err: gfsperrors.MakeGfSpError(err)}, nil
+	}
+	log.CtxInfow(ctx, "succeed to handle reported task")
+	return &gfspserver.GfSpReportTaskResponse{}, nil
+}
+
+func (g *GfSpBaseApp) GfSpPickVirtualGroupFamily(ctx context.Context, req *gfspserver.GfSpPickVirtualGroupFamilyRequest) (
+	*gfspserver.GfSpPickVirtualGroupFamilyResponse, error,
+) {
+	vgfID, err := g.manager.PickVirtualGroupFamily(ctx, req.GetCreateBucketApprovalTask())
+	if err != nil {
+		return nil, err
+	}
+	return &gfspserver.GfSpPickVirtualGroupFamilyResponse{
+		VgfId: vgfID,
+	}, nil
+}
+
+func (g *GfSpBaseApp) GfSpNotifyMigrateSwapOut(ctx context.Context, req *gfspserver.GfSpNotifyMigrateSwapOutRequest) (
+	*gfspserver.GfSpNotifyMigrateSwapOutResponse, error,
+) {
+	if err := g.manager.NotifyMigrateSwapOut(ctx, req.GetSwapOut()); err != nil {
+		log.CtxErrorw(ctx, "failed to notify migrate swap out", "swap_out", req.GetSwapOut(), "error", err)
+		return nil, err
+	}
+	return &gfspserver.GfSpNotifyMigrateSwapOutResponse{}, nil
+}
+
+func (g *GfSpBaseApp) GfSpQueryTasksStats(ctx context.Context, _ *gfspserver.GfSpQueryTasksStatsRequest) (
+	*gfspserver.GfSpQueryTasksStatsResponse, error,
+) {
+	uploadTaskCount, replicateTaskCount, sealTaskCount, resumeUploadTaskCount, maxUploadingNumber, migrateGVGCount, recoveryCount, recoveryFailedList := g.manager.QueryTasksStats(ctx)
+	stats := &gfspserver.TasksStats{
+		UploadCount:          uint32(uploadTaskCount),
+		ReplicateCount:       uint32(replicateTaskCount),
+		SealCount:            uint32(sealTaskCount),
+		ResumableUploadCount: uint32(resumeUploadTaskCount),
+		MaxUploading:         uint32(maxUploadingNumber),
+		MigrateGvgCount:      uint32(migrateGVGCount),
+		RecoveryProcessCount: uint32(recoveryCount),
+		RecoveryFailedList:   recoveryFailedList,
+	}
+	return &gfspserver.GfSpQueryTasksStatsResponse{
+		Stats: stats,
+	}, nil
+}
+
+func (g *GfSpBaseApp) GfSpQueryBucketMigrationProgress(ctx context.Context, req *gfspserver.GfSpQueryBucketMigrationProgressRequest) (
+	*gfspserver.GfSpQueryBucketMigrationProgressResponse, error,
+) {
+	var (
+		progress *gfspserver.MigrateBucketProgressMeta
+		err      error
+	)
+	if progress, err = g.manager.QueryBucketMigrationProgress(ctx, req.GetBucketId()); err != nil {
+		log.CtxErrorw(ctx, "failed to query bucket migration progress", "bucket_id", req.GetBucketId(), "error", err)
+		return nil, err
+	}
+
+	return &gfspserver.GfSpQueryBucketMigrationProgressResponse{
+		Progress: progress,
+	}, nil
+}
+
+func (g *GfSpBaseApp) GfSpNotifyPreMigrateBucketAndDeductQuota(ctx context.Context, req *gfspserver.GfSpNotifyPreMigrateBucketRequest) (
+	*gfspserver.GfSpNotifyPreMigrateBucketResponse, error,
+) {
+	var (
+		quota *gfsptask.GfSpBucketQuotaInfo
+		err   error
+	)
+	if quota, err = g.manager.NotifyPreMigrateBucketAndDeductQuota(ctx, req.GetBucketId()); err != nil {
+		log.CtxErrorw(ctx, "failed to notify pre migrate bucket and deduct quota", "bucket_id", req.GetBucketId(), "error", err)
+		return nil, err
+	}
+
+	return &gfspserver.GfSpNotifyPreMigrateBucketResponse{Quota: quota}, nil
+}
+
+func (g *GfSpBaseApp) GfSpNotifyPostMigrateAndRecoupQuota(ctx context.Context, req *gfspserver.GfSpNotifyPostMigrateBucketRequest) (
+	*gfspserver.GfSpNotifyPostMigrateBucketResponse, error,
+) {
+	var (
+		quota *gfsptask.GfSpBucketQuotaInfo
+		err   error
+	)
+	if quota, err = g.manager.NotifyPostMigrateBucketAndRecoupQuota(ctx, req.GetBucketMigrationInfo()); err != nil {
+		log.CtxErrorw(ctx, "failed to notify post migrate bucket and recoup quota", "bucket_migration_info", req.GetBucketMigrationInfo(), "error", err)
+		return nil, err
+	}
+
+	return &gfspserver.GfSpNotifyPostMigrateBucketResponse{Quota: quota}, nil
+}
+
+func (g *GfSpBaseApp) GfSpResetRecoveryFailedList(ctx context.Context, _ *gfspserver.GfSpResetRecoveryFailedListRequest) (
+	*gfspserver.GfSpResetRecoveryFailedListResponse, error,
+) {
+	recoveryFailedList := g.manager.ResetRecoveryFailedList(ctx)
+	return &gfspserver.GfSpResetRecoveryFailedListResponse{
+		RecoveryFailedList: recoveryFailedList,
+	}, nil
+}
+
+func (g *GfSpBaseApp) GfSpTriggerRecoverForSuccessorSP(ctx context.Context, req *gfspserver.GfSpTriggerRecoverForSuccessorSPRequest) (
+	*gfspserver.GfSpTriggerRecoverForSuccessorSPResponse, error,
+) {
+	err := g.manager.TriggerRecoverForSuccessorSP(ctx, req.GetVgfId(), req.GetGvgId(), req.ReplicateIndex)
+	if err != nil {
+		return nil, err
+	}
+	return &gfspserver.GfSpTriggerRecoverForSuccessorSPResponse{}, nil
+}
+
+func (g *GfSpBaseApp) GfSpQueryRecoverProcess(ctx context.Context, req *gfspserver.GfSpQueryRecoverProcessRequest) (*gfspserver.GfSpQueryRecoverProcessResponse, error) {
+	gvgStats, flag, err := g.manager.QueryRecoverProcess(ctx, req.GetVgfId(), req.GetGvgId())
+	if err != nil {
+		return nil, err
+	}
+	return &gfspserver.GfSpQueryRecoverProcessResponse{
+		RecoverProcesses: gvgStats,
+		Executing:        flag,
+	}, nil
+}
