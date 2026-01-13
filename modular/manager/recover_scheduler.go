@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/evmos/evmos/v12/x/storage/types"
-	types2 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -19,6 +17,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/evmos/evmos/v12/x/storage/types"
+	types2 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"gorm.io/gorm"
 )
 
@@ -303,7 +303,11 @@ func (s *RecoverGVGScheduler) Start() {
 		for _, object := range objects {
 			objectInfo := object.Object.ObjectInfo
 			objectID := objectInfo.Id.Uint64()
-			segmentCount := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+			segmentCount, err := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+			if err != nil {
+				log.Errorw("invalid max segment size from storage params", "object_id", objectID, "max_segment_size", maxSegmentSize, "err", err)
+				continue
+			}
 			_, ok := s.currentBatchObjectIDs[objectID]
 			if ok {
 				log.Infow("the object is in processing", "object_id", objectID, "segment_count", segmentCount)
@@ -535,7 +539,11 @@ func (s *RecoverFailedObjectScheduler) Start() {
 				log.Errorw("failed to get object info", "object_id", o.ObjectID, "err", err)
 				continue
 			}
-			segmentCount := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+			segmentCount, err := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+			if err != nil {
+				log.Errorw("invalid max segment size from storage params", "object_id", o.ObjectID, "max_segment_size", maxSegmentSize, "err", err)
+				continue
+			}
 
 			verified, err := verifyIntegrity(s.manager, objectInfo, o.RedundancyIndex)
 			if err != nil {
@@ -767,12 +775,15 @@ func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex
 	return true, nil
 }
 
-func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) uint32 {
+func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) (uint32, error) {
+	if maxSegmentSize == 0 {
+		return 0, fmt.Errorf("maxSegmentSize cannot be zero")
+	}
 	count := payloadSize / maxSegmentSize
 	if payloadSize%maxSegmentSize > 0 {
 		count++
 	}
-	return uint32(count)
+	return uint32(count), nil
 }
 
 func SendAndConfirmCompleteSwapInTx(baseApp *gfspapp.GfSpBaseApp, msg *types2.MsgCompleteSwapIn) error {

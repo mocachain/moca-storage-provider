@@ -539,12 +539,15 @@ func (g *GateModular) getObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) uint32 {
+func segmentPieceCountWithError(payloadSize uint64, maxSegmentSize uint64) (uint32, error) {
+	if maxSegmentSize == 0 {
+		return 0, fmt.Errorf("maxSegmentSize cannot be zero")
+	}
 	count := payloadSize / maxSegmentSize
 	if payloadSize%maxSegmentSize > 0 {
 		count++
 	}
-	return uint32(count)
+	return uint32(count), nil
 }
 
 // downloadObject this is common method, which does the actual download action.
@@ -655,7 +658,11 @@ func (g *GateModular) downloadObject(w http.ResponseWriter, reqCtx *RequestConte
 	downloadSize := uint64(highOffset - lowOffset + 1)
 	triggerRecovery = false
 	maxSegmentSize := params.GetMaxSegmentSize()
-	segmentCount := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+	segmentCount, err := segmentPieceCountWithError(objectInfo.PayloadSize, maxSegmentSize)
+	if err != nil {
+		log.CtxErrorw(reqCtx.Context(), "invalid max segment size from storage params", "max_segment_size", maxSegmentSize, "error", err)
+		return err
+	}
 	for idx, pInfo := range pieceInfos {
 		enableCheck := false
 		if idx == 0 { // only check in first piece
@@ -679,14 +686,14 @@ func (g *GateModular) downloadObject(w http.ResponseWriter, reqCtx *RequestConte
 			}
 			// if piece data is unreadable, trigger data recover task
 			if downloaderErr.GetInnerCode() == 85101 {
-				segmentIdx, recoverErr := g.baseApp.PieceOp().ParseSegmentIdx(pInfo.SegmentPieceKey)
-				if recoverErr != nil {
-					log.CtxErrorw(reqCtx.Context(), "failed to recover piece", "error", recoverErr)
-					return err
-				}
-				if uint32(segmentIdx) > segmentCount {
-					return err
-				}
+			segmentIdx, recoverErr := g.baseApp.PieceOp().ParseSegmentIdx(pInfo.SegmentPieceKey)
+			if recoverErr != nil {
+				log.CtxErrorw(reqCtx.Context(), "failed to recover piece", "error", recoverErr)
+				return err
+			}
+			if uint32(segmentIdx) >= segmentCount {
+				return err
+			}
 
 				task := &gfsptask.GfSpRecoverPieceTask{}
 				task.InitRecoverPieceTask(objectInfo, params, coretask.DefaultLargerTaskPriority+1, uint32(segmentIdx), int32(-1), maxSegmentSize, 50, 1)

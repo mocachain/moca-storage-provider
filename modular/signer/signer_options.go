@@ -273,6 +273,13 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 		FeeAmount: sdk.NewCoins(sdk.NewCoin(types.Denom, math.NewInt(int64(cfg.Chain.CancelSwapInFeeAmount)))),
 	}
 
+	if len(cfg.Chain.ChainAddress) == 0 {
+		return fmt.Errorf("chain address not configured")
+	}
+	if len(cfg.Chain.RpcAddress) == 0 {
+		return fmt.Errorf("rpc address not configured")
+	}
+
 	client, err := NewMocaChainSignClient(cfg.Chain.ChainAddress[0], cfg.Chain.RpcAddress[0], cfg.Chain.ChainID,
 		gasInfo, cfg.SpAccount.OperatorPrivateKey, cfg.SpAccount.FundingPrivateKey,
 		cfg.SpAccount.SealPrivateKey, cfg.SpAccount.ApprovalPrivateKey, cfg.SpAccount.GcPrivateKey, cfg.SpAccount.BlsPrivateKey)
