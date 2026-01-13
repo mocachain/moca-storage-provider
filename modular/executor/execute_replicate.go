@@ -409,6 +409,14 @@ func (e *ExecuteModular) doneReplicatePiece(ctx context.Context, rTask coretask.
 }
 
 func veritySecondarySpBlsSignature(secondarySp *sptypes.StorageProvider, signature, sigDoc []byte) error {
+	if secondarySp == nil {
+		return fmt.Errorf("secondary SP is nil")
+	}
+
+	if len(secondarySp.BlsKey) == 0 {
+		return fmt.Errorf("secondary SP[%d] missing BLS key", secondarySp.Id)
+	}
+
 	publicKey, err := bls.UnmarshalPublicKey(secondarySp.BlsKey)
 	if err != nil {
 		return err

@@ -15,6 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
+	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/evmos/evmos/v12/types/resource"
 	resource_types "github.com/evmos/evmos/v12/types/resource"
 	"github.com/evmos/evmos/v12/types/s3util"
@@ -23,12 +29,6 @@ import (
 	sp_types "github.com/evmos/evmos/v12/x/sp/types"
 	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
-	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
-	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	"github.com/mocachain/moca-storage-provider/util"
 )
 
 const (
@@ -81,7 +81,10 @@ func (g *GateModular) getUserBucketsHandler(w http.ResponseWriter, r *http.Reque
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestIncludeRemoved = queryParams.Get(ListObjectsIncludeRemovedQuery)
@@ -155,7 +158,10 @@ func (g *GateModular) listObjectsByBucketNameHandler(w http.ResponseWriter, r *h
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestBucketName = reqCtx.bucketName
@@ -305,7 +311,10 @@ func (g *GateModular) getObjectMetaHandler(w http.ResponseWriter, r *http.Reques
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	if err = s3util.CheckValidBucketName(reqCtx.bucketName); err != nil {
 		log.Errorw("failed to check bucket name", "bucket_name", reqCtx.bucketName, "error", err)
@@ -360,7 +369,10 @@ func (g *GateModular) getBucketMetaHandler(w http.ResponseWriter, r *http.Reques
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	if err = s3util.CheckValidBucketName(reqCtx.bucketName); err != nil {
 		log.Errorw("failed to check bucket name", "bucket_name", reqCtx.bucketName, "error", err)
@@ -416,7 +428,10 @@ func (g *GateModular) verifyPermissionHandler(w http.ResponseWriter, r *http.Req
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	objectName = queryParams.Get(VerifyPermissionObjectQuery)
@@ -505,7 +520,10 @@ func (g *GateModular) getGroupListHandler(w http.ResponseWriter, r *http.Request
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	sourceType = queryParams.Get(GetGroupListSourceTypeQuery)
@@ -607,7 +625,10 @@ func (g *GateModular) listObjectsByIDsHandler(w http.ResponseWriter, r *http.Req
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 	queryParams = reqCtx.request.URL.Query()
 	requestObjectIDs = queryParams.Get(IDsQuery)
 
@@ -687,7 +708,10 @@ func (g *GateModular) listBucketsByIDsHandler(w http.ResponseWriter, r *http.Req
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 	queryParams = reqCtx.request.URL.Query()
 	requestBucketIDs = queryParams.Get(IDsQuery)
 
@@ -763,7 +787,10 @@ func (g *GateModular) getPaymentByBucketIDHandler(w http.ResponseWriter, r *http
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	bucketIDStr = queryParams.Get(BucketIDQuery)
@@ -815,7 +842,10 @@ func (g *GateModular) getPaymentByBucketNameHandler(w http.ResponseWriter, r *ht
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	bucketName = reqCtx.bucketName
 
@@ -866,7 +896,10 @@ func (g *GateModular) getBucketByBucketNameHandler(w http.ResponseWriter, r *htt
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	bucketName = reqCtx.bucketName
 
@@ -919,7 +952,10 @@ func (g *GateModular) getBucketByBucketIDHandler(w http.ResponseWriter, r *http.
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	bucketIDStr = queryParams.Get(BucketIDQuery)
@@ -977,7 +1013,10 @@ func (g *GateModular) listDeletedObjectsByBlockNumberRangeHandler(w http.Respons
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpOperatorAddress = queryParams.Get(SpOperatorAddressQuery)
@@ -1045,7 +1084,10 @@ func (g *GateModular) getUserBucketsCountHandler(w http.ResponseWriter, r *http.
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check X-Gnfd-User-Address", "X-Gnfd-User-Address", reqCtx.account, "error", err)
@@ -1100,7 +1142,10 @@ func (g *GateModular) listExpiredBucketsBySpHandler(w http.ResponseWriter, r *ht
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestLimit = queryParams.Get(LimitQuery)
@@ -1178,7 +1223,10 @@ func (g *GateModular) verifyPermissionByIDHandler(w http.ResponseWriter, r *http
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestResourceID = queryParams.Get(ResourceIDQuery)
@@ -1266,7 +1314,10 @@ func (g *GateModular) listVirtualGroupFamiliesBySpIDHandler(w http.ResponseWrite
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -1320,7 +1371,10 @@ func (g *GateModular) getVirtualGroupFamilyHandler(w http.ResponseWriter, r *htt
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestVgfID = queryParams.Get(VgfIDQuery)
@@ -1374,7 +1428,10 @@ func (g *GateModular) getGlobalVirtualGroupByGvgIDHandler(w http.ResponseWriter,
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGvgID = queryParams.Get(GvgIDQuery)
@@ -1430,7 +1487,10 @@ func (g *GateModular) getGlobalVirtualGroupHandler(w http.ResponseWriter, r *htt
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestLvgID = queryParams.Get(LvgIDQuery)
@@ -1491,7 +1551,10 @@ func (g *GateModular) listGlobalVirtualGroupsBySecondarySPHandler(w http.Respons
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -1545,7 +1608,10 @@ func (g *GateModular) listGlobalVirtualGroupsByBucketHandler(w http.ResponseWrit
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	bucketIDStr = queryParams.Get(BucketIDQuery)
@@ -1605,7 +1671,10 @@ func (g *GateModular) listObjectsInGVGAndBucketHandler(w http.ResponseWriter, r 
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGvgID = queryParams.Get(GvgIDQuery)
@@ -1690,7 +1759,10 @@ func (g *GateModular) listObjectsByGVGAndBucketForGCHandler(w http.ResponseWrite
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGvgID = queryParams.Get(GvgIDQuery)
@@ -1773,7 +1845,10 @@ func (g *GateModular) listObjectsInGVGHandler(w http.ResponseWriter, r *http.Req
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGvgID = queryParams.Get(GvgIDQuery)
@@ -1847,7 +1922,10 @@ func (g *GateModular) listMigrateBucketEventsHandler(w http.ResponseWriter, r *h
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -1910,7 +1988,10 @@ func (g *GateModular) listSwapOutEventsHandler(w http.ResponseWriter, r *http.Re
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -1972,7 +2053,10 @@ func (g *GateModular) listSpExitEventsHandler(w http.ResponseWriter, r *http.Req
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -2033,7 +2117,10 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestOperatorAddress = queryParams.Get(OperatorAddressQuery)
@@ -2084,7 +2171,10 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	status, err = g.baseApp.GfSpClient().GetStatus(reqCtx.Context())
 	if err != nil {
@@ -2131,7 +2221,10 @@ func (g *GateModular) getUserGroupsHandler(w http.ResponseWriter, r *http.Reques
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestStartAfter = queryParams.Get(ListObjectsStartAfterQuery)
@@ -2205,7 +2298,10 @@ func (g *GateModular) getGroupMembersHandler(w http.ResponseWriter, r *http.Requ
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGroupID = queryParams.Get(GroupIDQuery)
@@ -2279,7 +2375,10 @@ func (g *GateModular) getUserOwnedGroupsHandler(w http.ResponseWriter, r *http.R
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestStartAfter = queryParams.Get(ListObjectsStartAfterQuery)
@@ -2355,7 +2454,10 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 	queryParams = reqCtx.request.URL.Query()
 	requestStartAfter = queryParams.Get(ListObjectsStartAfterQuery)
 	requestLimit = queryParams.Get(GetGroupListLimitQuery)
@@ -2443,7 +2545,10 @@ func (g *GateModular) listPaymentAccountStreamsHandler(w http.ResponseWriter, r 
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	paymentAccount = queryParams.Get(PaymentAccountQuery)
@@ -2494,7 +2599,10 @@ func (g *GateModular) listUserPaymentAccountsHandler(w http.ResponseWriter, r *h
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check X-Gnfd-User-Address", "X-Gnfd-User-Address", reqCtx.account, "error", err)
@@ -2549,7 +2657,10 @@ func (g *GateModular) listGroupsByIDsHandler(w http.ResponseWriter, r *http.Requ
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 	queryParams = reqCtx.request.URL.Query()
 	requestGroupIDs = queryParams.Get(IDsQuery)
 
@@ -2625,7 +2736,10 @@ func (g *GateModular) getSPMigratingBucketNumberHandler(w http.ResponseWriter, r
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestSpID = queryParams.Get(SpIDQuery)
@@ -2683,7 +2797,10 @@ func (g *GateModular) verifyMigrateGVGPermissionHandler(w http.ResponseWriter, r
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	requestGvgID = queryParams.Get(GvgIDQuery)
@@ -2751,7 +2868,10 @@ func (g *GateModular) getBucketSizeHandler(w http.ResponseWriter, r *http.Reques
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	queryParams = reqCtx.request.URL.Query()
 	bucketIDStr = queryParams.Get(BucketIDQuery)

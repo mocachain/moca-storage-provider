@@ -45,7 +45,6 @@ var skipAuthRouterNames = []string{
 	updateUserPublicKeyRouterName, // this will skip general auth algorithms first and use specific "personal sign" later
 	downloadObjectByUniversalEndpointName,
 	viewObjectByUniversalEndpointName,
-	getUserBucketsRouterName,
 	listObjectsByBucketRouterName,
 	getObjectMetaRouterName,
 	getBucketMetaRouterName,

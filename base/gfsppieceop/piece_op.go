@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 var _ piecestore.PieceOp = &GfSpPieceOp{}
@@ -72,6 +73,10 @@ func (p *GfSpPieceOp) ECPieceSize(payloadSize uint64, segmentIdx uint32, maxSegm
 }
 
 func (p *GfSpPieceOp) SegmentPieceCount(payloadSize uint64, maxSegmentSize uint64) uint32 {
+	if maxSegmentSize == 0 {
+		log.Errorw("maxSegmentSize is zero in SegmentPieceCount", "payload_size", payloadSize)
+		return 1
+	}
 	count := payloadSize / maxSegmentSize
 	if payloadSize%maxSegmentSize > 0 {
 		count++

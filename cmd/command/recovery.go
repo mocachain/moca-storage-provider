@@ -8,7 +8,6 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -16,6 +15,7 @@ import (
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/evmos/evmos/v12/x/storage/types"
 )
 
 const (
@@ -149,7 +149,10 @@ func recoverObject(bucketName string, objectName string, cfg *gfspconfig.GfSpCon
 	}
 
 	maxSegmentSize := storageParams.GetMaxSegmentSize()
-	segmentCount := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+	segmentCount, err := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+	if err != nil {
+		return fmt.Errorf("invalid maxSegmentSize from chain: %w", err)
+	}
 
 	// recovery primary SP
 	if replicateIdx == -1 {
@@ -204,7 +207,10 @@ func recoverPieceAction(ctx *cli.Context) error {
 	}
 
 	maxSegmentSize := storageParams.GetMaxSegmentSize()
-	segmentCount := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+	segmentCount, err := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
+	if err != nil {
+		return fmt.Errorf("invalid maxSegmentSize from chain: %w", err)
+	}
 	if uint32(segmentIdx) > segmentCount {
 		return fmt.Errorf("invaild segment id %d, segment should be no more than %d \n", segmentIdx, segmentCount)
 	}
@@ -284,10 +290,13 @@ func getChainInfo(bucketName, objectName string, cfg *gfspconfig.GfSpConfig) (*t
 	return bucketInfo, objectInfo, storageParams, nil
 }
 
-func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) uint32 {
+func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) (uint32, error) {
+	if maxSegmentSize == 0 {
+		return 0, fmt.Errorf("maxSegmentSize cannot be zero")
+	}
 	count := payloadSize / maxSegmentSize
 	if payloadSize%maxSegmentSize > 0 {
 		count++
 	}
-	return uint32(count)
+	return uint32(count), nil
 }

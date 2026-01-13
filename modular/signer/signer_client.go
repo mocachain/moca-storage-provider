@@ -6,29 +6,34 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkErrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	ethcmn "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"google.golang.org/grpc"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/evmos/evmos/v12/sdk/client"
 	"github.com/evmos/evmos/v12/sdk/keys"
 	ctypes "github.com/evmos/evmos/v12/sdk/types"
-	"github.com/evmos/evmos/v12/types"
+	evmostypes "github.com/evmos/evmos/v12/types"
 	"github.com/evmos/evmos/v12/types/common"
 	"github.com/evmos/evmos/v12/x/evm/precompiles/storage"
 	"github.com/evmos/evmos/v12/x/evm/precompiles/virtualgroup"
 	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
+
+// test seam: allow tests to stub WaitForEvmTx
+var waitForEvmTxFn = client.WaitForEvmTx
 
 // SignType is the type of msg signature
 type SignType string
@@ -70,6 +75,28 @@ const (
 	CompleteSPExit              GasInfoType = "CompleteSPExit"
 	UpdateSPPrice               GasInfoType = "UpdateSPPrice"
 	Deposit                     GasInfoType = "Deposit"
+)
+
+// Nonce-related error message constants from various dependencies.
+// These are string patterns returned via JSON-RPC from the chain node.
+const (
+	// From go-ethereum v1.15.5 - core/error.go: ErrNonceTooLow / ErrNonceTooHigh
+	errMsgNonceTooLow  = "nonce too low"
+	errMsgNonceTooHigh = "nonce too high"
+
+	// From go-ethereum v1.15.5 - core/tx_pool.go: ErrReplaceUnderpriced
+	// ErrReplaceUnderpriced = errors.New("replacement transaction underpriced")
+	errMsgReplaceUnderpricedGeth = "replacement transaction underpriced"
+
+	// From polygon-edge v1.3.3 - txpool/txpool.go: ErrReplaceUnderpriced
+	// Reference: https://github.com/mocachain/polygon-edge/blob/6bec9fa/txpool/txpool.go#L65
+	errMsgReplaceUnderpricedPEdge = "replacement tx underpriced"
+
+	// From Cosmos SDK / Evmos sequence errors (ErrInvalidSequence wrapping)
+	// See app/ante/evm/eth.go and errortypes.ErrInvalidSequence usage.
+	errMsgInvalidNonce       = "invalid nonce"
+	errMsgAccountSeqMismatch = "account sequence mismatch"
+	errMsgInvalidSequence    = "invalid sequence"
 )
 
 type GasInfo struct {
@@ -224,7 +251,7 @@ func (client *MocaChainSignClient) VerifySignature(scope SignType, msg, sig []by
 	if err != nil {
 		return false
 	}
-	return types.VerifySignature(km.GetAddr(), crypto.Keccak256(msg), sig) == nil
+	return evmostypes.VerifySignature(km.GetAddr(), crypto.Keccak256(msg), sig) == nil
 }
 
 // SealObject seal the object on the moca chain.
@@ -314,7 +341,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -340,7 +367,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -355,7 +382,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -371,8 +398,19 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		}
 
 		client.sealAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast seal object tx", "tx_hash", txHash, "seal_msg", msgSealObject)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrSealObjectOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -463,7 +501,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -487,7 +525,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -498,7 +536,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			rejectObject.GetObjectName(),
 		)
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -514,8 +552,19 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 		}
 
 		client.sealAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast reject unseal object tx", "tx_hash", txHash, "reject unseal object msg", msgRejectUnSealObject)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrRejectUnSealObjectOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 	// failed to broadcast tx
 	ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast reject unseal object tx, error: %v", err))
@@ -578,7 +627,7 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -596,7 +645,7 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		return "", err
 	}
 
-	session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+	session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to create session", "error", err)
 		return "", err
@@ -608,7 +657,7 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 	)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid nonce") {
+		if isNonceError(err) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
@@ -624,7 +673,19 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 	}
 	// update nonce when tx is successful submitted
 	client.gcAccNonce = nonce + 1
-	return txRsp.Hash().String(), nil
+
+	txHash := txRsp.Hash().String()
+	log.CtxDebugw(ctx, "succeed to broadcast discontinue bucket tx", "tx_hash", txHash)
+
+	receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+		return "", ErrDiscontinueBucketOnChain
+	}
+
+	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+	return txHash, nil
 }
 
 func (client *MocaChainSignClient) CreateGlobalVirtualGroup(ctx context.Context, scope SignType,
@@ -707,7 +768,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -731,7 +792,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -748,7 +809,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -764,9 +825,20 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast create virtual group tx", "tx_hash", txHash,
 			"virtual_group_msg", msgCreateGlobalVirtualGroup)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCreateGVGOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCreateGVGOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -850,7 +922,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -874,7 +946,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -899,7 +971,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -914,8 +986,19 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast complete migrate bucket tx", "tx_hash", txHash, "seal_msg", msgCompleteMigrateBucket)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCompleteMigrateBucketOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -997,7 +1080,7 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1018,7 +1101,7 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		return "", err
 	}
 
-	session, err := CreateStorageProviderSession(client.evmClient, *txOpts, types.SpAddress)
+	session, err := CreateStorageProviderSession(client.evmClient, *txOpts, evmostypes.SpAddress)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to create session", "error", err)
 		return "", err
@@ -1031,7 +1114,7 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 	)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid nonce") {
+		if isNonceError(err) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
@@ -1050,7 +1133,19 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 
 	// update nonce when tx is successfully submitted
 	client.operatorAccNonce = nonce + 1
-	return txRsp.Hash().String(), nil
+
+	txHash := txRsp.Hash().String()
+	log.CtxDebugw(ctx, "succeed to broadcast update sp price tx", "tx_hash", txHash)
+
+	receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+		return "", ErrUpdateSPPriceOnChain
+	}
+
+	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+	return txHash, nil
 }
 
 func (client *MocaChainSignClient) SwapOut(ctx context.Context, scope SignType,
@@ -1136,7 +1231,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1165,7 +1260,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1184,7 +1279,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1199,8 +1294,19 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast start swap out tx", "tx_hash", txHash, "swap_out", msgSwapOut.String())
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrSwapOutOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrSwapOutOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -1285,7 +1391,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1310,7 +1416,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1322,7 +1428,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1337,8 +1443,19 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast complete swap out tx", "tx_hash", txHash, "seal_msg", msgCompleteSwapOut)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCompleteSwapOutOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to broadcast complete swap out, error: %v", err))
@@ -1421,7 +1538,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1445,7 +1562,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1454,7 +1571,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 		txRsp, err := session.SpExit()
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1469,8 +1586,19 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast start sp exit tx", "tx_hash", txHash, "exit_msg", msgSPExit)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrSPExitOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrSPExitOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	ErrSPExitOnChain.SetError(fmt.Errorf("failed to broadcast start sp exit, error: %v", err))
@@ -1546,7 +1674,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1572,7 +1700,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1584,7 +1712,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1599,8 +1727,19 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast complete sp exit tx", "tx_hash", txHash, "complete_sp_exit_msg", msgCompleteSPExit)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCompleteSPExitOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCompleteSPExitOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to broadcast complete sp exit, error: %v", err))
@@ -1679,7 +1818,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1702,7 +1841,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1713,7 +1852,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1728,8 +1867,19 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast reject migrate bucket tx", "tx_hash", txHash, "reject_migrate_bucket_msg", msgRejectMigrateBucket)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrRejectMigrateBucketOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -1809,7 +1959,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1832,7 +1982,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1848,7 +1998,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1863,8 +2013,19 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast deposit tx", "tx_hash", txHash, "deposit_msg", msgDeposit)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrDepositOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrDepositOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -1944,7 +2105,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -1967,7 +2128,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -1978,7 +2139,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -1993,8 +2154,19 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast delete GVG tx", "tx_hash", txHash, "reject_migrate_bucket_msg", msgDeleteGlobalVirtualGroup)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrDeleteGVGOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrDeleteGVGOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -2071,7 +2243,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2094,7 +2266,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2117,7 +2289,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -2132,8 +2304,19 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast delegate create object tx", "tx_hash", txHash, "delegate_update_object_msg", msg)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrDelegateCreateObjectOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -2210,7 +2393,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2233,7 +2416,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2254,7 +2437,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -2269,13 +2452,59 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast delegate update object content tx", "tx_hash", txHash, "delegate_update_object_content_msg", msg)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrDelegateUpdateObjectContentOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
 	ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to broadcast delegte update object, error: %v", err))
 	return "", ErrDelegateUpdateObjectContentOnChain
+}
+
+// isNonceError checks whether the given error is related to nonce/sequence
+// mismatches observed when submitting EVM transactions.
+//
+// Architecture note:
+// The storage-provider communicates with the chain node via JSON-RPC, so any
+// typed errors produced inside the node (for example go-ethereum core
+// errors such as ErrNonceTooLow or ErrReplaceUnderpriced) are serialized to
+// string messages in the JSON-RPC response. On the client side we therefore
+// cannot rely on errors.Is with those internal error types and must instead
+// match against well-known error message substrings.
+//
+// Covered error sources:
+// - go-ethereum / Evmos txpool and core nonce errors
+// - polygon-edge txpool replacement-underpriced errors
+// - Cosmos SDK / Evmos sequence errors (as a defensive fallback)
+func isNonceError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := err.Error()
+
+	if strings.Contains(errMsg, errMsgNonceTooLow) ||
+		strings.Contains(errMsg, errMsgNonceTooHigh) ||
+		strings.Contains(errMsg, errMsgInvalidNonce) ||
+		strings.Contains(errMsg, errMsgAccountSeqMismatch) ||
+		strings.Contains(errMsg, errMsgInvalidSequence) ||
+		strings.Contains(errMsg, errMsgReplaceUnderpricedGeth) ||
+		strings.Contains(errMsg, errMsgReplaceUnderpricedPEdge) {
+		return true
+	}
+
+	return false
 }
 
 func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClient *client.MocaClient) (uint64, error) {
@@ -2309,6 +2538,24 @@ func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *
 		return "", fmt.Errorf("failed to broadcast tx, resp code: %d, code space: %s", resp.TxResponse.Code, resp.TxResponse.Codespace)
 	}
 	return resp.TxResponse.TxHash, nil
+}
+
+func (svc *MocaChainSignClient) waitForTransactionReceipt(ctx context.Context, txHash ethcmn.Hash) (*types.Receipt, error) {
+	// Keep original 5-minute upper bound while switching to block-driven waiting.
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// Use any connected client to wait for next block; operator is sufficient and non-intrusive.
+	gnfdCli := svc.mocaClients[SignOperator]
+	receipt, err := waitForEvmTxFn(waitCtx, svc.evmClient, gnfdCli, txHash)
+	if err != nil {
+		// Preserve prior error semantics/messages as much as possible.
+		if waitCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("timeout waiting for transaction receipt: hash=%s", txHash.Hex())
+		}
+		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+	return receipt, nil
 }
 
 func (client *MocaChainSignClient) ReserveSwapIn(ctx context.Context, scope SignType,
@@ -2383,7 +2630,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2406,7 +2653,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2419,7 +2666,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -2434,8 +2681,19 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast reserve swap in tx", "tx_hash", txHash, "reserve_swap_in_msg", msgReserveSwapIn)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrReserveSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrReserveSwapIn
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -2515,7 +2773,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2538,7 +2796,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2550,7 +2808,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -2565,8 +2823,19 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast complete swap in tx", "tx_hash", txHash, "complete_swap_in_msg", msgCompleteSwapIn)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCompleteSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCompleteSwapIn
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -2609,8 +2878,8 @@ func (client *MocaChainSignClient) CancelSwapIn(ctx context.Context, scope SignT
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
 				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-				return "", ErrCompleteSwapIn
+				ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrCancelSwapIn
 			}
 			client.operatorAccNonce = nonce
 		}
@@ -2646,7 +2915,7 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2669,7 +2938,7 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 			return "", err
 		}
 
-		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, types.VirtualGroupAddress)
+		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2681,13 +2950,13 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
 					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrCompleteSwapIn
+					ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+					return "", ErrCancelSwapIn
 				}
 				client.operatorAccNonce = nonce
 			}
@@ -2696,8 +2965,19 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast cancel swap in tx", "tx_hash", txHash, "cancel_swap_in_msg", msgCancelSwapIn)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrCancelSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrCancelSwapIn
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
@@ -2790,7 +3070,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		return "", err
 	}
 
-	chainId, err := types.ParseChainID(cosmosChainId)
+	chainId, err := evmostypes.ParseChainID(cosmosChainId)
 	if err != nil {
 		return "", err
 	}
@@ -2815,7 +3095,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 			return "", err
 		}
 
-		session, err := CreateStorageSession(client.evmClient, *txOpts, types.StorageAddress)
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create session", "error", err)
 			return "", err
@@ -2836,7 +3116,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "invalid nonce") {
+			if isNonceError(err) {
 				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 				if nonceErr != nil {
@@ -2851,8 +3131,19 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 			continue
 		}
 		client.sealAccNonce = nonce + 1
+
+		txHash = txRsp.Hash().String()
 		log.CtxDebugw(ctx, "succeed to broadcast seal object tx", "tx_hash", txHash, "seal_msg", msgSealObject)
-		return txRsp.Hash().String(), nil
+
+		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			ErrSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return "", ErrSealObjectOnChain
+		}
+
+		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
+		return txHash, nil
 	}
 
 	// failed to broadcast tx
