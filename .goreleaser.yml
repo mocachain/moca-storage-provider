@@ -2,6 +2,7 @@ version: 2
 
 before:
   hooks:
+    - go clean -modcache
     - go mod download
 
 builds:
