@@ -1,5 +1,14 @@
 SHELL := /bin/bash
 
+# Load .env file if it exists
+-include .env
+export
+
+# Configure git to use HTTPS+Token for private repositories if GITHUB_TOKEN is set
+ifdef GITHUB_TOKEN
+  $(shell git config --global url."https://$(GITHUB_TOKEN):@github.com/".insteadOf "https://github.com/" 2>/dev/null)
+endif
+
 .PHONY: all build clean format install-tools generate lint mock-gen test tidy vet buf-gen proto-clean
 .PHONY: install-go-test-coverage check-coverage
 
@@ -102,7 +111,7 @@ build-dcf:
 start-dc:
 	docker compose up -d
 	docker compose ps
-	
+
 stop-dc:
 	docker compose down --volumes
 
@@ -114,7 +123,7 @@ stop-dc:
 
 PACKAGE_NAME:=github.com/mocachain/moca-storage-provider
 GOLANG_CROSS_VERSION  = v1.22
-GOPATH ?= '$(HOME)/go'
+GOPATH ?= $(HOME)/go
 release-dry-run:
 	docker run \
 		--rm \

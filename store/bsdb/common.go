@@ -80,11 +80,25 @@ func (a *Uint32Array) Scan(value interface{}) error {
 		return fmt.Errorf("failed to scan Uint32Array value: %v", value)
 	}
 
-	s := string(bytes)
+	s := strings.TrimSpace(string(bytes))
+	if s == "" || s == "[]" {
+		*a = []uint32{}
+		return nil
+	}
+
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		s = s[1 : len(s)-1]
+	}
+
+	if s == "" {
+		*a = []uint32{}
+		return nil
+	}
+
 	fields := strings.Split(s, ",")
 	result := make([]uint32, len(fields))
 	for i, field := range fields {
-		v, err := strconv.ParseUint(field, 10, 32)
+		v, err := strconv.ParseUint(strings.TrimSpace(field), 10, 32)
 		if err != nil {
 			return fmt.Errorf("failed to scan Uint32Array value: %v", err)
 		}

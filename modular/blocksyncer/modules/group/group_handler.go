@@ -3,7 +3,6 @@ package group
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	tmctypes "github.com/cometbft/cometbft/rpc/core/types"
@@ -13,6 +12,7 @@ import (
 	"github.com/forbole/juno/v4/log"
 	"github.com/forbole/juno/v4/models"
 
+	blockcommon "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/common"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 )
 
@@ -22,6 +22,9 @@ var (
 	EventLeaveGroup        = proto.MessageName(&storagetypes.EventLeaveGroup{})
 	EventUpdateGroupMember = proto.MessageName(&storagetypes.EventUpdateGroupMember{})
 	EventRenewGroupMember  = proto.MessageName(&storagetypes.EventRenewGroupMember{})
+	EventUpdateGroupExtra  = proto.MessageName(&storagetypes.EventUpdateGroupExtra{})
+	EventMirrorGroup       = proto.MessageName(&storagetypes.EventMirrorGroup{})
+	EventMirrorGroupResult = proto.MessageName(&storagetypes.EventMirrorGroupResult{})
 )
 
 var GroupEvents = map[string]bool{
@@ -30,6 +33,9 @@ var GroupEvents = map[string]bool{
 	EventLeaveGroup:        true,
 	EventUpdateGroupMember: true,
 	EventRenewGroupMember:  true,
+	EventUpdateGroupExtra:  true,
+	EventMirrorGroup:       true,
+	EventMirrorGroupResult: true,
 }
 
 func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, event sdk.Event) (map[string][]interface{}, error) {
@@ -80,6 +86,27 @@ func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.Res
 			return nil, errors.New("renew group member event assert error")
 		}
 		return m.handleRenewGroupMember(ctx, block, renewGroupMember), nil
+	case EventUpdateGroupExtra:
+		updateGroupExtra, ok := typedEvent.(*storagetypes.EventUpdateGroupExtra)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventUpdateGroupExtra", "event", typedEvent)
+			return nil, errors.New("update group extra event assert error")
+		}
+		return m.handleUpdateGroupExtra(ctx, block, txHash, updateGroupExtra), nil
+	case EventMirrorGroup:
+		mirrorGroup, ok := typedEvent.(*storagetypes.EventMirrorGroup)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventMirrorGroup", "event", typedEvent)
+			return nil, errors.New("mirror group event assert error")
+		}
+		return m.handleMirrorGroup(ctx, block, txHash, mirrorGroup), nil
+	case EventMirrorGroupResult:
+		mirrorGroupResult, ok := typedEvent.(*storagetypes.EventMirrorGroupResult)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventMirrorGroupResult", "event", typedEvent)
+			return nil, errors.New("mirror group result event assert error")
+		}
+		return m.handleMirrorGroupResult(ctx, block, txHash, mirrorGroupResult), nil
 	}
 	return nil, nil
 }
@@ -233,10 +260,66 @@ func (m *Module) handleRenewGroupMember(ctx context.Context, block *tmctypes.Res
 		if e.ExpirationTime != nil {
 			expirationTime = e.ExpirationTime.Unix()
 		}
-		k := fmt.Sprintf("Update `groups` set expiration_time = ?, update_at = ?,update_time = ? where account_id = %s and group_id = ?", e.Member)
-		v := []interface{}{expirationTime, block.Block.Height, block.Block.Time.UTC().Unix(), common.BigToHash(renewGroupMember.GroupId.BigInt())}
+		k := "Update `groups` set expiration_time = ?, update_at = ?, update_time = ? where account_id = ? and group_id = ?"
+		v := []interface{}{expirationTime, block.Block.Height, block.Block.Time.UTC().Unix(), common.HexToAddress(e.Member), common.BigToHash(renewGroupMember.GroupId.BigInt())}
 		res[k] = v
 	}
 
 	return res
+}
+
+func (m *Module) handleUpdateGroupExtra(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, updateGroupExtra *storagetypes.EventUpdateGroupExtra) map[string][]interface{} {
+	groupItem := &models.Group{
+		GroupID:    common.BigToHash(updateGroupExtra.GroupId.BigInt()),
+		AccountID:  common.HexToAddress("0"),
+		Operator:   common.HexToAddress(updateGroupExtra.Operator),
+		Extra:      updateGroupExtra.Extra,
+		UpdateAt:   block.Block.Height,
+		UpdateTime: block.Block.Time.UTC().Unix(),
+		Removed:    false,
+	}
+
+	k, v := m.db.UpdateGroupToSQL(ctx, groupItem)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleMirrorGroup(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, mirrorGroup *storagetypes.EventMirrorGroup) map[string][]interface{} {
+	groupItem := &models.Group{
+		GroupID:    common.BigToHash(mirrorGroup.GroupId.BigInt()),
+		AccountID:  common.HexToAddress("0"),
+		SourceType: storagetypes.SOURCE_TYPE_MIRROR_PENDING.String(),
+		UpdateAt:   block.Block.Height,
+		UpdateTime: block.Block.Time.UTC().Unix(),
+		Removed:    false,
+	}
+
+	k, v := m.db.UpdateGroupToSQL(ctx, groupItem)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleMirrorGroupResult(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, mirrorGroupResult *storagetypes.EventMirrorGroupResult) map[string][]interface{} {
+	sourceType := storagetypes.SOURCE_TYPE_ORIGIN.String()
+	if mirrorGroupResult.Status == 0 {
+		if mapped, ok := blockcommon.MapDestChainIDToSourceType(mirrorGroupResult.DestChainId); ok {
+			sourceType = mapped.String()
+		}
+	}
+
+	groupItem := &models.Group{
+		GroupID:    common.BigToHash(mirrorGroupResult.GroupId.BigInt()),
+		AccountID:  common.HexToAddress("0"),
+		SourceType: sourceType,
+		UpdateAt:   block.Block.Height,
+		UpdateTime: block.Block.Time.UTC().Unix(),
+		Removed:    false,
+	}
+
+	k, v := m.db.UpdateGroupToSQL(ctx, groupItem)
+	return map[string][]interface{}{
+		k: v,
+	}
 }

@@ -4,12 +4,20 @@ package bsdb
 func (b *BsDBImpl) GetEpoch() (*Epoch, error) {
 	var (
 		query string
-		epoch *Epoch
-		err   error
+		epoch Epoch
 	)
 
 	query = "SELECT * FROM epoch LIMIT 1;"
-	err = b.db.Raw(query).Find(&epoch).Error
+	result := b.db.Raw(query).Scan(&epoch)
+	
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	
+	// If no rows found, return nil
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
 
-	return epoch, err
+	return &epoch, nil
 }

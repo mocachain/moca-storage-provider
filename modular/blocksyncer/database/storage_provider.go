@@ -28,3 +28,8 @@ func (db *DB) UpdateStorageProviderToSQL(ctx context.Context, storageProvider *m
 	stat := db.Db.Session(&gorm.Session{DryRun: true}).Table((&models.StorageProvider{}).TableName()).Where("sp_id = ? ", storageProvider.SpId).Updates(storageProvider).Statement
 	return stat.SQL.String(), stat.Vars
 }
+
+func (db *DB) UpdateStorageProviderByFundingAddressToSQL(ctx context.Context, storageProvider *models.StorageProvider) (string, []interface{}) {
+	stat := db.Db.Session(&gorm.Session{DryRun: true}).Table((&models.StorageProvider{}).TableName()).Where("funding_address = ?", storageProvider.FundingAddress).Updates(storageProvider).Statement
+	return stat.SQL.String(), stat.Vars
+}
