@@ -8,9 +8,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/evmos/evmos/v12/sdk/types"
-	"github.com/mocachain/moca-storage-provider/base/gfspapp"
-	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
-	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/MocaFoundation/moca-storage-provider/base/gfspapp"
+	"github.com/MocaFoundation/moca-storage-provider/base/gfspconfig"
+	coremodule "github.com/MocaFoundation/moca-storage-provider/core/module"
 )
 
 const (

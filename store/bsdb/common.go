@@ -9,7 +9,7 @@ import (
 	"time"
 
 	permtypes "github.com/evmos/evmos/v12/x/permission/types"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/metrics"
 )
 
 // ListObjectsResult represents the result of a List Objects operation.
@@ -80,11 +80,25 @@ func (a *Uint32Array) Scan(value interface{}) error {
 		return fmt.Errorf("failed to scan Uint32Array value: %v", value)
 	}
 
-	s := string(bytes)
+	s := strings.TrimSpace(string(bytes))
+	if s == "" || s == "[]" {
+		*a = []uint32{}
+		return nil
+	}
+
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		s = s[1 : len(s)-1]
+	}
+
+	if s == "" {
+		*a = []uint32{}
+		return nil
+	}
+
 	fields := strings.Split(s, ",")
 	result := make([]uint32, len(fields))
 	for i, field := range fields {
-		v, err := strconv.ParseUint(field, 10, 32)
+		v, err := strconv.ParseUint(strings.TrimSpace(field), 10, 32)
 		if err != nil {
 			return fmt.Errorf("failed to scan Uint32Array value: %v", err)
 		}

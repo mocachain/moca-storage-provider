@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mocachain/moca-storage-provider/core/piecestore"
+	"github.com/MocaFoundation/moca-storage-provider/core/piecestore"
 
 	"github.com/0xPolygon/polygon-edge/bls"
 	"github.com/avast/retry-go/v4"
@@ -15,12 +15,12 @@ import (
 	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	"github.com/mocachain/moca-common/go/hash"
-	"github.com/mocachain/moca-common/go/redundancy"
-	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
-	coretask "github.com/mocachain/moca-storage-provider/core/task"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/MocaFoundation/moca-common/go/hash"
+	"github.com/MocaFoundation/moca-common/go/redundancy"
+	"github.com/MocaFoundation/moca-storage-provider/base/types/gfsptask"
+	coretask "github.com/MocaFoundation/moca-storage-provider/core/task"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/log"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/metrics"
 )
 
 var (

@@ -13,12 +13,13 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/log"
 
+	"github.com/MocaFoundation/moca-storage-provider/store/bsdb"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	"github.com/mocachain/moca-storage-provider/store/bsdb"
 )
 
 var (
 	EventCreateObject       = proto.MessageName(&storagetypes.EventCreateObject{})
+	EventCopyObject         = proto.MessageName(&storagetypes.EventCopyObject{})
 	EventDeleteObject       = proto.MessageName(&storagetypes.EventDeleteObject{})
 	EventCancelCreateObject = proto.MessageName(&storagetypes.EventCancelCreateObject{})
 	EventRejectSealObject   = proto.MessageName(&storagetypes.EventRejectSealObject{})
@@ -29,6 +30,7 @@ var (
 // it means that event will result in changes to the prefix tree structure.
 var BuildPrefixTreeEvents = map[string]bool{
 	EventCreateObject:       true,
+	EventCopyObject:         true,
 	EventDeleteObject:       true,
 	EventCancelCreateObject: true,
 	EventRejectSealObject:   true,
@@ -53,6 +55,17 @@ func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.Res
 			return nil, errors.New("create object event assert error")
 		}
 		return m.handleCreateObject(ctx, createObject)
+	case EventCopyObject:
+		copyObject, ok := typedEvent.(*storagetypes.EventCopyObject)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventCopyObject", "event", typedEvent)
+			return nil, errors.New("copy object event assert error")
+		}
+		return m.handleCreateObject(ctx, &storagetypes.EventCreateObject{
+			BucketName: copyObject.DstBucketName,
+			ObjectName: copyObject.DstObjectName,
+			ObjectId:   copyObject.DstObjectId,
+		})
 	case EventDeleteObject:
 		deleteObject, ok := typedEvent.(*storagetypes.EventDeleteObject)
 		if !ok {

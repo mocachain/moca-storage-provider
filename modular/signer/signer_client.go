@@ -19,7 +19,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/log"
 	"github.com/evmos/evmos/v12/sdk/client"
 	"github.com/evmos/evmos/v12/sdk/keys"
 	ctypes "github.com/evmos/evmos/v12/sdk/types"
@@ -89,7 +89,7 @@ const (
 	errMsgReplaceUnderpricedGeth = "replacement transaction underpriced"
 
 	// From polygon-edge v1.3.3 - txpool/txpool.go: ErrReplaceUnderpriced
-	// Reference: https://github.com/mocachain/polygon-edge/blob/6bec9fa/txpool/txpool.go#L65
+	// Reference: https://github.com/MocaFoundation/polygon-edge/blob/6bec9fa/txpool/txpool.go#L65
 	errMsgReplaceUnderpricedPEdge = "replacement tx underpriced"
 
 	// From Cosmos SDK / Evmos sequence errors (ErrInvalidSequence wrapping)
@@ -374,7 +374,6 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		}
 
 		txRsp, err := session.SealObject(
-			ethcmn.BytesToAddress(km.GetAddr().Bytes()),
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),
@@ -1707,7 +1706,6 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		}
 
 		txRsp, err := session.CompleteSPExit(
-			completeSPExit.StorageProvider,
 			completeSPExit.Operator,
 		)
 
@@ -3107,7 +3105,6 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		}
 
 		txRsp, err := session.SealObjectV2(
-			ethcmn.BytesToAddress(km.GetAddr().Bytes()),
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),

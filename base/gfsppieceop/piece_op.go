@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mocachain/moca-storage-provider/core/piecestore"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/MocaFoundation/moca-storage-provider/core/piecestore"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/log"
 )
 
 var _ piecestore.PieceOp = &GfSpPieceOp{}

@@ -11,17 +11,21 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/log"
 
+	"github.com/MocaFoundation/moca-storage-provider/store/bsdb"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	"github.com/mocachain/moca-storage-provider/store/bsdb"
 )
 
-var EventCreateObject = proto.MessageName(&storagetypes.EventCreateObject{})
+var (
+	EventCreateObject = proto.MessageName(&storagetypes.EventCreateObject{})
+	EventCopyObject   = proto.MessageName(&storagetypes.EventCopyObject{})
+)
 
 // buildPrefixTreeEvents maps event types that trigger the creation or deletion of prefix tree nodes.
 // If an event type is present and set to true in this map,
 // it means that event will result in changes to the prefix tree structure.
 var buildPrefixTreeEvents = map[string]bool{
 	EventCreateObject: true,
+	EventCopyObject:   true,
 }
 
 func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, event sdk.Event) (map[string][]interface{}, error) {
@@ -43,6 +47,13 @@ func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.Res
 			return nil, errors.New("create object event assert error")
 		}
 		return m.handleCreateObject(ctx, createObject), nil
+	case EventCopyObject:
+		copyObject, ok := typedEvent.(*storagetypes.EventCopyObject)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventCopyObject", "event", typedEvent)
+			return nil, errors.New("copy object event assert error")
+		}
+		return m.handleCopyObject(ctx, copyObject), nil
 	default:
 		return nil, nil
 	}
@@ -59,6 +70,18 @@ func (m *Module) handleCreateObject(ctx context.Context, createObject *storagety
 	objectIDMap := &bsdb.ObjectIDMap{
 		ObjectID:   common.BigToHash(createObject.ObjectId.BigInt()),
 		BucketName: createObject.BucketName,
+	}
+
+	k, v := m.db.CreateObjectIDMap(ctx, objectIDMap)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleCopyObject(ctx context.Context, copyObject *storagetypes.EventCopyObject) map[string][]interface{} {
+	objectIDMap := &bsdb.ObjectIDMap{
+		ObjectID:   common.BigToHash(copyObject.DstObjectId.BigInt()),
+		BucketName: copyObject.DstBucketName,
 	}
 
 	k, v := m.db.CreateObjectIDMap(ctx, objectIDMap)

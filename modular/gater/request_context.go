@@ -14,9 +14,9 @@ import (
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/slices"
 
-	commonhash "github.com/mocachain/moca-common/go/hash"
-	commonhttp "github.com/mocachain/moca-common/go/http"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
+	commonhash "github.com/MocaFoundation/moca-common/go/hash"
+	commonhttp "github.com/MocaFoundation/moca-common/go/http"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/log"
 )
 
 // RequestContext generates from http request, it records the common info

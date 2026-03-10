@@ -17,13 +17,13 @@ import (
 
 	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	"github.com/mocachain/moca-storage-provider/base/gfspclient"
-	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
-	"github.com/mocachain/moca-storage-provider/core/consensus"
-	"github.com/mocachain/moca-storage-provider/core/vgmgr"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/MocaFoundation/moca-storage-provider/base/gfspclient"
+	"github.com/MocaFoundation/moca-storage-provider/base/types/gfsperrors"
+	"github.com/MocaFoundation/moca-storage-provider/core/consensus"
+	"github.com/MocaFoundation/moca-storage-provider/core/vgmgr"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/log"
+	"github.com/MocaFoundation/moca-storage-provider/pkg/metrics"
+	"github.com/MocaFoundation/moca-storage-provider/util"
 )
 
 var _ vgmgr.VirtualGroupManager = &virtualGroupManager{}
@@ -380,10 +380,16 @@ func (vgm *virtualGroupManager) refreshGVGMeta(byChain bool) {
 					return
 				}
 			} else {
-				gvg, err = vgm.gfspClient.GetGlobalVirtualGroupByGvgID(context.Background(), gvgID)
-				if err != nil || gvg == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				gvg, err = vgm.gfspClient.GetGlobalVirtualGroupByGvgID(ctx, gvgID)
+				cancel()
+				if err != nil {
 					log.Errorw("failed to query global virtual group from meta", "gvg_id", gvgID, "error", err)
 					return
+				}
+				if gvg == nil {
+					log.Warnw("global virtual group not found in metadata, may be newly created and not synced yet, skip it", "gvg_id", gvgID)
+					continue
 				}
 			}
 			deposited, deleted, err := vgm.monitorGVGUsage(gvg, vgParams, byChain)
