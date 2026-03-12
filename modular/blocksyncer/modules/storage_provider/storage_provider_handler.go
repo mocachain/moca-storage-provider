@@ -3,6 +3,8 @@ package storageprovider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/big"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	tmctypes "github.com/cometbft/cometbft/rpc/core/types"
@@ -17,17 +19,21 @@ import (
 )
 
 var (
-	EventCreateStorageProvider = proto.MessageName(&sptypes.EventCreateStorageProvider{})
-	EventEditStorageProvider   = proto.MessageName(&sptypes.EventEditStorageProvider{})
-	EventSpStoragePriceUpdate  = proto.MessageName(&sptypes.EventSpStoragePriceUpdate{})
-	EventCompleteSpExit        = proto.MessageName(&vgtypes.EventCompleteStorageProviderExit{})
+	EventCreateStorageProvider       = proto.MessageName(&sptypes.EventCreateStorageProvider{})
+	EventEditStorageProvider         = proto.MessageName(&sptypes.EventEditStorageProvider{})
+	EventSpStoragePriceUpdate        = proto.MessageName(&sptypes.EventSpStoragePriceUpdate{})
+	EventCompleteSpExit              = proto.MessageName(&vgtypes.EventCompleteStorageProviderExit{})
+	EventDeposit                     = proto.MessageName(&sptypes.EventDeposit{})
+	EventUpdateStorageProviderStatus = proto.MessageName(&sptypes.EventUpdateStorageProviderStatus{})
 )
 
 var StorageProviderEvents = map[string]bool{
-	EventCreateStorageProvider: true,
-	EventEditStorageProvider:   true,
-	EventSpStoragePriceUpdate:  true,
-	EventCompleteSpExit:        true,
+	EventCreateStorageProvider:       true,
+	EventEditStorageProvider:         true,
+	EventSpStoragePriceUpdate:        true,
+	EventCompleteSpExit:              true,
+	EventDeposit:                     true,
+	EventUpdateStorageProviderStatus: true,
 }
 
 func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, event sdk.Event) (map[string][]interface{}, error) {
@@ -70,6 +76,20 @@ func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.Res
 			return nil, errors.New("storage provider exit event assert error")
 		}
 		return m.handleCompleteStorageProviderExit(ctx, block, txHash, completeSpExit), nil
+	case EventUpdateStorageProviderStatus:
+		updateStorageProviderStatus, ok := typedEvent.(*sptypes.EventUpdateStorageProviderStatus)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventUpdateStorageProviderStatus", "event", typedEvent)
+			return nil, errors.New("storage provider status event assert error")
+		}
+		return m.handleUpdateStorageProviderStatus(ctx, block, txHash, updateStorageProviderStatus), nil
+	case EventDeposit:
+		deposit, ok := typedEvent.(*sptypes.EventDeposit)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventDeposit", "event", typedEvent)
+			return nil, errors.New("storage provider deposit event assert error")
+		}
+		return m.handleDeposit(ctx, block, txHash, deposit)
 	}
 
 	return nil, nil
@@ -167,4 +187,38 @@ func (m *Module) handleCompleteStorageProviderExit(ctx context.Context, block *t
 	return map[string][]interface{}{
 		k: v,
 	}
+}
+
+func (m *Module) handleUpdateStorageProviderStatus(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, updateStorageProviderStatus *sptypes.EventUpdateStorageProviderStatus) map[string][]interface{} {
+	storageProvider := &models.StorageProvider{
+		SpId:         updateStorageProviderStatus.SpId,
+		Status:       updateStorageProviderStatus.NewStatus,
+		UpdateAt:     block.Block.Height,
+		UpdateTxHash: txHash,
+		Removed:      false,
+	}
+	k, v := m.db.UpdateStorageProviderToSQL(ctx, storageProvider)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleDeposit(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, deposit *sptypes.EventDeposit) (map[string][]interface{}, error) {
+	totalDeposit := new(big.Int)
+	if _, ok := totalDeposit.SetString(deposit.TotalDeposit, 10); !ok {
+		return nil, fmt.Errorf("invalid total_deposit %q", deposit.TotalDeposit)
+	}
+
+	storageProvider := &models.StorageProvider{
+		FundingAddress: common.HexToAddress(deposit.FundingAddress),
+		TotalDeposit:   (*common.Big)(totalDeposit),
+		UpdateAt:       block.Block.Height,
+		UpdateTxHash:   txHash,
+		Removed:        false,
+	}
+
+	k, v := m.db.UpdateStorageProviderByFundingAddressToSQL(ctx, storageProvider)
+	return map[string][]interface{}{
+		k: v,
+	}, nil
 }

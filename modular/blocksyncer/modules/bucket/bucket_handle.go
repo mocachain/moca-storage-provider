@@ -14,6 +14,7 @@ import (
 	"github.com/forbole/juno/v4/log"
 	"github.com/forbole/juno/v4/models"
 
+	blockcommon "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/common"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 )
 
@@ -27,6 +28,8 @@ var (
 	EventRejectMigrateBucket      = proto.MessageName(&storagetypes.EventRejectMigrateBucket{})
 	EventCompleteMigrationBucket  = proto.MessageName(&storagetypes.EventCompleteMigrationBucket{})
 	EventToggleSPAsDelegatedAgent = proto.MessageName(&storagetypes.EventToggleSPAsDelegatedAgent{})
+	EventMirrorBucket             = proto.MessageName(&storagetypes.EventMirrorBucket{})
+	EventMirrorBucketResult       = proto.MessageName(&storagetypes.EventMirrorBucketResult{})
 )
 
 var BucketEvents = map[string]bool{
@@ -39,6 +42,8 @@ var BucketEvents = map[string]bool{
 	EventRejectMigrateBucket:      true,
 	EventCompleteMigrationBucket:  true,
 	EventToggleSPAsDelegatedAgent: true,
+	EventMirrorBucket:             true,
+	EventMirrorBucketResult:       true,
 }
 
 type OffChainStatus int
@@ -141,6 +146,20 @@ func (m *Module) ExtractEventStatements(ctx context.Context, block *tmctypes.Res
 			return nil, errors.New("complete migrate bucket event assert error")
 		}
 		return m.handleToggleSPAsDelegatedAgent(ctx, block, txHash, toggleSPAsDelegatedAgent), nil
+	case EventMirrorBucket:
+		mirrorBucket, ok := typedEvent.(*storagetypes.EventMirrorBucket)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventMirrorBucket", "event", typedEvent)
+			return nil, errors.New("mirror bucket event assert error")
+		}
+		return m.handleMirrorBucket(ctx, block, txHash, mirrorBucket), nil
+	case EventMirrorBucketResult:
+		mirrorBucketResult, ok := typedEvent.(*storagetypes.EventMirrorBucketResult)
+		if !ok {
+			log.Errorw("type assert error", "type", "EventMirrorBucketResult", "event", typedEvent)
+			return nil, errors.New("mirror bucket result event assert error")
+		}
+		return m.handleMirrorBucketResult(ctx, block, txHash, mirrorBucketResult), nil
 	}
 
 	return nil, nil
@@ -327,6 +346,45 @@ func (m *Module) handleToggleSPAsDelegatedAgent(ctx context.Context, block *tmct
 	}
 
 	k, v := m.db.UpdateBucketOffChainStatus(ctx, bucketStatus)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleMirrorBucket(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, mirrorBucket *storagetypes.EventMirrorBucket) map[string][]interface{} {
+	bucket := &models.Bucket{
+		BucketName:   mirrorBucket.BucketName,
+		BucketID:     common.BigToHash(mirrorBucket.BucketId.BigInt()),
+		SourceType:   storagetypes.SOURCE_TYPE_MIRROR_PENDING.String(),
+		UpdateAt:     block.Block.Height,
+		UpdateTxHash: txHash,
+		UpdateTime:   block.Block.Time.UTC().Unix(),
+	}
+
+	k, v := m.db.UpdateBucketToSQL(ctx, bucket)
+	return map[string][]interface{}{
+		k: v,
+	}
+}
+
+func (m *Module) handleMirrorBucketResult(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, mirrorBucketResult *storagetypes.EventMirrorBucketResult) map[string][]interface{} {
+	sourceType := storagetypes.SOURCE_TYPE_ORIGIN.String()
+	if mirrorBucketResult.Status == 0 {
+		if mapped, ok := blockcommon.MapDestChainIDToSourceType(mirrorBucketResult.DestChainId); ok {
+			sourceType = mapped.String()
+		}
+	}
+
+	bucket := &models.Bucket{
+		BucketName:   mirrorBucketResult.BucketName,
+		BucketID:     common.BigToHash(mirrorBucketResult.BucketId.BigInt()),
+		SourceType:   sourceType,
+		UpdateAt:     block.Block.Height,
+		UpdateTxHash: txHash,
+		UpdateTime:   block.Block.Time.UTC().Unix(),
+	}
+
+	k, v := m.db.UpdateBucketToSQL(ctx, bucket)
 	return map[string][]interface{}{
 		k: v,
 	}

@@ -42,3 +42,4 @@ deployment/dockerup/init_done
 sp.json
 
 dist
+.env

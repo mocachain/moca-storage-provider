@@ -181,13 +181,19 @@ func (b *BlockSyncerModular) dataMigration(ctx context.Context) {
 
 // serve start BlockSyncer rpc service
 func (b *BlockSyncerModular) serve(ctx context.Context) {
+	log.Infow("blocksyncer serve function started")
+	
 	migrateDBAny := ctx.Value(MigrateDBKey{})
 	if migrateDB, ok := migrateDBAny.(bool); ok && migrateDB {
+		log.Infow("initializing blocksyncer database", "migrateDB", migrateDB)
 		err := b.initDB(true)
 		if err != nil {
 			log.Errorw("failed to init DB", "error", err)
 			return
 		}
+		log.Infow("blocksyncer database initialized successfully")
+	} else {
+		log.Infow("skipping database initialization", "migrateDB_found", ok, "value", migrateDBAny)
 	}
 	// Create a queue that will collect, aggregate, and export blocks and metadata
 	exportQueue := types.NewQueue(100)
@@ -203,15 +209,25 @@ func (b *BlockSyncerModular) serve(ctx context.Context) {
 	go b.getLatestBlockHeight(ctx)
 
 	lastDbBlockHeight := uint64(0)
+	log.Infow("Attempting to get epoch from database to determine sync start height")
 	for {
 		epoch, err := b.parserCtx.Database.GetEpoch(context.TODO())
 		if err != nil {
 			log.Errorw("failed to get last block height from database", "error", err)
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
+		if epoch == nil {
+			// If epoch table is empty, start from block 0 (will sync from block 1)
+			log.Infow("epoch table is empty, starting from block 0")
+			lastDbBlockHeight = 0
+			break
+		}
 		lastDbBlockHeight = uint64(epoch.BlockHeight)
+		log.Infow("found existing epoch, resuming from last synced height", "last_height", lastDbBlockHeight)
 		break
 	}
+	log.Infow("blocksyncer will start syncing", "start_height", lastDbBlockHeight+1)
 
 	// fetch block data
 	go b.quickFetchBlockData(ctx, lastDbBlockHeight+1)

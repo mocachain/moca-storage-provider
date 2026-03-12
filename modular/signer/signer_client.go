@@ -374,7 +374,6 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		}
 
 		txRsp, err := session.SealObject(
-			ethcmn.BytesToAddress(km.GetAddr().Bytes()),
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),
@@ -1707,7 +1706,6 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		}
 
 		txRsp, err := session.CompleteSPExit(
-			completeSPExit.StorageProvider,
 			completeSPExit.Operator,
 		)
 
@@ -3107,7 +3105,6 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		}
 
 		txRsp, err := session.SealObjectV2(
-			ethcmn.BytesToAddress(km.GetAddr().Bytes()),
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),

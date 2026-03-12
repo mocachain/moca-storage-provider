@@ -150,8 +150,9 @@ function make_config() {
 
     # blocksyncer
     sed -i -e "s/Modules = \[\]/Modules = \[\'epoch\',\'bucket\',\'object\',\'payment\',\'group\',\'permission\',\'storage_provider\'\,\'prefix_tree\'\,\'virtual_group\'\,\'sp_exit_events\'\,\'object_id_map\'\,\'general\'\]/g" config.toml
-    WORKERS=10
+    WORKERS=50
     sed -i -e "s/Workers = 0/Workers = ${WORKERS}/g" config.toml
+    sed -i -e "s/Workers = [0-9]*/Workers = ${WORKERS}/g" config.toml
     sed -i -e "s/BsDBWriteAddress = '.*'/BsDBWriteAddress = '${ADDRESS}'/g" config.toml
 
     # manager
@@ -256,7 +257,7 @@ function stop_sp() {
   pids=$(LC_ALL=C pgrep -f ${sp_bin_name})
   if [ -n "$pids" ]; then
     count=$(echo "$pids" | wc -l)
-    kill -9 "$pids" >/dev/null 2>&1
+    echo "$pids" | xargs kill -9 >/dev/null 2>&1
     echo "succeed to stop $count moca-sp process(es)"
   else
     echo "no moca-sp processes found to stop"
@@ -267,6 +268,12 @@ function stop_sp() {
 # drop databases and recreate new databases #
 #############################################
 function reset_sql_db() {
+  # Check if mysql client is available
+  if ! command -v mysql >/dev/null 2>&1; then
+    echo "Error: mysql client not found. Please install mysql client."
+    exit 1
+  fi
+
   for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
     cd "${sp_dir}" || exit 1
     source db.info
