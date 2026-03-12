@@ -65,6 +65,7 @@ builds:
     flags:
       - -tags=cgo
     ldflags:
+      - -checklinkname=0
       - -X main.Version={{.Version}}
       - -X main.CommitID={{.Commit}}
       - -X main.BranchName={{.Branch}}
@@ -87,6 +88,7 @@ builds:
     flags:
       - -tags=cgo
     ldflags:
+      - -checklinkname=0
       - -X main.Version={{.Version}}
       - -X main.CommitID={{.Commit}}
       - -X main.BranchName={{.Branch}}
