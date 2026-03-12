@@ -122,7 +122,7 @@ stop-dc:
 ###############################################################################
 
 PACKAGE_NAME:=github.com/mocachain/moca-storage-provider
-GOLANG_CROSS_VERSION  = v1.23
+GOLANG_CROSS_VERSION  = v1.22
 GOPATH ?= $(HOME)/go
 release-dry-run:
 	docker run \
