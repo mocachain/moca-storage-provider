@@ -2,7 +2,7 @@ version: v1
 name: buf.build/mocachain/moca-storage-provider
 deps:
   - buf.build/cosmos/cosmos-proto
-  - buf.build/mocachain/moca
+  - buf.build/moca/moca
   - buf.build/cosmos/gogo-proto
 breaking:
   use:
