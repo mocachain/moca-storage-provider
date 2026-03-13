@@ -6,7 +6,7 @@ export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 workspace=${GITHUB_WORKSPACE}
 
 # some constants
-MOCA_TAG="master"
+MOCA_TAG="main"
 # moca cmd tag name: v0.1.0
 MOCA_CMD_TAG="feat-adapt-tags"
 # moca go sdk tag name: v1.0.0

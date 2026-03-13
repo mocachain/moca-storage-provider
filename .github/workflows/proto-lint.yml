@@ -3,7 +3,7 @@ name: Protobuf Lint
 on:
   push:
     branches:
-      - master
+      - main
       - develop
       - fix-release*
 
