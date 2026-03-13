@@ -365,6 +365,6 @@ replace (
 
 replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.1.1-0.20260311142744-a8aa6971a0ca
 
-replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc0.0.20260313091522-fe01c4e8e23c
+replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1
 
 replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1
