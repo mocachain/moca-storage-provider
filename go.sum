@@ -920,8 +920,8 @@ github.com/mocachain/moca-cometbft v1.1.1-0.20260310132047-7d6dca6a98c4 h1:OEf0X
 github.com/mocachain/moca-cometbft v1.1.1-0.20260310132047-7d6dca6a98c4/go.mod h1:RXKZzgk3b0mBvoWaANTHLtXdKNQ/HfAlbSB5RMkawS4=
 github.com/mocachain/moca-cometbft-db v1.1.0 h1:RxeYHsZX1tzC1ZsvWE7yDdYcYP4/mmFtvdVGXbPwtrY=
 github.com/mocachain/moca-cometbft-db v1.1.0/go.mod h1:GDPJAC/iFHNjmZZPN8V8C1yr/eyityhi2W1hz2MGKSc=
-github.com/mocachain/moca-common/go v1.1.1-0.20260310131146-b33a978dee4f h1:exTepVQWr8Ey6loQehIfOiI/16mQX2rh3OMR3nUcym8=
-github.com/mocachain/moca-common/go v1.1.1-0.20260310131146-b33a978dee4f/go.mod h1:xa0HPfBEtXp0lsHFnMhOzZ9gKhNy64iWv3D9tfNb+ug=
+github.com/mocachain/moca-common/go v1.2.0-rc1 h1:Y3cK5qL01geBJ8iuCxSAwY6z1XgncIqBqDEAowI7dIU=
+github.com/mocachain/moca-common/go v1.2.0-rc1/go.mod h1:pv+7UrUvtKAcleYICBPwbj3BIghM5H1eLYbsZvDT7Fo=
 github.com/mocachain/moca-cosmos-sdk v1.1.1-0.20260311142350-111a846828cc h1:Cr4I0IAINKoc+f7g8nTCS8pvPxI/krAWKf7IkoAPsAk=
 github.com/mocachain/moca-cosmos-sdk v1.1.1-0.20260311142350-111a846828cc/go.mod h1:XDoBQkrFQO9pemF60qROovBO7wD6+Za7fjnvqOMX0Ik=
 github.com/mocachain/moca-cosmos-sdk/api v0.0.0-20260311142350-111a846828cc h1:B5/jipzsE3K8mIebwMOa35rsxiZ0z3NPK91LjEiLvb4=
@@ -942,8 +942,8 @@ github.com/mocachain/moca-ibc-go/v10 v10.1.1-0.20260311142638-18cd54b7cbcf h1:oX
 github.com/mocachain/moca-ibc-go/v10 v10.1.1-0.20260311142638-18cd54b7cbcf/go.mod h1:aSY93nbW1E8OwEf2eDri3xSM7vWJskxrm37Mfs66cWM=
 github.com/mocachain/moca-juno/v4 v4.1.1-0.20260311142744-a8aa6971a0ca h1:w0RXXVpng9PTvdyqMRVZS+1lw8AIxDxVSfnC4fO5B5Y=
 github.com/mocachain/moca-juno/v4 v4.1.1-0.20260311142744-a8aa6971a0ca/go.mod h1:B5tV7Wmsm8EfIhG+eItx27WQRYuWizJoN0Qfkvx/Dco=
-github.com/mocachain/moca/v12 v12.0.0-20260311142648-bd4285dad114 h1:BpHOo3A/mHZjXt476qX0ToDPlAUB3GncJqFcOBW4YsI=
-github.com/mocachain/moca/v12 v12.0.0-20260311142648-bd4285dad114/go.mod h1:CamuUd0LmCVknesdy3mO+P/9mG6ZbCAh6ebVO+f+JGk=
+github.com/mocachain/moca/v12 v12.2.0-rc1 h1:HP5QPBlV7sC4a2bJHwzJDOpcbz4dP/6Zg+1GFH6B3UA=
+github.com/mocachain/moca/v12 v12.2.0-rc1/go.mod h1:XoJEim8AKjZNXyy4zrE4oVUlIXN1j3VZKgZVWwYIPxU=
 github.com/mocachain/polygon-edge v1.3.3-moca.1 h1:YtHnpIxMOUkCFp6Z+BHt8wCb+35+HpCVMZ/dFUylzBs=
 github.com/mocachain/polygon-edge v1.3.3-moca.1/go.mod h1:bDvHrg7QQKSx31K588TEWgHICl5dCPkotffzK9CE6IE=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
