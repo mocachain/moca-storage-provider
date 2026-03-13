@@ -3,7 +3,7 @@ name: BlockSyncer E2E Test
 on:
   push:
     branches:
-      - master
+      - main
       - develop
       - fix-release*
 
