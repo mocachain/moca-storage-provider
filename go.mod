@@ -32,7 +32,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/lib/pq v1.10.9
 	github.com/libp2p/go-libp2p v0.33.0
-	github.com/mocachain/moca-common/go v1.1.1-0.20260313091535-138f9a39c7b8
+	github.com/mocachain/moca-common/go v1.2.0-rc1
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/pkg/sftp v1.13.6
@@ -355,7 +355,7 @@ replace (
 	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.1-0.20260311142638-18cd54b7cbcf
 	// use Evmos geth fork
 	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc0.0.20260313092850-f3cd950eb26b
+	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc1
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -367,4 +367,4 @@ replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.1.1-0
 
 replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc0.0.20260313091522-fe01c4e8e23c
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.1.1-0.20260313091535-138f9a39c7b8
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1
