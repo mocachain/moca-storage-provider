@@ -115,7 +115,6 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/umbracle/go-eth-bn256 v0.0.0-20230125114011-47cb310d9b0b // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.17.0 // indirect
@@ -168,7 +167,6 @@ require (
 	github.com/elastic/gosigar v0.14.2 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/ferranbt/fastssz v0.1.3 // indirect
-	github.com/fjl/memsize v0.0.2 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
@@ -356,7 +354,7 @@ replace (
 	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.1.1-0.20260310045324-fcbc580b8ebb
 	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.1-0.20260311142638-18cd54b7cbcf
 	// use Evmos geth fork
-	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.1
+	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2
 	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.0.0-20260311142648-bd4285dad114
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
