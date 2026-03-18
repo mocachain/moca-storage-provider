@@ -347,15 +347,15 @@ replace (
 	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
-	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.1.0-rc1-f85713e
+	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.1.2-rc1-f85713e
 	github.com/cometbft/cometbft-db => github.com/mocachain/moca-cometbft-db v1.1.0-rc1-22256c4
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.1.0-rc1-66c0054
 	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.1.0-rc1-82a95b2
-	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.0-rc2-3a0e2cd
+	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.0-rc3-74a70fb
 	// use Evmos geth fork
 	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-rc1-7c25950
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.0.1-rc2-ca730f1
+	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.1.0-rc1-ca730f1
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -365,6 +365,6 @@ replace (
 
 replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.1.0-rc1-b77da27
 
-replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.1.0-rc1-898ae63
+replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.1.0-rc2-b8ce28a
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.1.0-rc1-7f2d07d
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.1.0-rc2-eda1615
