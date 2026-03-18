@@ -347,15 +347,15 @@ replace (
 	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
-	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.1.1-0.20260310132047-7d6dca6a98c4
+	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.2.0-rc0.0.20260316054119-f85713e241f4
 	github.com/cometbft/cometbft-db => github.com/mocachain/moca-cometbft-db v1.1.0
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.1.1-0.20260311142350-111a846828cc
-	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.1.1-0.20260310045324-fcbc580b8ebb
-	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.1-0.20260311142638-18cd54b7cbcf
+	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.2.0-rc0.0.20260316054236-66c005431435
+	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v0.0.0-20260312035901-82a95b279bb3
+	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc0.0.20260317055315-676db00cdb55
 	// use Evmos geth fork
-	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc1
+	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v0.0.0-20260313075730-7c259505c9df
+	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc4.0.20260317050639-053b0bc0f0de
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -363,8 +363,8 @@ replace (
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.1.1-0.20260311142744-a8aa6971a0ca
+replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260316054626-b77da271977d
 
-replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1
+replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260316054506-593427e86349
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v0.0.0-20260316054430-3437182df35a
