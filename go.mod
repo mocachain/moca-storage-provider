@@ -23,7 +23,7 @@ require (
 	github.com/evmos/evmos/v12 v12.1.6
 	github.com/felixge/fgprof v0.9.3
 	github.com/forbole/juno/v4 v4.0.0-00010101000000-000000000000
-	github.com/go-sql-driver/mysql v1.7.0
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gorilla/mux v1.8.1
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/openmetrics/v2 v2.0.0-rc.3
 	github.com/hashicorp/golang-lru v1.0.2
@@ -34,7 +34,7 @@ require (
 	github.com/libp2p/go-libp2p v0.33.0
 	github.com/mocachain/moca-common/go v1.2.0-rc1
 	github.com/multiformats/go-multiaddr v0.12.3
-	github.com/pelletier/go-toml/v2 v2.2.2
+	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.20.5
 	github.com/shopspring/decimal v1.3.1
@@ -48,7 +48,7 @@ require (
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.40.0
-	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
+	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
 	golang.org/x/time v0.9.0
 	google.golang.org/grpc v1.71.0
 	gorm.io/driver/mysql v1.4.7
@@ -86,7 +86,7 @@ require (
 	github.com/desertbit/timer v1.0.1 // indirect
 	github.com/dop251/goja v0.0.0-20230122112309-96b1610dd4f7 // indirect
 	github.com/emicklei/dot v1.10.0 // indirect
-	github.com/fatih/color v1.17.0 // indirect
+	github.com/fatih/color v1.18.0 // indirect
 	github.com/getsentry/sentry-go v0.28.1 // indirect
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-metrics v0.5.3 // indirect
@@ -244,7 +244,7 @@ require (
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/miekg/dns v1.1.58 // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
@@ -284,7 +284,7 @@ require (
 	github.com/quic-go/webtransport-go v0.6.0 // indirect
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
-	github.com/rivo/uniseg v0.4.4 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
@@ -338,24 +338,24 @@ require (
 
 replace (
 	// Use mocachain moca-cosmos-sdk for cosmos-sdk v0.50 compatibility
-	cosmossdk.io/api => github.com/mocachain/moca-cosmos-sdk/api v1.1.0-rc1-66c0054
-	cosmossdk.io/client/v2 => github.com/mocachain/moca-cosmos-sdk/client/v2 v2.1.0-rc1-66c0054
-	cosmossdk.io/simapp => github.com/mocachain/moca-cosmos-sdk/simapp v1.1.0-rc1-66c0054
-	cosmossdk.io/store => github.com/mocachain/moca-cosmos-sdk/store v1.1.0-rc1-66c0054
-	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.1.0-rc1-66c0054
-	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.1.0-rc1-66c0054
+	cosmossdk.io/api => github.com/mocachain/moca-cosmos-sdk/api v1.2.0-rc1-b329d8b
+	cosmossdk.io/client/v2 => github.com/mocachain/moca-cosmos-sdk/client/v2 v2.1.0-rc1-b329d8b
+	cosmossdk.io/simapp => github.com/mocachain/moca-cosmos-sdk/simapp v1.2.0-rc1-b329d8b
+	cosmossdk.io/store => github.com/mocachain/moca-cosmos-sdk/store v1.2.0-rc1-b329d8b
+	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.2.0-rc1-b329d8b
+	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.2.0-rc1-b329d8b
 	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
-	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.1.2-rc1-f85713e
+	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.2.0-rc2-279e646
 	github.com/cometbft/cometbft-db => github.com/mocachain/moca-cometbft-db v1.1.0-rc1-22256c4
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.1.0-rc1-66c0054
-	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.1.0-rc1-82a95b2
-	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.1.0-rc3-74a70fb
+	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.2.0-rc19-b329d8b
+	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.2.0-rc1-7d754d4
+	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc1-6647ca4
 	// use Evmos geth fork
-	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-rc1-7c25950
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.1.0-rc1-ca730f1
+	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-rc1-e849a5b
+	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc2-22be1bc
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -363,8 +363,8 @@ replace (
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.1.0-rc1-b77da27
+replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc2-0ec8991
 
-replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.1.0-rc2-b8ce28a
+replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1-0dac2d2
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.1.0-rc2-eda1615
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1-53f4ff0
