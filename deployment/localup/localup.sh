@@ -17,6 +17,7 @@ function display_help() {
   echo
   echo "   help             display help info"
   echo "   generate         generate sp.info and db.info that accepts four args: the first arg is json file path, the second arg is db username, the third arg is db password and the fourth arg is db address"
+  echo "   make_config      patch config.toml under each sp directory (run after generate)"
   echo "   reset            reset env"
   echo "   start            start storage providers"
   echo "   stop             stop storage providers"
@@ -88,8 +89,12 @@ function generate_sp_db_info() {
 # make sp config.toml according to env.info/db.info/sp.info #
 #############################################################
 function make_config() {
-  index=0
-  for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
+  for ((index = 0; index < ${SP_NUM}; index++)); do
+    sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
+    if [ ! -d "${sp_dir}" ]; then
+      echo "ERROR: missing SP directory ${sp_dir}; run generate or rebuild first"
+      exit 1
+    fi
     cur_port=$((SP_START_PORT + 1000 * $index))
     cd "${sp_dir}" || exit 1
     source db.info
@@ -177,7 +182,6 @@ function make_config() {
 
     echo "succeed to generate config.toml in ""${sp_dir}"
     cd - >/dev/null || exit
-    index=$(($index + 1))
   done
 }
 
@@ -185,11 +189,16 @@ function make_config() {
 # start sps #
 #############
 function start_sp() {
-  local index=0
   local success_count=0
   local failed_count=0
 
-  for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
+  for ((index = 0; index < ${SP_NUM}; index++)); do
+    sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
+    if [ ! -d "${sp_dir}" ]; then
+      echo "ERROR: missing SP directory ${sp_dir}"
+      ((failed_count++))
+      continue
+    fi
     cd "${sp_dir}" || exit 1
 
     # Check if binary file exists
@@ -197,7 +206,6 @@ function start_sp() {
       echo "ERROR: Binary file ./${sp_bin_name}${index} not found in ${sp_dir}"
       ((failed_count++))
       cd - >/dev/null || exit
-      index=$(($index + 1))
       continue
     fi
 
@@ -206,7 +214,6 @@ function start_sp() {
       echo "ERROR: Config file config.toml not found in ${sp_dir}"
       ((failed_count++))
       cd - >/dev/null || exit
-      index=$(($index + 1))
       continue
     fi
 
@@ -229,7 +236,6 @@ function start_sp() {
     fi
 
     cd - >/dev/null || exit
-    index=$(($index + 1))
   done
 
   echo ""
@@ -254,7 +260,7 @@ function start_sp() {
 function stop_sp() {
   local pids
   local count
-  pids=$(LC_ALL=C pgrep -f ${sp_bin_name})
+  pids=$(LC_ALL=C pgrep -f "${sp_bin_name}[0-9]")
   if [ -n "$pids" ]; then
     count=$(echo "$pids" | wc -l)
     echo "$pids" | xargs kill -9 >/dev/null 2>&1
@@ -274,7 +280,12 @@ function reset_sql_db() {
     exit 1
   fi
 
-  for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
+  for ((i = 0; i < ${SP_NUM}; i++)); do
+    sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${i}"
+    if [ ! -d "${sp_dir}" ]; then
+      echo "ERROR: missing SP directory ${sp_dir}"
+      exit 1
+    fi
     cd "${sp_dir}" || exit 1
     source db.info
     hostname=$(echo "${ADDRESS}" | cut -d : -f 1)
@@ -290,7 +301,12 @@ function reset_sql_db() {
 # clean piece-store data #
 ##########################
 function reset_piece_store() {
-  for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
+  for ((i = 0; i < ${SP_NUM}; i++)); do
+    sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${i}"
+    if [ ! -d "${sp_dir}" ]; then
+      echo "ERROR: missing SP directory ${sp_dir}"
+      exit 1
+    fi
     cd "${sp_dir}" || exit 1
     rm -rf ./data
     echo "succeed to reset piece store in ""${sp_dir}"
@@ -302,8 +318,8 @@ function reset_piece_store() {
 # print work dir #
 ##################
 function print_work_dir() {
-  for sp_dir in ${workspace}/${SP_DEPLOY_DIR}/*; do
-    echo "  ""${sp_dir}"
+  for ((i = 0; i < ${SP_NUM}; i++)); do
+    echo "  ${workspace}/${SP_DEPLOY_DIR}/sp${i}"
   done
 }
 
@@ -342,6 +358,9 @@ function main() {
   case ${CMD} in
   generate)
     generate_sp_db_info "$2" "$3" "$4" "$5"
+    ;;
+  make_config)
+    make_config
     ;;
   reset)
     reset_sp

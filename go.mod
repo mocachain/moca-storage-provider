@@ -338,24 +338,24 @@ require (
 
 replace (
 	// Use mocachain moca-cosmos-sdk for cosmos-sdk v0.50 compatibility
-	cosmossdk.io/api => github.com/mocachain/moca-cosmos-sdk/api v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
-	cosmossdk.io/client/v2 => github.com/mocachain/moca-cosmos-sdk/client/v2 v2.2.0-rc0.0.20260320030230-23b35dc2e9a2
-	cosmossdk.io/simapp => github.com/mocachain/moca-cosmos-sdk/simapp v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
-	cosmossdk.io/store => github.com/mocachain/moca-cosmos-sdk/store v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
-	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
-	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
+	cosmossdk.io/api => github.com/mocachain/moca-cosmos-sdk/api v1.2.0-rc0.0.20260320043122-0edb2e9d600f
+	cosmossdk.io/client/v2 => github.com/mocachain/moca-cosmos-sdk/client/v2 v2.2.0-rc0.0.20260320043122-0edb2e9d600f
+	cosmossdk.io/simapp => github.com/mocachain/moca-cosmos-sdk/simapp v1.2.0-rc0.0.20260320043122-0edb2e9d600f
+	cosmossdk.io/store => github.com/mocachain/moca-cosmos-sdk/store v1.2.0-rc0.0.20260320043122-0edb2e9d600f
+	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.2.0-rc0.0.20260320043122-0edb2e9d600f
+	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.2.0-rc0.0.20260320043122-0edb2e9d600f
 	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
-	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.2.0-rc0.0.20260319090650-6c202b1a2ec8
+	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.2.0-rc0.0.20260320015437-83994359d443
 	github.com/cometbft/cometbft-db => github.com/mocachain/moca-cometbft-db v1.1.1-0.20260316053933-22256c4c85b3
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.2.0-rc0.0.20260320030230-23b35dc2e9a2
+	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.2.0-rc0.0.20260320043122-0edb2e9d600f
 	github.com/cosmos/iavl => github.com/mocachain/moca-iavl v1.2.0-rc0.0.20260318093905-7d754d41e8e9
-	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc0.0.20260320034349-5cacbc5130b6
+	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc0.0.20260320043125-89f62f919f39
 	// use Evmos geth fork
 	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2.0.20260318105122-e849a5b4edee
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc4.0.20260319071234-22be1bc8c729
+	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc4.0.20260320060615-9f8f08384ec3
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -363,8 +363,8 @@ replace (
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260320034817-d80da530d4c0
+replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260320043135-b1f1e6fd4e65
 
-replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260320035048-4e8cfe20ee89
+replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260320043142-d578d73e2599
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260320034645-1a6d010a5ee6
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260320043131-de7b6add70a3
