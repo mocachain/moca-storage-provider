@@ -165,8 +165,8 @@ function test_file_size_greater_than_16_mb() {
 ################
 function test_sp_exit() {
   set -xe
-  # choose sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
+  # choose last SP (sp2 with SP_NUM=3)
+  cd "${workspace}"/deployment/localup/local_env/sp2
   operator_address=$(echo "$(grep "SpOperatorAddress" ./config.toml)" | grep -o "0x[0-9a-zA-Z]*")
   echo "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
@@ -186,9 +186,9 @@ function test_sp_exit() {
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new.json
   check_md5 ./random_file ./new_random_file
 
-  # start exiting sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
-  ./moca-sp5 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
+  # start exiting sp2
+  cd "${workspace}"/deployment/localup/local_env/sp2
+  ./moca-sp2 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
   ./moca-cmd -c ./config.toml --home ./ sp ls
   sleep 180
