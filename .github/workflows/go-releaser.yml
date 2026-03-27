@@ -27,6 +27,11 @@ jobs:
           submodules: true
           fetch-depth: 0
 
+      - name: Overlay release config from main
+        if: ${{ inputs.tag }}
+        run: |
+          git checkout origin/main -- .goreleaser.yml Dockerfile.release Makefile 2>/dev/null || true
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
