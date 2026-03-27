@@ -686,14 +686,14 @@ func (g *GateModular) downloadObject(w http.ResponseWriter, reqCtx *RequestConte
 			}
 			// if piece data is unreadable, trigger data recover task
 			if downloaderErr.GetInnerCode() == 85101 {
-			segmentIdx, recoverErr := g.baseApp.PieceOp().ParseSegmentIdx(pInfo.SegmentPieceKey)
-			if recoverErr != nil {
-				log.CtxErrorw(reqCtx.Context(), "failed to recover piece", "error", recoverErr)
-				return err
-			}
-			if segmentIdx >= segmentCount {
-				return err
-			}
+				segmentIdx, recoverErr := g.baseApp.PieceOp().ParseSegmentIdx(pInfo.SegmentPieceKey)
+				if recoverErr != nil {
+					log.CtxErrorw(reqCtx.Context(), "failed to recover piece", "error", recoverErr)
+					return err
+				}
+				if segmentIdx >= segmentCount {
+					return err
+				}
 
 				task := &gfsptask.GfSpRecoverPieceTask{}
 				task.InitRecoverPieceTask(objectInfo, params, coretask.DefaultLargerTaskPriority+1, segmentIdx, int32(-1), maxSegmentSize, 50, 1)

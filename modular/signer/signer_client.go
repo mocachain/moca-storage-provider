@@ -19,7 +19,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/evmos/evmos/v12/sdk/client"
 	"github.com/evmos/evmos/v12/sdk/keys"
 	ctypes "github.com/evmos/evmos/v12/sdk/types"
@@ -30,6 +29,7 @@ import (
 	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 // test seam: allow tests to stub WaitForEvmTx
