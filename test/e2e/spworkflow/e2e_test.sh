@@ -62,9 +62,9 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
-  bash ./deployment/localup/localup.sh --generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
-  bash ./deployment/localup/localup.sh --reset
-  bash ./deployment/localup/localup.sh --start
+  bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
+  bash ./deployment/localup/localup.sh reset
+  bash ./deployment/localup/localup.sh start
   sleep 60
   ./deployment/localup/local_env/sp0/moca-sp0 update.quota --quota 5000000000 -c deployment/localup/local_env/sp0/config.toml
   ./deployment/localup/local_env/sp1/moca-sp1 update.quota --quota 5000000000 -c deployment/localup/local_env/sp1/config.toml
