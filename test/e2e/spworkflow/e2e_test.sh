@@ -104,6 +104,7 @@ function build_cmd() {
   {
     echo rpcAddr = \"http://localhost:26657\"
     echo chainId = \"moca_5151-1\"
+    echo evmRpcAddr = \"http://localhost:8545\"
   } >config.toml
 }
 

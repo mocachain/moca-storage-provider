@@ -1,8 +1,14 @@
 name: SP Exit E2E Test
 
-# Disabled: depends on external repos (moca-cmd config setup broken).
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - develop
+      - fix-release*
+
+  pull_request:
+    branches:
 
 jobs:
   e2e-test:
