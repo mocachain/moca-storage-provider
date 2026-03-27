@@ -19,7 +19,7 @@ spec:
       containers:
       - name: sp-all-in-one
         image: ghcr.io/mocachain/moca-storage-provider:0.0.3
-        args: ["--log.std", "-c", "/config/config.toml", "-server", "approver,authenticator,block_syncer,downloader,taskexecutor,gateway,manager,metadata,p2p,receiver,signer,uploader"]
+        args: ["--log.std", "-c", "/config/config.toml", "-server", "approver,authenticator,blocksyncer,downloader,taskexecutor,gateway,manager,metadata,p2p,receiver,signer,uploader"]
         env:
           - name: AWS_ACCESS_KEY
             valueFrom:
