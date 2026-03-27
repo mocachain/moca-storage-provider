@@ -1,0 +1,15 @@
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates jq mariadb-client \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r sp -g 1000 && useradd -r -g sp -u 1000 sp
+
+WORKDIR /app
+
+COPY bin/moca-sp /usr/bin/moca-sp
+
+USER sp
+
+ENTRYPOINT ["moca-sp"]
