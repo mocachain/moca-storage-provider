@@ -182,7 +182,7 @@ func (b *BlockSyncerModular) dataMigration(ctx context.Context) {
 // serve start BlockSyncer rpc service
 func (b *BlockSyncerModular) serve(ctx context.Context) {
 	log.Infow("blocksyncer serve function started")
-	
+
 	migrateDBAny := ctx.Value(MigrateDBKey{})
 	if migrateDB, ok := migrateDBAny.(bool); ok && migrateDB {
 		log.Infow("initializing blocksyncer database", "migrateDB", migrateDB)

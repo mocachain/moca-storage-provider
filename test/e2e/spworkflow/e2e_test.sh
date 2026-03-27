@@ -8,9 +8,9 @@ workspace=${GITHUB_WORKSPACE}
 # some constants
 MOCA_TAG="main"
 # moca cmd tag name: v0.1.0
-MOCA_CMD_TAG="feat-adapt-tags"
+MOCA_CMD_TAG="main"
 # moca go sdk tag name: v1.0.0
-MOCA_GO_SDK_TAG="feat-adapt-tags"
+MOCA_GO_SDK_TAG="main"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
@@ -36,8 +36,14 @@ function moca_chain() {
   make build
 
   # start Moca chain
-  bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8 >sp.json
+  bash ./deployment/localup/localup.sh all 1 3
+  bash ./deployment/localup/localup.sh --verbose export_sps 1 3 2>/dev/null >sp.json
+  # validate sp.json is valid JSON
+  if ! jq empty sp.json 2>/dev/null; then
+    echo "ERROR: sp.json is not valid JSON, dumping contents:"
+    head -5 sp.json
+    exit 1
+  fi
 
   # transfer some amoca tokens
   transfer_account
@@ -49,7 +55,7 @@ function moca_chain() {
 function transfer_account() {
   set -e
   cd "${workspace}"/moca/
-  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 -y
+  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 --chain-id moca_5151-1 --fees 200000000000000amoca -y
   sleep 2
   ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657
 }
@@ -62,18 +68,13 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
-  bash ./deployment/localup/localup.sh --generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
-  bash ./deployment/localup/localup.sh --reset
-  bash ./deployment/localup/localup.sh --start
+  bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
+  bash ./deployment/localup/localup.sh reset
+  bash ./deployment/localup/localup.sh start
   sleep 60
-  ./deployment/localup/local_env/sp0/moca-sp0 update.quota --quota 5000000000 -c deployment/localup/local_env/sp0/config.toml
-  ./deployment/localup/local_env/sp1/moca-sp1 update.quota --quota 5000000000 -c deployment/localup/local_env/sp1/config.toml
-  ./deployment/localup/local_env/sp2/moca-sp2 update.quota --quota 5000000000 -c deployment/localup/local_env/sp2/config.toml
-  ./deployment/localup/local_env/sp3/moca-sp3 update.quota --quota 5000000000 -c deployment/localup/local_env/sp3/config.toml
-  ./deployment/localup/local_env/sp4/moca-sp4 update.quota --quota 5000000000 -c deployment/localup/local_env/sp4/config.toml
-  ./deployment/localup/local_env/sp5/moca-sp5 update.quota --quota 5000000000 -c deployment/localup/local_env/sp5/config.toml
-  ./deployment/localup/local_env/sp6/moca-sp6 update.quota --quota 5000000000 -c deployment/localup/local_env/sp6/config.toml
-  ./deployment/localup/local_env/sp7/moca-sp7 update.quota --quota 5000000000 -c deployment/localup/local_env/sp7/config.toml
+  for i in $(seq 0 2); do
+    ./deployment/localup/local_env/sp${i}/moca-sp${i} update.quota --quota 5000000000 -c deployment/localup/local_env/sp${i}/config.toml
+  done
   tail -n 1000 deployment/localup/local_env/sp0/moca-sp.log
   ps -ef | grep moca-sp | wc -l
 }
@@ -103,6 +104,7 @@ function build_cmd() {
   {
     echo rpcAddr = \"http://localhost:26657\"
     echo chainId = \"moca_5151-1\"
+    echo evmRpcAddr = \"http://localhost:8545\"
   } >config.toml
 }
 
@@ -163,8 +165,8 @@ function test_file_size_greater_than_16_mb() {
 ################
 function test_sp_exit() {
   set -xe
-  # choose sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
+  # choose last SP (sp2 with SP_NUM=3)
+  cd "${workspace}"/deployment/localup/local_env/sp2
   operator_address=$(echo "$(grep "SpOperatorAddress" ./config.toml)" | grep -o "0x[0-9a-zA-Z]*")
   echo "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
@@ -184,9 +186,9 @@ function test_sp_exit() {
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new.json
   check_md5 ./random_file ./new_random_file
 
-  # start exiting sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
-  ./moca-sp5 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
+  # start exiting sp2
+  cd "${workspace}"/deployment/localup/local_env/sp2
+  ./moca-sp2 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
   ./moca-cmd -c ./config.toml --home ./ sp ls
   sleep 180
@@ -287,7 +289,7 @@ function main() {
     run_e2e
     ;;
   --runSPExit)
-    #    run_sp_exit_e2e
+    run_sp_exit_e2e
     ;;
   --runSDKE2E)
     build_moca-go-sdk

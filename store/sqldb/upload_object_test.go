@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/stretchr/testify/assert"
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
 	storetypes "github.com/mocachain/moca-storage-provider/store/types"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSpDBImpl_InsertUploadProgressSuccess(t *testing.T) {

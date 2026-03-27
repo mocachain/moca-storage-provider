@@ -3,11 +3,11 @@ package receiver
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewReceiveModular(t *testing.T) {

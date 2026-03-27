@@ -3,8 +3,8 @@ package gfspapp
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRegisterModularFailure1(t *testing.T) {

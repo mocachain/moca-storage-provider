@@ -5,7 +5,6 @@
 //
 //	mockgen -source=./interface.go -destination=./interface_mock.go -package=gfspclient
 //
-
 // Package gfspclient is a generated GoMock package.
 package gfspclient
 
@@ -15,19 +14,19 @@ import (
 	http "net/http"
 	reflect "reflect"
 
+	resource "github.com/evmos/evmos/v12/types/resource"
+	types "github.com/evmos/evmos/v12/x/payment/types"
+	types0 "github.com/evmos/evmos/v12/x/permission/types"
+	types1 "github.com/evmos/evmos/v12/x/sp/types"
+	types2 "github.com/evmos/evmos/v12/x/storage/types"
+	types3 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	gfspp2p "github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	gfspserver "github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	gfsptask "github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	module "github.com/mocachain/moca-storage-provider/core/module"
 	rcmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 	task "github.com/mocachain/moca-storage-provider/core/task"
-	types "github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	resource "github.com/evmos/evmos/v12/types/resource"
-	types0 "github.com/evmos/evmos/v12/x/payment/types"
-	types1 "github.com/evmos/evmos/v12/x/permission/types"
-	types2 "github.com/evmos/evmos/v12/x/sp/types"
-	types3 "github.com/evmos/evmos/v12/x/storage/types"
-	types4 "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	types4 "github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	gomock "go.uber.org/mock/gomock"
 	grpc "google.golang.org/grpc"
 )
@@ -184,7 +183,7 @@ func (mr *MockGfSpClientAPIMockRecorder) Close() *gomock.Call {
 }
 
 // CompleteMigrateBucket mocks base method.
-func (m *MockGfSpClientAPI) CompleteMigrateBucket(ctx context.Context, migrateBucket *types3.MsgCompleteMigrateBucket) (string, error) {
+func (m *MockGfSpClientAPI) CompleteMigrateBucket(ctx context.Context, migrateBucket *types2.MsgCompleteMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteMigrateBucket", ctx, migrateBucket)
 	ret0, _ := ret[0].(string)
@@ -199,7 +198,7 @@ func (mr *MockGfSpClientAPIMockRecorder) CompleteMigrateBucket(ctx, migrateBucke
 }
 
 // CompleteSPExit mocks base method.
-func (m *MockGfSpClientAPI) CompleteSPExit(ctx context.Context, completeSPExit *types4.MsgCompleteStorageProviderExit) (string, error) {
+func (m *MockGfSpClientAPI) CompleteSPExit(ctx context.Context, completeSPExit *types3.MsgCompleteStorageProviderExit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSPExit", ctx, completeSPExit)
 	ret0, _ := ret[0].(string)
@@ -214,7 +213,7 @@ func (mr *MockGfSpClientAPIMockRecorder) CompleteSPExit(ctx, completeSPExit any)
 }
 
 // CompleteSwapIn mocks base method.
-func (m *MockGfSpClientAPI) CompleteSwapIn(ctx context.Context, completeSwpIn *types4.MsgCompleteSwapIn) (string, error) {
+func (m *MockGfSpClientAPI) CompleteSwapIn(ctx context.Context, completeSwpIn *types3.MsgCompleteSwapIn) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSwapIn", ctx, completeSwpIn)
 	ret0, _ := ret[0].(string)
@@ -229,7 +228,7 @@ func (mr *MockGfSpClientAPIMockRecorder) CompleteSwapIn(ctx, completeSwpIn any) 
 }
 
 // CompleteSwapOut mocks base method.
-func (m *MockGfSpClientAPI) CompleteSwapOut(ctx context.Context, completeSwapOut *types4.MsgCompleteSwapOut) (string, error) {
+func (m *MockGfSpClientAPI) CompleteSwapOut(ctx context.Context, completeSwapOut *types3.MsgCompleteSwapOut) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSwapOut", ctx, completeSwapOut)
 	ret0, _ := ret[0].(string)
@@ -325,7 +324,7 @@ func (mr *MockGfSpClientAPIMockRecorder) DeductQuotaForBucketMigrate(ctx, bucket
 }
 
 // DelegateCreateObject mocks base method.
-func (m *MockGfSpClientAPI) DelegateCreateObject(ctx context.Context, object *types3.MsgDelegateCreateObject) (string, error) {
+func (m *MockGfSpClientAPI) DelegateCreateObject(ctx context.Context, object *types2.MsgDelegateCreateObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DelegateCreateObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -340,7 +339,7 @@ func (mr *MockGfSpClientAPIMockRecorder) DelegateCreateObject(ctx, object any) *
 }
 
 // DelegateUpdateObjectContent mocks base method.
-func (m *MockGfSpClientAPI) DelegateUpdateObjectContent(ctx context.Context, object *types3.MsgDelegateUpdateObjectContent) (string, error) {
+func (m *MockGfSpClientAPI) DelegateUpdateObjectContent(ctx context.Context, object *types2.MsgDelegateUpdateObjectContent) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DelegateUpdateObjectContent", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -375,7 +374,7 @@ func (mr *MockGfSpClientAPIMockRecorder) DeleteAuthKeysV2(ctx, account, domain, 
 }
 
 // DeleteGlobalVirtualGroup mocks base method.
-func (m *MockGfSpClientAPI) DeleteGlobalVirtualGroup(ctx context.Context, deleteGVG *types4.MsgDeleteGlobalVirtualGroup) (string, error) {
+func (m *MockGfSpClientAPI) DeleteGlobalVirtualGroup(ctx context.Context, deleteGVG *types3.MsgDeleteGlobalVirtualGroup) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteGlobalVirtualGroup", ctx, deleteGVG)
 	ret0, _ := ret[0].(string)
@@ -390,7 +389,7 @@ func (mr *MockGfSpClientAPIMockRecorder) DeleteGlobalVirtualGroup(ctx, deleteGVG
 }
 
 // Deposit mocks base method.
-func (m *MockGfSpClientAPI) Deposit(ctx context.Context, deposit *types4.MsgDeposit) (string, error) {
+func (m *MockGfSpClientAPI) Deposit(ctx context.Context, deposit *types3.MsgDeposit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Deposit", ctx, deposit)
 	ret0, _ := ret[0].(string)
@@ -405,7 +404,7 @@ func (mr *MockGfSpClientAPIMockRecorder) Deposit(ctx, deposit any) *gomock.Call 
 }
 
 // DiscontinueBucket mocks base method.
-func (m *MockGfSpClientAPI) DiscontinueBucket(ctx context.Context, bucket *types3.MsgDiscontinueBucket) (string, error) {
+func (m *MockGfSpClientAPI) DiscontinueBucket(ctx context.Context, bucket *types2.MsgDiscontinueBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DiscontinueBucket", ctx, bucket)
 	ret0, _ := ret[0].(string)
@@ -500,14 +499,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetAuthNonce(ctx, account, domain any, 
 }
 
 // GetBsDBInfo mocks base method.
-func (m *MockGfSpClientAPI) GetBsDBInfo(ctx context.Context, blockHeight uint64, opts ...grpc.DialOption) (*types.GfSpGetBsDBInfoResponse, error) {
+func (m *MockGfSpClientAPI) GetBsDBInfo(ctx context.Context, blockHeight uint64, opts ...grpc.DialOption) (*types4.GfSpGetBsDBInfoResponse, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockHeight}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBsDBInfo", varargs...)
-	ret0, _ := ret[0].(*types.GfSpGetBsDBInfoResponse)
+	ret0, _ := ret[0].(*types4.GfSpGetBsDBInfoResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -520,14 +519,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetBsDBInfo(ctx, blockHeight any, opts 
 }
 
 // GetBucketByBucketID mocks base method.
-func (m *MockGfSpClientAPI) GetBucketByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockGfSpClientAPI) GetBucketByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketByBucketID", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -540,14 +539,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetBucketByBucketID(ctx, bucketID, incl
 }
 
 // GetBucketByBucketName mocks base method.
-func (m *MockGfSpClientAPI) GetBucketByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockGfSpClientAPI) GetBucketByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketByBucketName", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -560,14 +559,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetBucketByBucketName(ctx, bucketName, 
 }
 
 // GetBucketInfoByBucketName mocks base method.
-func (m *MockGfSpClientAPI) GetBucketInfoByBucketName(ctx context.Context, bucketName string, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockGfSpClientAPI) GetBucketInfoByBucketName(ctx context.Context, bucketName string, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketInfoByBucketName", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -580,15 +579,15 @@ func (mr *MockGfSpClientAPIMockRecorder) GetBucketInfoByBucketName(ctx, bucketNa
 }
 
 // GetBucketMeta mocks base method.
-func (m *MockGfSpClientAPI) GetBucketMeta(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.VGFInfoBucket, *types0.StreamRecord, error) {
+func (m *MockGfSpClientAPI) GetBucketMeta(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.VGFInfoBucket, *types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketMeta", varargs...)
-	ret0, _ := ret[0].(*types.VGFInfoBucket)
-	ret1, _ := ret[1].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types4.VGFInfoBucket)
+	ret1, _ := ret[1].(*types.StreamRecord)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -601,7 +600,7 @@ func (mr *MockGfSpClientAPIMockRecorder) GetBucketMeta(ctx, bucketName, includeP
 }
 
 // GetBucketReadQuota mocks base method.
-func (m *MockGfSpClientAPI) GetBucketReadQuota(ctx context.Context, bucket *types3.BucketInfo, yearMonth string, opts ...grpc.DialOption) (uint64, uint64, uint64, uint64, uint64, uint64, error) {
+func (m *MockGfSpClientAPI) GetBucketReadQuota(ctx context.Context, bucket *types2.BucketInfo, yearMonth string, opts ...grpc.DialOption) (uint64, uint64, uint64, uint64, uint64, uint64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucket, yearMonth}
 	for _, a := range opts {
@@ -708,14 +707,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetEndpointBySpID(ctx, spID any, opts .
 }
 
 // GetGlobalVirtualGroup mocks base method.
-func (m *MockGfSpClientAPI) GetGlobalVirtualGroup(ctx context.Context, bucketID uint64, lvgID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroup, error) {
+func (m *MockGfSpClientAPI) GetGlobalVirtualGroup(ctx context.Context, bucketID uint64, lvgID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, lvgID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGlobalVirtualGroup", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -728,14 +727,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetGlobalVirtualGroup(ctx, bucketID, lv
 }
 
 // GetGlobalVirtualGroupByGvgID mocks base method.
-func (m *MockGfSpClientAPI) GetGlobalVirtualGroupByGvgID(ctx context.Context, gvgID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroup, error) {
+func (m *MockGfSpClientAPI) GetGlobalVirtualGroupByGvgID(ctx context.Context, gvgID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGlobalVirtualGroupByGvgID", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -748,14 +747,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetGlobalVirtualGroupByGvgID(ctx, gvgID
 }
 
 // GetGroupList mocks base method.
-func (m *MockGfSpClientAPI) GetGroupList(ctx context.Context, name, prefix, sourceType string, limit, offset int64, includeRemoved bool, opts ...grpc.DialOption) ([]*types.Group, int64, error) {
+func (m *MockGfSpClientAPI) GetGroupList(ctx context.Context, name, prefix, sourceType string, limit, offset int64, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.Group, int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, prefix, sourceType, limit, offset, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGroupList", varargs...)
-	ret0, _ := ret[0].([]*types.Group)
+	ret0, _ := ret[0].([]*types4.Group)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -769,14 +768,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetGroupList(ctx, name, prefix, sourceT
 }
 
 // GetGroupMembers mocks base method.
-func (m *MockGfSpClientAPI) GetGroupMembers(ctx context.Context, groupID uint64, startAfter string, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockGfSpClientAPI) GetGroupMembers(ctx context.Context, groupID uint64, startAfter string, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, groupID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGroupMembers", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -864,14 +863,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetObject(ctx, downloadObjectTask any, 
 }
 
 // GetObjectByID mocks base method.
-func (m *MockGfSpClientAPI) GetObjectByID(ctx context.Context, objectID uint64, opts ...grpc.DialOption) (*types3.ObjectInfo, error) {
+func (m *MockGfSpClientAPI) GetObjectByID(ctx context.Context, objectID uint64, opts ...grpc.DialOption) (*types2.ObjectInfo, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetObjectByID", varargs...)
-	ret0, _ := ret[0].(*types3.ObjectInfo)
+	ret0, _ := ret[0].(*types2.ObjectInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -884,14 +883,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetObjectByID(ctx, objectID any, opts .
 }
 
 // GetObjectMeta mocks base method.
-func (m *MockGfSpClientAPI) GetObjectMeta(ctx context.Context, objectName, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.Object, error) {
+func (m *MockGfSpClientAPI) GetObjectMeta(ctx context.Context, objectName, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.Object, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectName, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetObjectMeta", varargs...)
-	ret0, _ := ret[0].(*types.Object)
+	ret0, _ := ret[0].(*types4.Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -904,14 +903,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetObjectMeta(ctx, objectName, bucketNa
 }
 
 // GetPaymentByBucketID mocks base method.
-func (m *MockGfSpClientAPI) GetPaymentByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types0.StreamRecord, error) {
+func (m *MockGfSpClientAPI) GetPaymentByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetPaymentByBucketID", varargs...)
-	ret0, _ := ret[0].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types.StreamRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -924,14 +923,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetPaymentByBucketID(ctx, bucketID, inc
 }
 
 // GetPaymentByBucketName mocks base method.
-func (m *MockGfSpClientAPI) GetPaymentByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types0.StreamRecord, error) {
+func (m *MockGfSpClientAPI) GetPaymentByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetPaymentByBucketName", varargs...)
-	ret0, _ := ret[0].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types.StreamRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -979,14 +978,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetPieceFromECChunks(ctx, endpoint, tas
 }
 
 // GetSPInfo mocks base method.
-func (m *MockGfSpClientAPI) GetSPInfo(ctx context.Context, operatorAddress string, opts ...grpc.DialOption) (*types2.StorageProvider, error) {
+func (m *MockGfSpClientAPI) GetSPInfo(ctx context.Context, operatorAddress string, opts ...grpc.DialOption) (*types1.StorageProvider, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, operatorAddress}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetSPInfo", varargs...)
-	ret0, _ := ret[0].(*types2.StorageProvider)
+	ret0, _ := ret[0].(*types1.StorageProvider)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1019,7 +1018,7 @@ func (mr *MockGfSpClientAPIMockRecorder) GetSPMigratingBucketNumber(ctx, spID an
 }
 
 // GetSecondarySPMigrationBucketApproval mocks base method.
-func (m *MockGfSpClientAPI) GetSecondarySPMigrationBucketApproval(ctx context.Context, secondarySPEndpoint string, signDoc *types3.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
+func (m *MockGfSpClientAPI) GetSecondarySPMigrationBucketApproval(ctx context.Context, secondarySPEndpoint string, signDoc *types2.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSecondarySPMigrationBucketApproval", ctx, secondarySPEndpoint, signDoc)
 	ret0, _ := ret[0].([]byte)
@@ -1034,14 +1033,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetSecondarySPMigrationBucketApproval(c
 }
 
 // GetStatus mocks base method.
-func (m *MockGfSpClientAPI) GetStatus(ctx context.Context, opts ...grpc.DialOption) (*types.Status, error) {
+func (m *MockGfSpClientAPI) GetStatus(ctx context.Context, opts ...grpc.DialOption) (*types4.Status, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetStatus", varargs...)
-	ret0, _ := ret[0].(*types.Status)
+	ret0, _ := ret[0].(*types4.Status)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1054,10 +1053,10 @@ func (mr *MockGfSpClientAPIMockRecorder) GetStatus(ctx any, opts ...any) *gomock
 }
 
 // GetSwapOutApproval mocks base method.
-func (m *MockGfSpClientAPI) GetSwapOutApproval(ctx context.Context, destSPEndpoint string, swapOutApproval *types4.MsgSwapOut) (*types4.MsgSwapOut, error) {
+func (m *MockGfSpClientAPI) GetSwapOutApproval(ctx context.Context, destSPEndpoint string, swapOutApproval *types3.MsgSwapOut) (*types3.MsgSwapOut, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSwapOutApproval", ctx, destSPEndpoint, swapOutApproval)
-	ret0, _ := ret[0].(*types4.MsgSwapOut)
+	ret0, _ := ret[0].(*types3.MsgSwapOut)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1125,14 +1124,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetUploadObjectState(ctx, objectID any,
 }
 
 // GetUserBuckets mocks base method.
-func (m *MockGfSpClientAPI) GetUserBuckets(ctx context.Context, account string, includeRemoved bool, opts ...grpc.DialOption) ([]*types.VGFInfoBucket, error) {
+func (m *MockGfSpClientAPI) GetUserBuckets(ctx context.Context, account string, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.VGFInfoBucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, account, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserBuckets", varargs...)
-	ret0, _ := ret[0].([]*types.VGFInfoBucket)
+	ret0, _ := ret[0].([]*types4.VGFInfoBucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1165,14 +1164,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetUserBucketsCount(ctx, account, inclu
 }
 
 // GetUserGroups mocks base method.
-func (m *MockGfSpClientAPI) GetUserGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockGfSpClientAPI) GetUserGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserGroups", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1185,14 +1184,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetUserGroups(ctx, accountID, startAfte
 }
 
 // GetUserOwnedGroups mocks base method.
-func (m *MockGfSpClientAPI) GetUserOwnedGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockGfSpClientAPI) GetUserOwnedGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserOwnedGroups", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1205,14 +1204,14 @@ func (mr *MockGfSpClientAPIMockRecorder) GetUserOwnedGroups(ctx, accountID, star
 }
 
 // GetVirtualGroupFamily mocks base method.
-func (m *MockGfSpClientAPI) GetVirtualGroupFamily(ctx context.Context, vgfID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroupFamily, error) {
+func (m *MockGfSpClientAPI) GetVirtualGroupFamily(ctx context.Context, vgfID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroupFamily, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, vgfID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetVirtualGroupFamily", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroupFamily)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroupFamily)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1259,14 +1258,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListAuthKeysV2(ctx, account, domain any
 }
 
 // ListBucketReadQuota mocks base method.
-func (m *MockGfSpClientAPI) ListBucketReadQuota(ctx context.Context, yearMonth string, offset, limit uint32, opts ...grpc.DialOption) ([]*types.BucketReadQuotaRecord, error) {
+func (m *MockGfSpClientAPI) ListBucketReadQuota(ctx context.Context, yearMonth string, offset, limit uint32, opts ...grpc.DialOption) ([]*types4.BucketReadQuotaRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, yearMonth, offset, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketReadQuota", varargs...)
-	ret0, _ := ret[0].([]*types.BucketReadQuotaRecord)
+	ret0, _ := ret[0].([]*types4.BucketReadQuotaRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1279,14 +1278,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListBucketReadQuota(ctx, yearMonth, off
 }
 
 // ListBucketReadRecord mocks base method.
-func (m *MockGfSpClientAPI) ListBucketReadRecord(ctx context.Context, bucket *types3.BucketInfo, startTimestampUs, endTimestampUs, maxRecordNum int64, opts ...grpc.DialOption) ([]*types.ReadRecord, int64, error) {
+func (m *MockGfSpClientAPI) ListBucketReadRecord(ctx context.Context, bucket *types2.BucketInfo, startTimestampUs, endTimestampUs, maxRecordNum int64, opts ...grpc.DialOption) ([]*types4.ReadRecord, int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucket, startTimestampUs, endTimestampUs, maxRecordNum}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketReadRecord", varargs...)
-	ret0, _ := ret[0].([]*types.ReadRecord)
+	ret0, _ := ret[0].([]*types4.ReadRecord)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -1300,14 +1299,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListBucketReadRecord(ctx, bucket, start
 }
 
 // ListBucketsByIDs mocks base method.
-func (m *MockGfSpClientAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
+func (m *MockGfSpClientAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketIDs, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Bucket)
+	ret0, _ := ret[0].(map[uint64]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1320,14 +1319,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListBucketsByIDs(ctx, bucketIDs, includ
 }
 
 // ListCompleteMigrationBucketEvents mocks base method.
-func (m *MockGfSpClientAPI) ListCompleteMigrationBucketEvents(ctx context.Context, blockID uint64, srcSpID uint32, opts ...grpc.DialOption) ([]*types3.EventCompleteMigrationBucket, error) {
+func (m *MockGfSpClientAPI) ListCompleteMigrationBucketEvents(ctx context.Context, blockID uint64, srcSpID uint32, opts ...grpc.DialOption) ([]*types2.EventCompleteMigrationBucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, srcSpID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListCompleteMigrationBucketEvents", varargs...)
-	ret0, _ := ret[0].([]*types3.EventCompleteMigrationBucket)
+	ret0, _ := ret[0].([]*types2.EventCompleteMigrationBucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1340,14 +1339,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListCompleteMigrationBucketEvents(ctx, 
 }
 
 // ListDeletedObjectsByBlockNumberRange mocks base method.
-func (m *MockGfSpClientAPI) ListDeletedObjectsByBlockNumberRange(ctx context.Context, spOperatorAddress string, startBlockNumber, endBlockNumber uint64, includePrivate bool, opts ...grpc.DialOption) ([]*types.Object, uint64, error) {
+func (m *MockGfSpClientAPI) ListDeletedObjectsByBlockNumberRange(ctx context.Context, spOperatorAddress string, startBlockNumber, endBlockNumber uint64, includePrivate bool, opts ...grpc.DialOption) ([]*types4.Object, uint64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spOperatorAddress, startBlockNumber, endBlockNumber, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListDeletedObjectsByBlockNumberRange", varargs...)
-	ret0, _ := ret[0].([]*types.Object)
+	ret0, _ := ret[0].([]*types4.Object)
 	ret1, _ := ret[1].(uint64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -1361,14 +1360,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListDeletedObjectsByBlockNumberRange(ct
 }
 
 // ListExpiredBucketsBySp mocks base method.
-func (m *MockGfSpClientAPI) ListExpiredBucketsBySp(ctx context.Context, createAt int64, primarySpID uint32, limit int64, opts ...grpc.DialOption) ([]*types.Bucket, error) {
+func (m *MockGfSpClientAPI) ListExpiredBucketsBySp(ctx context.Context, createAt int64, primarySpID uint32, limit int64, opts ...grpc.DialOption) ([]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, createAt, primarySpID, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListExpiredBucketsBySp", varargs...)
-	ret0, _ := ret[0].([]*types.Bucket)
+	ret0, _ := ret[0].([]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1381,14 +1380,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListExpiredBucketsBySp(ctx, createAt, p
 }
 
 // ListGlobalVirtualGroupsByBucket mocks base method.
-func (m *MockGfSpClientAPI) ListGlobalVirtualGroupsByBucket(ctx context.Context, bucketID uint64, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroup, error) {
+func (m *MockGfSpClientAPI) ListGlobalVirtualGroupsByBucket(ctx context.Context, bucketID uint64, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGlobalVirtualGroupsByBucket", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1401,14 +1400,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListGlobalVirtualGroupsByBucket(ctx, bu
 }
 
 // ListGlobalVirtualGroupsBySecondarySP mocks base method.
-func (m *MockGfSpClientAPI) ListGlobalVirtualGroupsBySecondarySP(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroup, error) {
+func (m *MockGfSpClientAPI) ListGlobalVirtualGroupsBySecondarySP(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGlobalVirtualGroupsBySecondarySP", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1421,14 +1420,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListGlobalVirtualGroupsBySecondarySP(ct
 }
 
 // ListGroupsByIDs mocks base method.
-func (m *MockGfSpClientAPI) ListGroupsByIDs(ctx context.Context, groupIDs []uint64, opts ...grpc.DialOption) (map[uint64]*types.Group, error) {
+func (m *MockGfSpClientAPI) ListGroupsByIDs(ctx context.Context, groupIDs []uint64, opts ...grpc.DialOption) (map[uint64]*types4.Group, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, groupIDs}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGroupsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Group)
+	ret0, _ := ret[0].(map[uint64]*types4.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1441,14 +1440,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListGroupsByIDs(ctx, groupIDs any, opts
 }
 
 // ListMigrateBucketEvents mocks base method.
-func (m *MockGfSpClientAPI) ListMigrateBucketEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types.ListMigrateBucketEvents, error) {
+func (m *MockGfSpClientAPI) ListMigrateBucketEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types4.ListMigrateBucketEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListMigrateBucketEvents", varargs...)
-	ret0, _ := ret[0].([]*types.ListMigrateBucketEvents)
+	ret0, _ := ret[0].([]*types4.ListMigrateBucketEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1461,14 +1460,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListMigrateBucketEvents(ctx, blockID, s
 }
 
 // ListObjectPolicies mocks base method.
-func (m *MockGfSpClientAPI) ListObjectPolicies(ctx context.Context, objectName, bucketName string, startAfter uint64, actionType int32, limit uint32, opts ...grpc.DialOption) ([]*types.Policy, error) {
+func (m *MockGfSpClientAPI) ListObjectPolicies(ctx context.Context, objectName, bucketName string, startAfter uint64, actionType int32, limit uint32, opts ...grpc.DialOption) ([]*types4.Policy, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectName, bucketName, startAfter, actionType, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectPolicies", varargs...)
-	ret0, _ := ret[0].([]*types.Policy)
+	ret0, _ := ret[0].([]*types4.Policy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1481,14 +1480,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectPolicies(ctx, objectName, buc
 }
 
 // ListObjectsByBucketName mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsByBucketName(ctx context.Context, bucketName, accountID string, maxKeys uint64, startAfter, continuationToken, delimiter, prefix string, includeRemoved bool, opts ...grpc.DialOption) ([]*types.Object, uint64, uint64, bool, string, string, string, string, []string, string, error) {
+func (m *MockGfSpClientAPI) ListObjectsByBucketName(ctx context.Context, bucketName, accountID string, maxKeys uint64, startAfter, continuationToken, delimiter, prefix string, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.Object, uint64, uint64, bool, string, string, string, string, []string, string, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, accountID, maxKeys, startAfter, continuationToken, delimiter, prefix, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByBucketName", varargs...)
-	ret0, _ := ret[0].([]*types.Object)
+	ret0, _ := ret[0].([]*types4.Object)
 	ret1, _ := ret[1].(uint64)
 	ret2, _ := ret[2].(uint64)
 	ret3, _ := ret[3].(bool)
@@ -1510,14 +1509,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByBucketName(ctx, bucketName
 }
 
 // ListObjectsByGVGAndBucketForGC mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsByGVGAndBucketForGC(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockGfSpClientAPI) ListObjectsByGVGAndBucketForGC(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, bucketID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByGVGAndBucketForGC", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1530,14 +1529,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByGVGAndBucketForGC(ctx, gvg
 }
 
 // ListObjectsByIDs mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
+func (m *MockGfSpClientAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types4.Object, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectIDs, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Object)
+	ret0, _ := ret[0].(map[uint64]*types4.Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1550,14 +1549,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByIDs(ctx, objectIDs, includ
 }
 
 // ListObjectsInGVG mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsInGVG(ctx context.Context, gvgID uint32, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockGfSpClientAPI) ListObjectsInGVG(ctx context.Context, gvgID uint32, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsInGVG", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1570,14 +1569,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsInGVG(ctx, gvgID, startAfter
 }
 
 // ListObjectsInGVGAndBucket mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsInGVGAndBucket(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockGfSpClientAPI) ListObjectsInGVGAndBucket(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, bucketID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsInGVGAndBucket", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1590,14 +1589,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsInGVGAndBucket(ctx, gvgID, b
 }
 
 // ListPaymentAccountStreams mocks base method.
-func (m *MockGfSpClientAPI) ListPaymentAccountStreams(ctx context.Context, paymentAccount string, opts ...grpc.DialOption) ([]*types.Bucket, error) {
+func (m *MockGfSpClientAPI) ListPaymentAccountStreams(ctx context.Context, paymentAccount string, opts ...grpc.DialOption) ([]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, paymentAccount}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListPaymentAccountStreams", varargs...)
-	ret0, _ := ret[0].([]*types.Bucket)
+	ret0, _ := ret[0].([]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1610,14 +1609,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListPaymentAccountStreams(ctx, paymentA
 }
 
 // ListSpExitEvents mocks base method.
-func (m *MockGfSpClientAPI) ListSpExitEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) (*types.ListSpExitEvents, error) {
+func (m *MockGfSpClientAPI) ListSpExitEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) (*types4.ListSpExitEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListSpExitEvents", varargs...)
-	ret0, _ := ret[0].(*types.ListSpExitEvents)
+	ret0, _ := ret[0].(*types4.ListSpExitEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1630,14 +1629,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListSpExitEvents(ctx, blockID, spID any
 }
 
 // ListSwapOutEvents mocks base method.
-func (m *MockGfSpClientAPI) ListSwapOutEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types.ListSwapOutEvents, error) {
+func (m *MockGfSpClientAPI) ListSwapOutEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types4.ListSwapOutEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListSwapOutEvents", varargs...)
-	ret0, _ := ret[0].([]*types.ListSwapOutEvents)
+	ret0, _ := ret[0].([]*types4.ListSwapOutEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1650,14 +1649,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListSwapOutEvents(ctx, blockID, spID an
 }
 
 // ListUserPaymentAccounts mocks base method.
-func (m *MockGfSpClientAPI) ListUserPaymentAccounts(ctx context.Context, accountID string, opts ...grpc.DialOption) ([]*types.PaymentAccountMeta, error) {
+func (m *MockGfSpClientAPI) ListUserPaymentAccounts(ctx context.Context, accountID string, opts ...grpc.DialOption) ([]*types4.PaymentAccountMeta, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListUserPaymentAccounts", varargs...)
-	ret0, _ := ret[0].([]*types.PaymentAccountMeta)
+	ret0, _ := ret[0].([]*types4.PaymentAccountMeta)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1670,14 +1669,14 @@ func (mr *MockGfSpClientAPIMockRecorder) ListUserPaymentAccounts(ctx, accountID 
 }
 
 // ListVirtualGroupFamiliesSpID mocks base method.
-func (m *MockGfSpClientAPI) ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroupFamily, error) {
+func (m *MockGfSpClientAPI) ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroupFamily, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListVirtualGroupFamiliesSpID", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroupFamily)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroupFamily)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1725,7 +1724,7 @@ func (mr *MockGfSpClientAPIMockRecorder) MigratePiece(ctx, gvgTask, pieceTask an
 }
 
 // NotifyDestSPMigrateSwapOut mocks base method.
-func (m *MockGfSpClientAPI) NotifyDestSPMigrateSwapOut(ctx context.Context, destEndpoint string, swapOut *types4.MsgSwapOut) error {
+func (m *MockGfSpClientAPI) NotifyDestSPMigrateSwapOut(ctx context.Context, destEndpoint string, swapOut *types3.MsgSwapOut) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NotifyDestSPMigrateSwapOut", ctx, destEndpoint, swapOut)
 	ret0, _ := ret[0].(error)
@@ -1739,7 +1738,7 @@ func (mr *MockGfSpClientAPIMockRecorder) NotifyDestSPMigrateSwapOut(ctx, destEnd
 }
 
 // NotifyMigrateSwapOut mocks base method.
-func (m *MockGfSpClientAPI) NotifyMigrateSwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) error {
+func (m *MockGfSpClientAPI) NotifyMigrateSwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NotifyMigrateSwapOut", ctx, swapOut)
 	ret0, _ := ret[0].(error)
@@ -1848,7 +1847,7 @@ func (mr *MockGfSpClientAPIMockRecorder) PreMigrateBucket(ctx, srcSPEndpoint, pr
 }
 
 // PrimarySpIncomeDetails mocks base method.
-func (m *MockGfSpClientAPI) PrimarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types.PrimarySpIncomeDetail, error) {
+func (m *MockGfSpClientAPI) PrimarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types4.PrimarySpIncomeDetail, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
@@ -1856,7 +1855,7 @@ func (m *MockGfSpClientAPI) PrimarySpIncomeDetails(ctx context.Context, spID uin
 	}
 	ret := m.ctrl.Call(m, "PrimarySpIncomeDetails", varargs...)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].([]*types.PrimarySpIncomeDetail)
+	ret1, _ := ret[1].([]*types4.PrimarySpIncomeDetail)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -1992,7 +1991,7 @@ func (mr *MockGfSpClientAPIMockRecorder) RecoupQuota(ctx, bucketID, extraQuota, 
 }
 
 // RejectMigrateBucket mocks base method.
-func (m *MockGfSpClientAPI) RejectMigrateBucket(ctx context.Context, rejectMigrateBucket *types3.MsgRejectMigrateBucket) (string, error) {
+func (m *MockGfSpClientAPI) RejectMigrateBucket(ctx context.Context, rejectMigrateBucket *types2.MsgRejectMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RejectMigrateBucket", ctx, rejectMigrateBucket)
 	ret0, _ := ret[0].(string)
@@ -2007,7 +2006,7 @@ func (mr *MockGfSpClientAPIMockRecorder) RejectMigrateBucket(ctx, rejectMigrateB
 }
 
 // RejectUnSealObject mocks base method.
-func (m *MockGfSpClientAPI) RejectUnSealObject(ctx context.Context, object *types3.MsgRejectSealObject) (string, error) {
+func (m *MockGfSpClientAPI) RejectUnSealObject(ctx context.Context, object *types2.MsgRejectSealObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RejectUnSealObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -2069,7 +2068,7 @@ func (mr *MockGfSpClientAPIMockRecorder) ReportTask(ctx, report any) *gomock.Cal
 }
 
 // ReserveSwapIn mocks base method.
-func (m *MockGfSpClientAPI) ReserveSwapIn(ctx context.Context, reserveSwapIn *types4.MsgReserveSwapIn) (string, error) {
+func (m *MockGfSpClientAPI) ReserveSwapIn(ctx context.Context, reserveSwapIn *types3.MsgReserveSwapIn) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReserveSwapIn", ctx, reserveSwapIn)
 	ret0, _ := ret[0].(string)
@@ -2103,7 +2102,7 @@ func (mr *MockGfSpClientAPIMockRecorder) ResumableUploadObject(ctx, task, stream
 }
 
 // SPExit mocks base method.
-func (m *MockGfSpClientAPI) SPExit(ctx context.Context, spExit *types4.MsgStorageProviderExit) (string, error) {
+func (m *MockGfSpClientAPI) SPExit(ctx context.Context, spExit *types3.MsgStorageProviderExit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SPExit", ctx, spExit)
 	ret0, _ := ret[0].(string)
@@ -2118,7 +2117,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SPExit(ctx, spExit any) *gomock.Call {
 }
 
 // SealObject mocks base method.
-func (m *MockGfSpClientAPI) SealObject(ctx context.Context, object *types3.MsgSealObject) (string, error) {
+func (m *MockGfSpClientAPI) SealObject(ctx context.Context, object *types2.MsgSealObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SealObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -2133,7 +2132,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SealObject(ctx, object any) *gomock.Cal
 }
 
 // SealObjectV2 mocks base method.
-func (m *MockGfSpClientAPI) SealObjectV2(ctx context.Context, object *types3.MsgSealObjectV2) (string, error) {
+func (m *MockGfSpClientAPI) SealObjectV2(ctx context.Context, object *types2.MsgSealObjectV2) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SealObjectV2", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -2148,7 +2147,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SealObjectV2(ctx, object any) *gomock.C
 }
 
 // SecondarySpIncomeDetails mocks base method.
-func (m *MockGfSpClientAPI) SecondarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types.SecondarySpIncomeDetail, error) {
+func (m *MockGfSpClientAPI) SecondarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types4.SecondarySpIncomeDetail, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
@@ -2156,7 +2155,7 @@ func (m *MockGfSpClientAPI) SecondarySpIncomeDetails(ctx context.Context, spID u
 	}
 	ret := m.ctrl.Call(m, "SecondarySpIncomeDetails", varargs...)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].([]*types.SecondarySpIncomeDetail)
+	ret1, _ := ret[1].([]*types4.SecondarySpIncomeDetail)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -2184,7 +2183,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignBucketMigrationInfo(ctx, task any) 
 }
 
 // SignCreateBucketApproval mocks base method.
-func (m *MockGfSpClientAPI) SignCreateBucketApproval(ctx context.Context, bucket *types3.MsgCreateBucket) ([]byte, error) {
+func (m *MockGfSpClientAPI) SignCreateBucketApproval(ctx context.Context, bucket *types2.MsgCreateBucket) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignCreateBucketApproval", ctx, bucket)
 	ret0, _ := ret[0].([]byte)
@@ -2199,7 +2198,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignCreateBucketApproval(ctx, bucket an
 }
 
 // SignCreateObjectApproval mocks base method.
-func (m *MockGfSpClientAPI) SignCreateObjectApproval(ctx context.Context, object *types3.MsgCreateObject) ([]byte, error) {
+func (m *MockGfSpClientAPI) SignCreateObjectApproval(ctx context.Context, object *types2.MsgCreateObject) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignCreateObjectApproval", ctx, object)
 	ret0, _ := ret[0].([]byte)
@@ -2214,7 +2213,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignCreateObjectApproval(ctx, object an
 }
 
 // SignMigrateBucketApproval mocks base method.
-func (m *MockGfSpClientAPI) SignMigrateBucketApproval(ctx context.Context, bucket *types3.MsgMigrateBucket) ([]byte, error) {
+func (m *MockGfSpClientAPI) SignMigrateBucketApproval(ctx context.Context, bucket *types2.MsgMigrateBucket) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignMigrateBucketApproval", ctx, bucket)
 	ret0, _ := ret[0].([]byte)
@@ -2319,7 +2318,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignReplicatePieceApproval(ctx, task an
 }
 
 // SignSecondarySPMigrationBucket mocks base method.
-func (m *MockGfSpClientAPI) SignSecondarySPMigrationBucket(ctx context.Context, signDoc *types3.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
+func (m *MockGfSpClientAPI) SignSecondarySPMigrationBucket(ctx context.Context, signDoc *types2.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignSecondarySPMigrationBucket", ctx, signDoc)
 	ret0, _ := ret[0].([]byte)
@@ -2349,7 +2348,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignSecondarySealBls(ctx, objectID, gvg
 }
 
 // SignSwapOut mocks base method.
-func (m *MockGfSpClientAPI) SignSwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) ([]byte, error) {
+func (m *MockGfSpClientAPI) SignSwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignSwapOut", ctx, swapOut)
 	ret0, _ := ret[0].([]byte)
@@ -2384,7 +2383,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SignerConn(ctx any, opts ...any) *gomoc
 }
 
 // SwapOut mocks base method.
-func (m *MockGfSpClientAPI) SwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) (string, error) {
+func (m *MockGfSpClientAPI) SwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SwapOut", ctx, swapOut)
 	ret0, _ := ret[0].(string)
@@ -2399,7 +2398,7 @@ func (mr *MockGfSpClientAPIMockRecorder) SwapOut(ctx, swapOut any) *gomock.Call 
 }
 
 // UpdateSPPrice mocks base method.
-func (m *MockGfSpClientAPI) UpdateSPPrice(ctx context.Context, price *types2.MsgUpdateSpStoragePrice) (string, error) {
+func (m *MockGfSpClientAPI) UpdateSPPrice(ctx context.Context, price *types1.MsgUpdateSpStoragePrice) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSPPrice", ctx, price)
 	ret0, _ := ret[0].(string)
@@ -2533,14 +2532,14 @@ func (mr *MockGfSpClientAPIMockRecorder) VerifyGNFD2EddsaSignature(ctx, account,
 }
 
 // VerifyMigrateGVGPermission mocks base method.
-func (m *MockGfSpClientAPI) VerifyMigrateGVGPermission(ctx context.Context, bucketID uint64, gvgID, dstSpID uint32, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockGfSpClientAPI) VerifyMigrateGVGPermission(ctx context.Context, bucketID uint64, gvgID, dstSpID uint32, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, gvgID, dstSpID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyMigrateGVGPermission", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2553,14 +2552,14 @@ func (mr *MockGfSpClientAPIMockRecorder) VerifyMigrateGVGPermission(ctx, bucketI
 }
 
 // VerifyPermission mocks base method.
-func (m *MockGfSpClientAPI) VerifyPermission(ctx context.Context, Operator, bucketName, objectName string, actionType types1.ActionType, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockGfSpClientAPI) VerifyPermission(ctx context.Context, Operator, bucketName, objectName string, actionType types0.ActionType, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, Operator, bucketName, objectName, actionType}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyPermission", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2573,14 +2572,14 @@ func (mr *MockGfSpClientAPIMockRecorder) VerifyPermission(ctx, Operator, bucketN
 }
 
 // VerifyPermissionByID mocks base method.
-func (m *MockGfSpClientAPI) VerifyPermissionByID(ctx context.Context, Operator string, resourceType resource.ResourceType, resourceID uint64, actionType types1.ActionType, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockGfSpClientAPI) VerifyPermissionByID(ctx context.Context, Operator string, resourceType resource.ResourceType, resourceID uint64, actionType types0.ActionType, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, Operator, resourceType, resourceID, actionType}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyPermissionByID", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3063,7 +3062,7 @@ func (mr *MockGaterAPIMockRecorder) GetPieceFromECChunks(ctx, endpoint, task any
 }
 
 // GetSecondarySPMigrationBucketApproval mocks base method.
-func (m *MockGaterAPI) GetSecondarySPMigrationBucketApproval(ctx context.Context, secondarySPEndpoint string, signDoc *types3.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
+func (m *MockGaterAPI) GetSecondarySPMigrationBucketApproval(ctx context.Context, secondarySPEndpoint string, signDoc *types2.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSecondarySPMigrationBucketApproval", ctx, secondarySPEndpoint, signDoc)
 	ret0, _ := ret[0].([]byte)
@@ -3078,10 +3077,10 @@ func (mr *MockGaterAPIMockRecorder) GetSecondarySPMigrationBucketApproval(ctx, s
 }
 
 // GetSwapOutApproval mocks base method.
-func (m *MockGaterAPI) GetSwapOutApproval(ctx context.Context, destSPEndpoint string, swapOutApproval *types4.MsgSwapOut) (*types4.MsgSwapOut, error) {
+func (m *MockGaterAPI) GetSwapOutApproval(ctx context.Context, destSPEndpoint string, swapOutApproval *types3.MsgSwapOut) (*types3.MsgSwapOut, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSwapOutApproval", ctx, destSPEndpoint, swapOutApproval)
-	ret0, _ := ret[0].(*types4.MsgSwapOut)
+	ret0, _ := ret[0].(*types3.MsgSwapOut)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3108,7 +3107,7 @@ func (mr *MockGaterAPIMockRecorder) MigratePiece(ctx, gvgTask, pieceTask any) *g
 }
 
 // NotifyDestSPMigrateSwapOut mocks base method.
-func (m *MockGaterAPI) NotifyDestSPMigrateSwapOut(ctx context.Context, destEndpoint string, swapOut *types4.MsgSwapOut) error {
+func (m *MockGaterAPI) NotifyDestSPMigrateSwapOut(ctx context.Context, destEndpoint string, swapOut *types3.MsgSwapOut) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NotifyDestSPMigrateSwapOut", ctx, destEndpoint, swapOut)
 	ret0, _ := ret[0].(error)
@@ -3291,7 +3290,7 @@ func (mr *MockManagerAPIMockRecorder) GetTasksStats(ctx any) *gomock.Call {
 }
 
 // NotifyMigrateSwapOut mocks base method.
-func (m *MockManagerAPI) NotifyMigrateSwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) error {
+func (m *MockManagerAPI) NotifyMigrateSwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NotifyMigrateSwapOut", ctx, swapOut)
 	ret0, _ := ret[0].(error)
@@ -3387,14 +3386,14 @@ func (m *MockMetadataAPI) EXPECT() *MockMetadataAPIMockRecorder {
 }
 
 // GetBsDBInfo mocks base method.
-func (m *MockMetadataAPI) GetBsDBInfo(ctx context.Context, blockHeight uint64, opts ...grpc.DialOption) (*types.GfSpGetBsDBInfoResponse, error) {
+func (m *MockMetadataAPI) GetBsDBInfo(ctx context.Context, blockHeight uint64, opts ...grpc.DialOption) (*types4.GfSpGetBsDBInfoResponse, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockHeight}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBsDBInfo", varargs...)
-	ret0, _ := ret[0].(*types.GfSpGetBsDBInfoResponse)
+	ret0, _ := ret[0].(*types4.GfSpGetBsDBInfoResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3407,14 +3406,14 @@ func (mr *MockMetadataAPIMockRecorder) GetBsDBInfo(ctx, blockHeight any, opts ..
 }
 
 // GetBucketByBucketID mocks base method.
-func (m *MockMetadataAPI) GetBucketByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockMetadataAPI) GetBucketByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketByBucketID", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3427,14 +3426,14 @@ func (mr *MockMetadataAPIMockRecorder) GetBucketByBucketID(ctx, bucketID, includ
 }
 
 // GetBucketByBucketName mocks base method.
-func (m *MockMetadataAPI) GetBucketByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockMetadataAPI) GetBucketByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketByBucketName", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3447,14 +3446,14 @@ func (mr *MockMetadataAPIMockRecorder) GetBucketByBucketName(ctx, bucketName, in
 }
 
 // GetBucketInfoByBucketName mocks base method.
-func (m *MockMetadataAPI) GetBucketInfoByBucketName(ctx context.Context, bucketName string, opts ...grpc.DialOption) (*types.Bucket, error) {
+func (m *MockMetadataAPI) GetBucketInfoByBucketName(ctx context.Context, bucketName string, opts ...grpc.DialOption) (*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketInfoByBucketName", varargs...)
-	ret0, _ := ret[0].(*types.Bucket)
+	ret0, _ := ret[0].(*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3467,15 +3466,15 @@ func (mr *MockMetadataAPIMockRecorder) GetBucketInfoByBucketName(ctx, bucketName
 }
 
 // GetBucketMeta mocks base method.
-func (m *MockMetadataAPI) GetBucketMeta(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.VGFInfoBucket, *types0.StreamRecord, error) {
+func (m *MockMetadataAPI) GetBucketMeta(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.VGFInfoBucket, *types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetBucketMeta", varargs...)
-	ret0, _ := ret[0].(*types.VGFInfoBucket)
-	ret1, _ := ret[1].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types4.VGFInfoBucket)
+	ret1, _ := ret[1].(*types.StreamRecord)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -3488,7 +3487,7 @@ func (mr *MockMetadataAPIMockRecorder) GetBucketMeta(ctx, bucketName, includePri
 }
 
 // GetBucketReadQuota mocks base method.
-func (m *MockMetadataAPI) GetBucketReadQuota(ctx context.Context, bucket *types3.BucketInfo, yearMonth string, opts ...grpc.DialOption) (uint64, uint64, uint64, uint64, uint64, uint64, error) {
+func (m *MockMetadataAPI) GetBucketReadQuota(ctx context.Context, bucket *types2.BucketInfo, yearMonth string, opts ...grpc.DialOption) (uint64, uint64, uint64, uint64, uint64, uint64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucket, yearMonth}
 	for _, a := range opts {
@@ -3573,14 +3572,14 @@ func (mr *MockMetadataAPIMockRecorder) GetEndpointBySpID(ctx, spID any, opts ...
 }
 
 // GetGlobalVirtualGroup mocks base method.
-func (m *MockMetadataAPI) GetGlobalVirtualGroup(ctx context.Context, bucketID uint64, lvgID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroup, error) {
+func (m *MockMetadataAPI) GetGlobalVirtualGroup(ctx context.Context, bucketID uint64, lvgID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, lvgID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGlobalVirtualGroup", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3593,14 +3592,14 @@ func (mr *MockMetadataAPIMockRecorder) GetGlobalVirtualGroup(ctx, bucketID, lvgI
 }
 
 // GetGlobalVirtualGroupByGvgID mocks base method.
-func (m *MockMetadataAPI) GetGlobalVirtualGroupByGvgID(ctx context.Context, gvgID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroup, error) {
+func (m *MockMetadataAPI) GetGlobalVirtualGroupByGvgID(ctx context.Context, gvgID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGlobalVirtualGroupByGvgID", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3613,14 +3612,14 @@ func (mr *MockMetadataAPIMockRecorder) GetGlobalVirtualGroupByGvgID(ctx, gvgID a
 }
 
 // GetGroupList mocks base method.
-func (m *MockMetadataAPI) GetGroupList(ctx context.Context, name, prefix, sourceType string, limit, offset int64, includeRemoved bool, opts ...grpc.DialOption) ([]*types.Group, int64, error) {
+func (m *MockMetadataAPI) GetGroupList(ctx context.Context, name, prefix, sourceType string, limit, offset int64, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.Group, int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, prefix, sourceType, limit, offset, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGroupList", varargs...)
-	ret0, _ := ret[0].([]*types.Group)
+	ret0, _ := ret[0].([]*types4.Group)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -3634,14 +3633,14 @@ func (mr *MockMetadataAPIMockRecorder) GetGroupList(ctx, name, prefix, sourceTyp
 }
 
 // GetGroupMembers mocks base method.
-func (m *MockMetadataAPI) GetGroupMembers(ctx context.Context, groupID uint64, startAfter string, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockMetadataAPI) GetGroupMembers(ctx context.Context, groupID uint64, startAfter string, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, groupID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetGroupMembers", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3694,14 +3693,14 @@ func (mr *MockMetadataAPIMockRecorder) GetLatestObjectID(ctx any, opts ...any) *
 }
 
 // GetObjectByID mocks base method.
-func (m *MockMetadataAPI) GetObjectByID(ctx context.Context, objectID uint64, opts ...grpc.DialOption) (*types3.ObjectInfo, error) {
+func (m *MockMetadataAPI) GetObjectByID(ctx context.Context, objectID uint64, opts ...grpc.DialOption) (*types2.ObjectInfo, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetObjectByID", varargs...)
-	ret0, _ := ret[0].(*types3.ObjectInfo)
+	ret0, _ := ret[0].(*types2.ObjectInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3714,14 +3713,14 @@ func (mr *MockMetadataAPIMockRecorder) GetObjectByID(ctx, objectID any, opts ...
 }
 
 // GetObjectMeta mocks base method.
-func (m *MockMetadataAPI) GetObjectMeta(ctx context.Context, objectName, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.Object, error) {
+func (m *MockMetadataAPI) GetObjectMeta(ctx context.Context, objectName, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types4.Object, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectName, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetObjectMeta", varargs...)
-	ret0, _ := ret[0].(*types.Object)
+	ret0, _ := ret[0].(*types4.Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3734,14 +3733,14 @@ func (mr *MockMetadataAPIMockRecorder) GetObjectMeta(ctx, objectName, bucketName
 }
 
 // GetPaymentByBucketID mocks base method.
-func (m *MockMetadataAPI) GetPaymentByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types0.StreamRecord, error) {
+func (m *MockMetadataAPI) GetPaymentByBucketID(ctx context.Context, bucketID int64, includePrivate bool, opts ...grpc.DialOption) (*types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetPaymentByBucketID", varargs...)
-	ret0, _ := ret[0].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types.StreamRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3754,14 +3753,14 @@ func (mr *MockMetadataAPIMockRecorder) GetPaymentByBucketID(ctx, bucketID, inclu
 }
 
 // GetPaymentByBucketName mocks base method.
-func (m *MockMetadataAPI) GetPaymentByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types0.StreamRecord, error) {
+func (m *MockMetadataAPI) GetPaymentByBucketName(ctx context.Context, bucketName string, includePrivate bool, opts ...grpc.DialOption) (*types.StreamRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetPaymentByBucketName", varargs...)
-	ret0, _ := ret[0].(*types0.StreamRecord)
+	ret0, _ := ret[0].(*types.StreamRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3774,14 +3773,14 @@ func (mr *MockMetadataAPIMockRecorder) GetPaymentByBucketName(ctx, bucketName, i
 }
 
 // GetSPInfo mocks base method.
-func (m *MockMetadataAPI) GetSPInfo(ctx context.Context, operatorAddress string, opts ...grpc.DialOption) (*types2.StorageProvider, error) {
+func (m *MockMetadataAPI) GetSPInfo(ctx context.Context, operatorAddress string, opts ...grpc.DialOption) (*types1.StorageProvider, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, operatorAddress}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetSPInfo", varargs...)
-	ret0, _ := ret[0].(*types2.StorageProvider)
+	ret0, _ := ret[0].(*types1.StorageProvider)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3814,14 +3813,14 @@ func (mr *MockMetadataAPIMockRecorder) GetSPMigratingBucketNumber(ctx, spID any,
 }
 
 // GetStatus mocks base method.
-func (m *MockMetadataAPI) GetStatus(ctx context.Context, opts ...grpc.DialOption) (*types.Status, error) {
+func (m *MockMetadataAPI) GetStatus(ctx context.Context, opts ...grpc.DialOption) (*types4.Status, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetStatus", varargs...)
-	ret0, _ := ret[0].(*types.Status)
+	ret0, _ := ret[0].(*types4.Status)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3875,14 +3874,14 @@ func (mr *MockMetadataAPIMockRecorder) GetUploadObjectState(ctx, objectID any, o
 }
 
 // GetUserBuckets mocks base method.
-func (m *MockMetadataAPI) GetUserBuckets(ctx context.Context, account string, includeRemoved bool, opts ...grpc.DialOption) ([]*types.VGFInfoBucket, error) {
+func (m *MockMetadataAPI) GetUserBuckets(ctx context.Context, account string, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.VGFInfoBucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, account, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserBuckets", varargs...)
-	ret0, _ := ret[0].([]*types.VGFInfoBucket)
+	ret0, _ := ret[0].([]*types4.VGFInfoBucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3915,14 +3914,14 @@ func (mr *MockMetadataAPIMockRecorder) GetUserBucketsCount(ctx, account, include
 }
 
 // GetUserGroups mocks base method.
-func (m *MockMetadataAPI) GetUserGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockMetadataAPI) GetUserGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserGroups", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3935,14 +3934,14 @@ func (mr *MockMetadataAPIMockRecorder) GetUserGroups(ctx, accountID, startAfter,
 }
 
 // GetUserOwnedGroups mocks base method.
-func (m *MockMetadataAPI) GetUserOwnedGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.GroupMember, error) {
+func (m *MockMetadataAPI) GetUserOwnedGroups(ctx context.Context, accountID string, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.GroupMember, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserOwnedGroups", varargs...)
-	ret0, _ := ret[0].([]*types.GroupMember)
+	ret0, _ := ret[0].([]*types4.GroupMember)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3955,14 +3954,14 @@ func (mr *MockMetadataAPIMockRecorder) GetUserOwnedGroups(ctx, accountID, startA
 }
 
 // GetVirtualGroupFamily mocks base method.
-func (m *MockMetadataAPI) GetVirtualGroupFamily(ctx context.Context, vgfID uint32, opts ...grpc.DialOption) (*types4.GlobalVirtualGroupFamily, error) {
+func (m *MockMetadataAPI) GetVirtualGroupFamily(ctx context.Context, vgfID uint32, opts ...grpc.DialOption) (*types3.GlobalVirtualGroupFamily, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, vgfID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetVirtualGroupFamily", varargs...)
-	ret0, _ := ret[0].(*types4.GlobalVirtualGroupFamily)
+	ret0, _ := ret[0].(*types3.GlobalVirtualGroupFamily)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3975,14 +3974,14 @@ func (mr *MockMetadataAPIMockRecorder) GetVirtualGroupFamily(ctx, vgfID any, opt
 }
 
 // ListBucketReadQuota mocks base method.
-func (m *MockMetadataAPI) ListBucketReadQuota(ctx context.Context, yearMonth string, offset, limit uint32, opts ...grpc.DialOption) ([]*types.BucketReadQuotaRecord, error) {
+func (m *MockMetadataAPI) ListBucketReadQuota(ctx context.Context, yearMonth string, offset, limit uint32, opts ...grpc.DialOption) ([]*types4.BucketReadQuotaRecord, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, yearMonth, offset, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketReadQuota", varargs...)
-	ret0, _ := ret[0].([]*types.BucketReadQuotaRecord)
+	ret0, _ := ret[0].([]*types4.BucketReadQuotaRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3995,14 +3994,14 @@ func (mr *MockMetadataAPIMockRecorder) ListBucketReadQuota(ctx, yearMonth, offse
 }
 
 // ListBucketReadRecord mocks base method.
-func (m *MockMetadataAPI) ListBucketReadRecord(ctx context.Context, bucket *types3.BucketInfo, startTimestampUs, endTimestampUs, maxRecordNum int64, opts ...grpc.DialOption) ([]*types.ReadRecord, int64, error) {
+func (m *MockMetadataAPI) ListBucketReadRecord(ctx context.Context, bucket *types2.BucketInfo, startTimestampUs, endTimestampUs, maxRecordNum int64, opts ...grpc.DialOption) ([]*types4.ReadRecord, int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucket, startTimestampUs, endTimestampUs, maxRecordNum}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketReadRecord", varargs...)
-	ret0, _ := ret[0].([]*types.ReadRecord)
+	ret0, _ := ret[0].([]*types4.ReadRecord)
 	ret1, _ := ret[1].(int64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -4016,14 +4015,14 @@ func (mr *MockMetadataAPIMockRecorder) ListBucketReadRecord(ctx, bucket, startTi
 }
 
 // ListBucketsByIDs mocks base method.
-func (m *MockMetadataAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
+func (m *MockMetadataAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketIDs, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListBucketsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Bucket)
+	ret0, _ := ret[0].(map[uint64]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4036,14 +4035,14 @@ func (mr *MockMetadataAPIMockRecorder) ListBucketsByIDs(ctx, bucketIDs, includeR
 }
 
 // ListCompleteMigrationBucketEvents mocks base method.
-func (m *MockMetadataAPI) ListCompleteMigrationBucketEvents(ctx context.Context, blockID uint64, srcSpID uint32, opts ...grpc.DialOption) ([]*types3.EventCompleteMigrationBucket, error) {
+func (m *MockMetadataAPI) ListCompleteMigrationBucketEvents(ctx context.Context, blockID uint64, srcSpID uint32, opts ...grpc.DialOption) ([]*types2.EventCompleteMigrationBucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, srcSpID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListCompleteMigrationBucketEvents", varargs...)
-	ret0, _ := ret[0].([]*types3.EventCompleteMigrationBucket)
+	ret0, _ := ret[0].([]*types2.EventCompleteMigrationBucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4056,14 +4055,14 @@ func (mr *MockMetadataAPIMockRecorder) ListCompleteMigrationBucketEvents(ctx, bl
 }
 
 // ListDeletedObjectsByBlockNumberRange mocks base method.
-func (m *MockMetadataAPI) ListDeletedObjectsByBlockNumberRange(ctx context.Context, spOperatorAddress string, startBlockNumber, endBlockNumber uint64, includePrivate bool, opts ...grpc.DialOption) ([]*types.Object, uint64, error) {
+func (m *MockMetadataAPI) ListDeletedObjectsByBlockNumberRange(ctx context.Context, spOperatorAddress string, startBlockNumber, endBlockNumber uint64, includePrivate bool, opts ...grpc.DialOption) ([]*types4.Object, uint64, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spOperatorAddress, startBlockNumber, endBlockNumber, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListDeletedObjectsByBlockNumberRange", varargs...)
-	ret0, _ := ret[0].([]*types.Object)
+	ret0, _ := ret[0].([]*types4.Object)
 	ret1, _ := ret[1].(uint64)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -4077,14 +4076,14 @@ func (mr *MockMetadataAPIMockRecorder) ListDeletedObjectsByBlockNumberRange(ctx,
 }
 
 // ListExpiredBucketsBySp mocks base method.
-func (m *MockMetadataAPI) ListExpiredBucketsBySp(ctx context.Context, createAt int64, primarySpID uint32, limit int64, opts ...grpc.DialOption) ([]*types.Bucket, error) {
+func (m *MockMetadataAPI) ListExpiredBucketsBySp(ctx context.Context, createAt int64, primarySpID uint32, limit int64, opts ...grpc.DialOption) ([]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, createAt, primarySpID, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListExpiredBucketsBySp", varargs...)
-	ret0, _ := ret[0].([]*types.Bucket)
+	ret0, _ := ret[0].([]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4097,14 +4096,14 @@ func (mr *MockMetadataAPIMockRecorder) ListExpiredBucketsBySp(ctx, createAt, pri
 }
 
 // ListGlobalVirtualGroupsByBucket mocks base method.
-func (m *MockMetadataAPI) ListGlobalVirtualGroupsByBucket(ctx context.Context, bucketID uint64, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroup, error) {
+func (m *MockMetadataAPI) ListGlobalVirtualGroupsByBucket(ctx context.Context, bucketID uint64, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGlobalVirtualGroupsByBucket", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4117,14 +4116,14 @@ func (mr *MockMetadataAPIMockRecorder) ListGlobalVirtualGroupsByBucket(ctx, buck
 }
 
 // ListGlobalVirtualGroupsBySecondarySP mocks base method.
-func (m *MockMetadataAPI) ListGlobalVirtualGroupsBySecondarySP(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroup, error) {
+func (m *MockMetadataAPI) ListGlobalVirtualGroupsBySecondarySP(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroup, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGlobalVirtualGroupsBySecondarySP", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroup)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroup)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4137,14 +4136,14 @@ func (mr *MockMetadataAPIMockRecorder) ListGlobalVirtualGroupsBySecondarySP(ctx,
 }
 
 // ListGroupsByIDs mocks base method.
-func (m *MockMetadataAPI) ListGroupsByIDs(ctx context.Context, groupIDs []uint64, opts ...grpc.DialOption) (map[uint64]*types.Group, error) {
+func (m *MockMetadataAPI) ListGroupsByIDs(ctx context.Context, groupIDs []uint64, opts ...grpc.DialOption) (map[uint64]*types4.Group, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, groupIDs}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListGroupsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Group)
+	ret0, _ := ret[0].(map[uint64]*types4.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4157,14 +4156,14 @@ func (mr *MockMetadataAPIMockRecorder) ListGroupsByIDs(ctx, groupIDs any, opts .
 }
 
 // ListMigrateBucketEvents mocks base method.
-func (m *MockMetadataAPI) ListMigrateBucketEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types.ListMigrateBucketEvents, error) {
+func (m *MockMetadataAPI) ListMigrateBucketEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types4.ListMigrateBucketEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListMigrateBucketEvents", varargs...)
-	ret0, _ := ret[0].([]*types.ListMigrateBucketEvents)
+	ret0, _ := ret[0].([]*types4.ListMigrateBucketEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4177,14 +4176,14 @@ func (mr *MockMetadataAPIMockRecorder) ListMigrateBucketEvents(ctx, blockID, spI
 }
 
 // ListObjectPolicies mocks base method.
-func (m *MockMetadataAPI) ListObjectPolicies(ctx context.Context, objectName, bucketName string, startAfter uint64, actionType int32, limit uint32, opts ...grpc.DialOption) ([]*types.Policy, error) {
+func (m *MockMetadataAPI) ListObjectPolicies(ctx context.Context, objectName, bucketName string, startAfter uint64, actionType int32, limit uint32, opts ...grpc.DialOption) ([]*types4.Policy, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectName, bucketName, startAfter, actionType, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectPolicies", varargs...)
-	ret0, _ := ret[0].([]*types.Policy)
+	ret0, _ := ret[0].([]*types4.Policy)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4197,14 +4196,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectPolicies(ctx, objectName, bucke
 }
 
 // ListObjectsByBucketName mocks base method.
-func (m *MockMetadataAPI) ListObjectsByBucketName(ctx context.Context, bucketName, accountID string, maxKeys uint64, startAfter, continuationToken, delimiter, prefix string, includeRemoved bool, opts ...grpc.DialOption) ([]*types.Object, uint64, uint64, bool, string, string, string, string, []string, string, error) {
+func (m *MockMetadataAPI) ListObjectsByBucketName(ctx context.Context, bucketName, accountID string, maxKeys uint64, startAfter, continuationToken, delimiter, prefix string, includeRemoved bool, opts ...grpc.DialOption) ([]*types4.Object, uint64, uint64, bool, string, string, string, string, []string, string, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketName, accountID, maxKeys, startAfter, continuationToken, delimiter, prefix, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByBucketName", varargs...)
-	ret0, _ := ret[0].([]*types.Object)
+	ret0, _ := ret[0].([]*types4.Object)
 	ret1, _ := ret[1].(uint64)
 	ret2, _ := ret[2].(uint64)
 	ret3, _ := ret[3].(bool)
@@ -4226,14 +4225,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectsByBucketName(ctx, bucketName, 
 }
 
 // ListObjectsByGVGAndBucketForGC mocks base method.
-func (m *MockMetadataAPI) ListObjectsByGVGAndBucketForGC(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockMetadataAPI) ListObjectsByGVGAndBucketForGC(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, bucketID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByGVGAndBucketForGC", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4246,14 +4245,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectsByGVGAndBucketForGC(ctx, gvgID
 }
 
 // ListObjectsByIDs mocks base method.
-func (m *MockMetadataAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
+func (m *MockMetadataAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types4.Object, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, objectIDs, includeRemoved}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsByIDs", varargs...)
-	ret0, _ := ret[0].(map[uint64]*types.Object)
+	ret0, _ := ret[0].(map[uint64]*types4.Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4266,14 +4265,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectsByIDs(ctx, objectIDs, includeR
 }
 
 // ListObjectsInGVG mocks base method.
-func (m *MockMetadataAPI) ListObjectsInGVG(ctx context.Context, gvgID uint32, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockMetadataAPI) ListObjectsInGVG(ctx context.Context, gvgID uint32, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsInGVG", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4286,14 +4285,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectsInGVG(ctx, gvgID, startAfter, 
 }
 
 // ListObjectsInGVGAndBucket mocks base method.
-func (m *MockMetadataAPI) ListObjectsInGVGAndBucket(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error) {
+func (m *MockMetadataAPI) ListObjectsInGVGAndBucket(ctx context.Context, gvgID uint32, bucketID, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types4.ObjectDetails, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, gvgID, bucketID, startAfter, limit}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListObjectsInGVGAndBucket", varargs...)
-	ret0, _ := ret[0].([]*types.ObjectDetails)
+	ret0, _ := ret[0].([]*types4.ObjectDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4306,14 +4305,14 @@ func (mr *MockMetadataAPIMockRecorder) ListObjectsInGVGAndBucket(ctx, gvgID, buc
 }
 
 // ListPaymentAccountStreams mocks base method.
-func (m *MockMetadataAPI) ListPaymentAccountStreams(ctx context.Context, paymentAccount string, opts ...grpc.DialOption) ([]*types.Bucket, error) {
+func (m *MockMetadataAPI) ListPaymentAccountStreams(ctx context.Context, paymentAccount string, opts ...grpc.DialOption) ([]*types4.Bucket, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, paymentAccount}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListPaymentAccountStreams", varargs...)
-	ret0, _ := ret[0].([]*types.Bucket)
+	ret0, _ := ret[0].([]*types4.Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4326,14 +4325,14 @@ func (mr *MockMetadataAPIMockRecorder) ListPaymentAccountStreams(ctx, paymentAcc
 }
 
 // ListSpExitEvents mocks base method.
-func (m *MockMetadataAPI) ListSpExitEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) (*types.ListSpExitEvents, error) {
+func (m *MockMetadataAPI) ListSpExitEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) (*types4.ListSpExitEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListSpExitEvents", varargs...)
-	ret0, _ := ret[0].(*types.ListSpExitEvents)
+	ret0, _ := ret[0].(*types4.ListSpExitEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4346,14 +4345,14 @@ func (mr *MockMetadataAPIMockRecorder) ListSpExitEvents(ctx, blockID, spID any, 
 }
 
 // ListSwapOutEvents mocks base method.
-func (m *MockMetadataAPI) ListSwapOutEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types.ListSwapOutEvents, error) {
+func (m *MockMetadataAPI) ListSwapOutEvents(ctx context.Context, blockID uint64, spID uint32, opts ...grpc.DialOption) ([]*types4.ListSwapOutEvents, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, blockID, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListSwapOutEvents", varargs...)
-	ret0, _ := ret[0].([]*types.ListSwapOutEvents)
+	ret0, _ := ret[0].([]*types4.ListSwapOutEvents)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4366,14 +4365,14 @@ func (mr *MockMetadataAPIMockRecorder) ListSwapOutEvents(ctx, blockID, spID any,
 }
 
 // ListUserPaymentAccounts mocks base method.
-func (m *MockMetadataAPI) ListUserPaymentAccounts(ctx context.Context, accountID string, opts ...grpc.DialOption) ([]*types.PaymentAccountMeta, error) {
+func (m *MockMetadataAPI) ListUserPaymentAccounts(ctx context.Context, accountID string, opts ...grpc.DialOption) ([]*types4.PaymentAccountMeta, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, accountID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListUserPaymentAccounts", varargs...)
-	ret0, _ := ret[0].([]*types.PaymentAccountMeta)
+	ret0, _ := ret[0].([]*types4.PaymentAccountMeta)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4386,14 +4385,14 @@ func (mr *MockMetadataAPIMockRecorder) ListUserPaymentAccounts(ctx, accountID an
 }
 
 // ListVirtualGroupFamiliesSpID mocks base method.
-func (m *MockMetadataAPI) ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types4.GlobalVirtualGroupFamily, error) {
+func (m *MockMetadataAPI) ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*types3.GlobalVirtualGroupFamily, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ListVirtualGroupFamiliesSpID", varargs...)
-	ret0, _ := ret[0].([]*types4.GlobalVirtualGroupFamily)
+	ret0, _ := ret[0].([]*types3.GlobalVirtualGroupFamily)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4406,7 +4405,7 @@ func (mr *MockMetadataAPIMockRecorder) ListVirtualGroupFamiliesSpID(ctx, spID an
 }
 
 // PrimarySpIncomeDetails mocks base method.
-func (m *MockMetadataAPI) PrimarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types.PrimarySpIncomeDetail, error) {
+func (m *MockMetadataAPI) PrimarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types4.PrimarySpIncomeDetail, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
@@ -4414,7 +4413,7 @@ func (m *MockMetadataAPI) PrimarySpIncomeDetails(ctx context.Context, spID uint3
 	}
 	ret := m.ctrl.Call(m, "PrimarySpIncomeDetails", varargs...)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].([]*types.PrimarySpIncomeDetail)
+	ret1, _ := ret[1].([]*types4.PrimarySpIncomeDetail)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -4427,7 +4426,7 @@ func (mr *MockMetadataAPIMockRecorder) PrimarySpIncomeDetails(ctx, spID any, opt
 }
 
 // SecondarySpIncomeDetails mocks base method.
-func (m *MockMetadataAPI) SecondarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types.SecondarySpIncomeDetail, error) {
+func (m *MockMetadataAPI) SecondarySpIncomeDetails(ctx context.Context, spID uint32, opts ...grpc.DialOption) (int64, []*types4.SecondarySpIncomeDetail, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, spID}
 	for _, a := range opts {
@@ -4435,7 +4434,7 @@ func (m *MockMetadataAPI) SecondarySpIncomeDetails(ctx context.Context, spID uin
 	}
 	ret := m.ctrl.Call(m, "SecondarySpIncomeDetails", varargs...)
 	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].([]*types.SecondarySpIncomeDetail)
+	ret1, _ := ret[1].([]*types4.SecondarySpIncomeDetail)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -4448,14 +4447,14 @@ func (mr *MockMetadataAPIMockRecorder) SecondarySpIncomeDetails(ctx, spID any, o
 }
 
 // VerifyMigrateGVGPermission mocks base method.
-func (m *MockMetadataAPI) VerifyMigrateGVGPermission(ctx context.Context, bucketID uint64, gvgID, dstSpID uint32, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockMetadataAPI) VerifyMigrateGVGPermission(ctx context.Context, bucketID uint64, gvgID, dstSpID uint32, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, bucketID, gvgID, dstSpID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyMigrateGVGPermission", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4468,14 +4467,14 @@ func (mr *MockMetadataAPIMockRecorder) VerifyMigrateGVGPermission(ctx, bucketID,
 }
 
 // VerifyPermission mocks base method.
-func (m *MockMetadataAPI) VerifyPermission(ctx context.Context, Operator, bucketName, objectName string, actionType types1.ActionType, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockMetadataAPI) VerifyPermission(ctx context.Context, Operator, bucketName, objectName string, actionType types0.ActionType, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, Operator, bucketName, objectName, actionType}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyPermission", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4488,14 +4487,14 @@ func (mr *MockMetadataAPIMockRecorder) VerifyPermission(ctx, Operator, bucketNam
 }
 
 // VerifyPermissionByID mocks base method.
-func (m *MockMetadataAPI) VerifyPermissionByID(ctx context.Context, Operator string, resourceType resource.ResourceType, resourceID uint64, actionType types1.ActionType, opts ...grpc.DialOption) (*types1.Effect, error) {
+func (m *MockMetadataAPI) VerifyPermissionByID(ctx context.Context, Operator string, resourceType resource.ResourceType, resourceID uint64, actionType types0.ActionType, opts ...grpc.DialOption) (*types0.Effect, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, Operator, resourceType, resourceID, actionType}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "VerifyPermissionByID", varargs...)
-	ret0, _ := ret[0].(*types1.Effect)
+	ret0, _ := ret[0].(*types0.Effect)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4730,7 +4729,7 @@ func (m *MockSignerAPI) EXPECT() *MockSignerAPIMockRecorder {
 }
 
 // CompleteMigrateBucket mocks base method.
-func (m *MockSignerAPI) CompleteMigrateBucket(ctx context.Context, migrateBucket *types3.MsgCompleteMigrateBucket) (string, error) {
+func (m *MockSignerAPI) CompleteMigrateBucket(ctx context.Context, migrateBucket *types2.MsgCompleteMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteMigrateBucket", ctx, migrateBucket)
 	ret0, _ := ret[0].(string)
@@ -4745,7 +4744,7 @@ func (mr *MockSignerAPIMockRecorder) CompleteMigrateBucket(ctx, migrateBucket an
 }
 
 // CompleteSPExit mocks base method.
-func (m *MockSignerAPI) CompleteSPExit(ctx context.Context, completeSPExit *types4.MsgCompleteStorageProviderExit) (string, error) {
+func (m *MockSignerAPI) CompleteSPExit(ctx context.Context, completeSPExit *types3.MsgCompleteStorageProviderExit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSPExit", ctx, completeSPExit)
 	ret0, _ := ret[0].(string)
@@ -4760,7 +4759,7 @@ func (mr *MockSignerAPIMockRecorder) CompleteSPExit(ctx, completeSPExit any) *go
 }
 
 // CompleteSwapIn mocks base method.
-func (m *MockSignerAPI) CompleteSwapIn(ctx context.Context, completeSwpIn *types4.MsgCompleteSwapIn) (string, error) {
+func (m *MockSignerAPI) CompleteSwapIn(ctx context.Context, completeSwpIn *types3.MsgCompleteSwapIn) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSwapIn", ctx, completeSwpIn)
 	ret0, _ := ret[0].(string)
@@ -4775,7 +4774,7 @@ func (mr *MockSignerAPIMockRecorder) CompleteSwapIn(ctx, completeSwpIn any) *gom
 }
 
 // CompleteSwapOut mocks base method.
-func (m *MockSignerAPI) CompleteSwapOut(ctx context.Context, completeSwapOut *types4.MsgCompleteSwapOut) (string, error) {
+func (m *MockSignerAPI) CompleteSwapOut(ctx context.Context, completeSwapOut *types3.MsgCompleteSwapOut) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteSwapOut", ctx, completeSwapOut)
 	ret0, _ := ret[0].(string)
@@ -4804,7 +4803,7 @@ func (mr *MockSignerAPIMockRecorder) CreateGlobalVirtualGroup(ctx, group any) *g
 }
 
 // DelegateCreateObject mocks base method.
-func (m *MockSignerAPI) DelegateCreateObject(ctx context.Context, object *types3.MsgDelegateCreateObject) (string, error) {
+func (m *MockSignerAPI) DelegateCreateObject(ctx context.Context, object *types2.MsgDelegateCreateObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DelegateCreateObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -4819,7 +4818,7 @@ func (mr *MockSignerAPIMockRecorder) DelegateCreateObject(ctx, object any) *gomo
 }
 
 // DelegateUpdateObjectContent mocks base method.
-func (m *MockSignerAPI) DelegateUpdateObjectContent(ctx context.Context, object *types3.MsgDelegateUpdateObjectContent) (string, error) {
+func (m *MockSignerAPI) DelegateUpdateObjectContent(ctx context.Context, object *types2.MsgDelegateUpdateObjectContent) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DelegateUpdateObjectContent", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -4834,7 +4833,7 @@ func (mr *MockSignerAPIMockRecorder) DelegateUpdateObjectContent(ctx, object any
 }
 
 // DeleteGlobalVirtualGroup mocks base method.
-func (m *MockSignerAPI) DeleteGlobalVirtualGroup(ctx context.Context, deleteGVG *types4.MsgDeleteGlobalVirtualGroup) (string, error) {
+func (m *MockSignerAPI) DeleteGlobalVirtualGroup(ctx context.Context, deleteGVG *types3.MsgDeleteGlobalVirtualGroup) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteGlobalVirtualGroup", ctx, deleteGVG)
 	ret0, _ := ret[0].(string)
@@ -4849,7 +4848,7 @@ func (mr *MockSignerAPIMockRecorder) DeleteGlobalVirtualGroup(ctx, deleteGVG any
 }
 
 // Deposit mocks base method.
-func (m *MockSignerAPI) Deposit(ctx context.Context, deposit *types4.MsgDeposit) (string, error) {
+func (m *MockSignerAPI) Deposit(ctx context.Context, deposit *types3.MsgDeposit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Deposit", ctx, deposit)
 	ret0, _ := ret[0].(string)
@@ -4864,7 +4863,7 @@ func (mr *MockSignerAPIMockRecorder) Deposit(ctx, deposit any) *gomock.Call {
 }
 
 // DiscontinueBucket mocks base method.
-func (m *MockSignerAPI) DiscontinueBucket(ctx context.Context, bucket *types3.MsgDiscontinueBucket) (string, error) {
+func (m *MockSignerAPI) DiscontinueBucket(ctx context.Context, bucket *types2.MsgDiscontinueBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DiscontinueBucket", ctx, bucket)
 	ret0, _ := ret[0].(string)
@@ -4879,7 +4878,7 @@ func (mr *MockSignerAPIMockRecorder) DiscontinueBucket(ctx, bucket any) *gomock.
 }
 
 // RejectMigrateBucket mocks base method.
-func (m *MockSignerAPI) RejectMigrateBucket(ctx context.Context, rejectMigrateBucket *types3.MsgRejectMigrateBucket) (string, error) {
+func (m *MockSignerAPI) RejectMigrateBucket(ctx context.Context, rejectMigrateBucket *types2.MsgRejectMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RejectMigrateBucket", ctx, rejectMigrateBucket)
 	ret0, _ := ret[0].(string)
@@ -4894,7 +4893,7 @@ func (mr *MockSignerAPIMockRecorder) RejectMigrateBucket(ctx, rejectMigrateBucke
 }
 
 // RejectUnSealObject mocks base method.
-func (m *MockSignerAPI) RejectUnSealObject(ctx context.Context, object *types3.MsgRejectSealObject) (string, error) {
+func (m *MockSignerAPI) RejectUnSealObject(ctx context.Context, object *types2.MsgRejectSealObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RejectUnSealObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -4909,7 +4908,7 @@ func (mr *MockSignerAPIMockRecorder) RejectUnSealObject(ctx, object any) *gomock
 }
 
 // ReserveSwapIn mocks base method.
-func (m *MockSignerAPI) ReserveSwapIn(ctx context.Context, reserveSwapIn *types4.MsgReserveSwapIn) (string, error) {
+func (m *MockSignerAPI) ReserveSwapIn(ctx context.Context, reserveSwapIn *types3.MsgReserveSwapIn) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReserveSwapIn", ctx, reserveSwapIn)
 	ret0, _ := ret[0].(string)
@@ -4924,7 +4923,7 @@ func (mr *MockSignerAPIMockRecorder) ReserveSwapIn(ctx, reserveSwapIn any) *gomo
 }
 
 // SPExit mocks base method.
-func (m *MockSignerAPI) SPExit(ctx context.Context, spExit *types4.MsgStorageProviderExit) (string, error) {
+func (m *MockSignerAPI) SPExit(ctx context.Context, spExit *types3.MsgStorageProviderExit) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SPExit", ctx, spExit)
 	ret0, _ := ret[0].(string)
@@ -4939,7 +4938,7 @@ func (mr *MockSignerAPIMockRecorder) SPExit(ctx, spExit any) *gomock.Call {
 }
 
 // SealObject mocks base method.
-func (m *MockSignerAPI) SealObject(ctx context.Context, object *types3.MsgSealObject) (string, error) {
+func (m *MockSignerAPI) SealObject(ctx context.Context, object *types2.MsgSealObject) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SealObject", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -4954,7 +4953,7 @@ func (mr *MockSignerAPIMockRecorder) SealObject(ctx, object any) *gomock.Call {
 }
 
 // SealObjectV2 mocks base method.
-func (m *MockSignerAPI) SealObjectV2(ctx context.Context, object *types3.MsgSealObjectV2) (string, error) {
+func (m *MockSignerAPI) SealObjectV2(ctx context.Context, object *types2.MsgSealObjectV2) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SealObjectV2", ctx, object)
 	ret0, _ := ret[0].(string)
@@ -4984,7 +4983,7 @@ func (mr *MockSignerAPIMockRecorder) SignBucketMigrationInfo(ctx, task any) *gom
 }
 
 // SignCreateBucketApproval mocks base method.
-func (m *MockSignerAPI) SignCreateBucketApproval(ctx context.Context, bucket *types3.MsgCreateBucket) ([]byte, error) {
+func (m *MockSignerAPI) SignCreateBucketApproval(ctx context.Context, bucket *types2.MsgCreateBucket) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignCreateBucketApproval", ctx, bucket)
 	ret0, _ := ret[0].([]byte)
@@ -4999,7 +4998,7 @@ func (mr *MockSignerAPIMockRecorder) SignCreateBucketApproval(ctx, bucket any) *
 }
 
 // SignCreateObjectApproval mocks base method.
-func (m *MockSignerAPI) SignCreateObjectApproval(ctx context.Context, object *types3.MsgCreateObject) ([]byte, error) {
+func (m *MockSignerAPI) SignCreateObjectApproval(ctx context.Context, object *types2.MsgCreateObject) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignCreateObjectApproval", ctx, object)
 	ret0, _ := ret[0].([]byte)
@@ -5014,7 +5013,7 @@ func (mr *MockSignerAPIMockRecorder) SignCreateObjectApproval(ctx, object any) *
 }
 
 // SignMigrateBucketApproval mocks base method.
-func (m *MockSignerAPI) SignMigrateBucketApproval(ctx context.Context, bucket *types3.MsgMigrateBucket) ([]byte, error) {
+func (m *MockSignerAPI) SignMigrateBucketApproval(ctx context.Context, bucket *types2.MsgMigrateBucket) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignMigrateBucketApproval", ctx, bucket)
 	ret0, _ := ret[0].([]byte)
@@ -5119,7 +5118,7 @@ func (mr *MockSignerAPIMockRecorder) SignReplicatePieceApproval(ctx, task any) *
 }
 
 // SignSecondarySPMigrationBucket mocks base method.
-func (m *MockSignerAPI) SignSecondarySPMigrationBucket(ctx context.Context, signDoc *types3.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
+func (m *MockSignerAPI) SignSecondarySPMigrationBucket(ctx context.Context, signDoc *types2.SecondarySpMigrationBucketSignDoc) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignSecondarySPMigrationBucket", ctx, signDoc)
 	ret0, _ := ret[0].([]byte)
@@ -5149,7 +5148,7 @@ func (mr *MockSignerAPIMockRecorder) SignSecondarySealBls(ctx, objectID, gvgId, 
 }
 
 // SignSwapOut mocks base method.
-func (m *MockSignerAPI) SignSwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) ([]byte, error) {
+func (m *MockSignerAPI) SignSwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignSwapOut", ctx, swapOut)
 	ret0, _ := ret[0].([]byte)
@@ -5164,7 +5163,7 @@ func (mr *MockSignerAPIMockRecorder) SignSwapOut(ctx, swapOut any) *gomock.Call 
 }
 
 // SwapOut mocks base method.
-func (m *MockSignerAPI) SwapOut(ctx context.Context, swapOut *types4.MsgSwapOut) (string, error) {
+func (m *MockSignerAPI) SwapOut(ctx context.Context, swapOut *types3.MsgSwapOut) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SwapOut", ctx, swapOut)
 	ret0, _ := ret[0].(string)
@@ -5179,7 +5178,7 @@ func (mr *MockSignerAPIMockRecorder) SwapOut(ctx, swapOut any) *gomock.Call {
 }
 
 // UpdateSPPrice mocks base method.
-func (m *MockSignerAPI) UpdateSPPrice(ctx context.Context, price *types2.MsgUpdateSpStoragePrice) (string, error) {
+func (m *MockSignerAPI) UpdateSPPrice(ctx context.Context, price *types1.MsgUpdateSpStoragePrice) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSPPrice", ctx, price)
 	ret0, _ := ret[0].(string)

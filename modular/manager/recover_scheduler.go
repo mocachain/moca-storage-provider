@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/evmos/evmos/v12/x/storage/types"
+	types2 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -17,8 +19,6 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/util"
-	"github.com/evmos/evmos/v12/x/storage/types"
-	types2 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"gorm.io/gorm"
 )
 

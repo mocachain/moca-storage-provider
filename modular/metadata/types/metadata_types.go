@@ -56,11 +56,11 @@ func (m GfSpListGroupsByIDsResponse) MarshalXML(e *xml.Encoder, start xml.StartE
 
 // GroupInfoXML is a helper struct for XML marshaling GroupInfo with proper ID serialization
 type GroupInfoXML struct {
-	Owner      string `xml:"owner"`
-	GroupName  string `xml:"group_name"`
-	SourceType string `xml:"source_type"`
-	Id         string `xml:"id"` // Serialize as string instead of cosmossdk.io/math.Uint
-	Extra      string `xml:"extra"`
+	Owner      string                     `xml:"owner"`
+	GroupName  string                     `xml:"group_name"`
+	SourceType string                     `xml:"source_type"`
+	Id         string                     `xml:"id"` // Serialize as string instead of cosmossdk.io/math.Uint
+	Extra      string                     `xml:"extra"`
 	Tags       *storageTypes.ResourceTags `xml:"tags,omitempty"`
 }
 
@@ -77,9 +77,9 @@ func (m *GroupMember) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 		Removed        bool   `xml:"removed,omitempty"`
 		ExpirationTime int64  `xml:"expiration_time,omitempty"`
 	}
-	
+
 	aux := struct {
-		GroupXML *GroupInfoXML     `xml:"Group,omitempty"`
+		GroupXML *GroupInfoXML `xml:"Group,omitempty"`
 		*GroupMemberNoGroup
 	}{
 		GroupMemberNoGroup: &GroupMemberNoGroup{
@@ -93,7 +93,7 @@ func (m *GroupMember) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 			ExpirationTime: m.ExpirationTime,
 		},
 	}
-	
+
 	// Convert GroupInfo to GroupInfoXML with string ID
 	if m.Group != nil {
 		aux.GroupXML = &GroupInfoXML{
@@ -105,7 +105,7 @@ func (m *GroupMember) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 			Tags:       m.Group.Tags,
 		}
 	}
-	
+
 	return e.EncodeElement(aux, start)
 }
 
