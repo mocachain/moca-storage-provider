@@ -37,7 +37,13 @@ function moca_chain() {
 
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8 >sp.json
+  bash ./deployment/localup/localup.sh --verbose export_sps 1 8 2>/dev/null >sp.json
+  # validate sp.json is valid JSON
+  if ! jq empty sp.json 2>/dev/null; then
+    echo "ERROR: sp.json is not valid JSON, dumping contents:"
+    head -5 sp.json
+    exit 1
+  fi
 
   # transfer some amoca tokens
   transfer_account
