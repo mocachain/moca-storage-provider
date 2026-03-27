@@ -134,7 +134,7 @@ release-dry-run:
 		-v ${GOPATH}/pkg:/go/pkg \
 		-w /go/src/$(PACKAGE_NAME) \
 		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
-		--clean --skip validate --skip publish --snapshot
+		--clean --skip validate --skip publish --skip docker --snapshot
 
 release:
 	@if [ ! -f ".release-env" ]; then \
