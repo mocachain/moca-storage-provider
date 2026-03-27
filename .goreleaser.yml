@@ -5,57 +5,13 @@ before:
     - go mod download
 
 builds:
-  # - id: "moca-storage-provider-darwin"
-  #   main: ./cmd/storage_provider
-  #   binary: bin/moca-sp
-  #   env:
-  #     - CGO_ENABLED=1
-  #     - CC=o64-clang
-  #     - CXX=o64-clang++
-  #   goos:
-  #     - darwin
-  #   goarch:
-  #     - amd64
-  #   flags:
-  #     - -tags=cgo
-  #   ldflags:
-  #     - -extldflags=${EXT_LD_FLAGS}
-  #     - -X main.Version={{.Version}}
-  #     - -X main.CommitID={{.Commit}}
-  #     - -X main.BranchName={{.Branch}}
-  #     - -X main.BuildTime={{.Date}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.AppVersion={{.Version}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommit={{.Commit}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommitDate={{.CommitDate}}
-
-  # - id: "moca-storage-provider-darwin-arm64"
-  #   main: ./cmd/storage_provider
-  #   binary: bin/moca-sp
-  #   env:
-  #     - CGO_ENABLED=1
-  #     - CC=oa64-clang
-  #     - CXX=oa64-clang++
-  #   goos:
-  #     - darwin
-  #   goarch:
-  #     - arm64
-  #   flags:
-  #     - -tags=cgo
-  #   ldflags:
-  #     - -extldflags=${EXT_LD_FLAGS}
-  #     - -X main.Version={{.Version}}
-  #     - -X main.CommitID={{.Commit}}
-  #     - -X main.BranchName={{.Branch}}
-  #     - -X main.BuildTime={{.Date}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.AppVersion={{.Version}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommit={{.Commit}}
-  #     - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommitDate={{.CommitDate}}
-
   - id: "moca-storage-provider-linux"
     main: ./cmd/storage_provider
     binary: bin/moca-sp
     env:
       - CGO_ENABLED=1
+      - CGO_CFLAGS=-O -D__BLST_PORTABLE__
+      - CGO_CFLAGS_ALLOW=-O -D__BLST_PORTABLE__
       - CC=gcc
       - CXX=g++
     goos:
@@ -78,6 +34,8 @@ builds:
     binary: bin/moca-sp
     env:
       - CGO_ENABLED=1
+      - CGO_CFLAGS=-O -D__BLST_PORTABLE__
+      - CGO_CFLAGS_ALLOW=-O -D__BLST_PORTABLE__
       - CC=aarch64-linux-gnu-gcc
       - CXX=aarch64-linux-gnu-g++
     goos:
@@ -94,6 +52,50 @@ builds:
       - -X github.com/mocachain/moca-storage-provider/store/bsdb.AppVersion={{.Version}}
       - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommit={{.Commit}}
       - -X github.com/mocachain/moca-storage-provider/store/bsdb.GitCommitDate={{.CommitDate}}
+
+dockers:
+  - id: moca-sp-amd64
+    ids:
+      - moca-storage-provider-linux
+    image_templates:
+      - "ghcr.io/mocachain/moca-storage-provider:{{ .Version }}-amd64"
+      - "ghcr.io/mocachain/moca-storage-provider:latest-amd64"
+    dockerfile: Dockerfile.release
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=moca-storage-provider"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/mocachain/moca-storage-provider"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+
+  - id: moca-sp-arm64
+    ids:
+      - moca-storage-provider-linux-arm64
+    image_templates:
+      - "ghcr.io/mocachain/moca-storage-provider:{{ .Version }}-arm64"
+      - "ghcr.io/mocachain/moca-storage-provider:latest-arm64"
+    dockerfile: Dockerfile.release
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=moca-storage-provider"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/mocachain/moca-storage-provider"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/mocachain/moca-storage-provider:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/mocachain/moca-storage-provider:{{ .Version }}-amd64"
+      - "ghcr.io/mocachain/moca-storage-provider:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/mocachain/moca-storage-provider:latest"
+    image_templates:
+      - "ghcr.io/mocachain/moca-storage-provider:latest-amd64"
+      - "ghcr.io/mocachain/moca-storage-provider:latest-arm64"
 
 archives:
   - format: tar.gz
