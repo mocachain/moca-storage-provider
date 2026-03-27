@@ -354,9 +354,10 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		sealObject.GetSecondarySpBlsAggSignatures())
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
@@ -393,6 +394,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 			}
 
 			log.CtxErrorw(ctx, "failed to broadcast seal object tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 
@@ -413,7 +415,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 	}
 
 	// failed to broadcast tx
-	ErrSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast seal object tx, error: %v", err))
+	ErrSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast seal object tx, error: %v", broadcastErr))
 	return "", ErrSealObjectOnChain
 }
 
@@ -511,9 +513,10 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 	msgRejectUnSealObject := storagetypes.NewMsgRejectUnsealedObject(km.GetAddr(), rejectObject.GetBucketName(), rejectObject.GetObjectName())
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 
 	for i := 0; i < BroadcastTxRetry; i++ {
@@ -547,6 +550,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			}
 
 			log.CtxErrorw(ctx, "failed to broadcast reject unseal object", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 
@@ -566,7 +570,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 		return txHash, nil
 	}
 	// failed to broadcast tx
-	ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast reject unseal object tx, error: %v", err))
+	ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast reject unseal object tx, error: %v", broadcastErr))
 	return "", ErrRejectUnSealObjectOnChain
 }
 
@@ -779,9 +783,10 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 		gvg.FamilyId, gvg.GetSecondarySpIds(), gvg.GetDeposit())
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
@@ -821,6 +826,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 
 			log.CtxErrorw(ctx, "failed to broadcast global virtual group tx", "global_virtual_group",
 				msgCreateGlobalVirtualGroup.String(), "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -841,7 +847,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 	}
 
 	// failed to broadcast tx
-	ErrCreateGVGOnChain.SetError(fmt.Errorf("failed to broadcast create virtual group tx, error: %v", err))
+	ErrCreateGVGOnChain.SetError(fmt.Errorf("failed to broadcast create virtual group tx, error: %v", broadcastErr))
 	return "", ErrCreateGVGOnChain
 }
 
@@ -933,9 +939,10 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		migrateBucket.GetGlobalVirtualGroupFamilyId(), migrateBucket.GetGvgMappings())
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
@@ -982,6 +989,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 			}
 
 			log.CtxErrorw(ctx, "failed to broadcast complete migrate bucket tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1001,7 +1009,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 	}
 
 	// failed to broadcast tx
-	ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("failed to broadcast complete migrate bucket, error: %v", err))
+	ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("failed to broadcast complete migrate bucket, error: %v", broadcastErr))
 	return "", ErrCompleteMigrateBucketOnChain
 }
 
@@ -1246,9 +1254,10 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 
 	for i := 0; i < BroadcastTxRetry; i++ {
@@ -1290,6 +1299,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 			}
 
 			log.CtxErrorw(ctx, "failed to broadcast swap out", "retry_number", i, "swap_out", msgSwapOut.String(), "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1309,7 +1319,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 	}
 
 	// failed to broadcast tx
-	ErrSwapOutOnChain.SetError(fmt.Errorf("failed to broadcast swap out tx, error: %v", err))
+	ErrSwapOutOnChain.SetError(fmt.Errorf("failed to broadcast swap out tx, error: %v", broadcastErr))
 	return "", ErrSwapOutOnChain
 }
 
@@ -1402,9 +1412,10 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		completeSwapOut.GetGlobalVirtualGroupIds())
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 
 	for i := 0; i < BroadcastTxRetry; i++ {
@@ -1439,6 +1450,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 			}
 
 			log.CtxErrorw(ctx, "failed to broadcast complete swap out tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1457,7 +1469,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		return txHash, nil
 	}
 
-	ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to broadcast complete swap out, error: %v", err))
+	ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to broadcast complete swap out, error: %v", broadcastErr))
 	return "", ErrCompleteSwapOutOnChain
 }
 
