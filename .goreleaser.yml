@@ -10,6 +10,8 @@ builds:
     binary: bin/moca-sp
     env:
       - CGO_ENABLED=1
+      - CGO_CFLAGS=-O -D__BLST_PORTABLE__
+      - CGO_CFLAGS_ALLOW=-O -D__BLST_PORTABLE__
       - CC=gcc
       - CXX=g++
     goos:
@@ -32,6 +34,8 @@ builds:
     binary: bin/moca-sp
     env:
       - CGO_ENABLED=1
+      - CGO_CFLAGS=-O -D__BLST_PORTABLE__
+      - CGO_CFLAGS_ALLOW=-O -D__BLST_PORTABLE__
       - CC=aarch64-linux-gnu-gcc
       - CXX=aarch64-linux-gnu-g++
     goos:
