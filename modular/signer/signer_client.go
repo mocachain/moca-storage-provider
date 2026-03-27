@@ -952,15 +952,12 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		}
 
 		gvgMappings := make([]storage.GVGMapping, 0)
-		ptrgvgMappings := migrateBucket.GetGvgMappings()
-		if ptrgvgMappings != nil {
-			for _, gvgMapping := range ptrgvgMappings {
-				gvgMappings = append(gvgMappings, storage.GVGMapping{
-					SrcGlobalVirtualGroupId: gvgMapping.SrcGlobalVirtualGroupId,
-					DstGlobalVirtualGroupId: gvgMapping.DstGlobalVirtualGroupId,
-					SecondarySpBlsSignature: gvgMapping.SecondarySpBlsSignature,
-				})
-			}
+		for _, gvgMapping := range migrateBucket.GetGvgMappings() {
+			gvgMappings = append(gvgMappings, storage.GVGMapping{
+				SrcGlobalVirtualGroupId: gvgMapping.SrcGlobalVirtualGroupId,
+				DstGlobalVirtualGroupId: gvgMapping.DstGlobalVirtualGroupId,
+				SecondarySpBlsSignature: gvgMapping.SecondarySpBlsSignature,
+			})
 		}
 
 		txRsp, err := session.CompleteMigrateBucket(

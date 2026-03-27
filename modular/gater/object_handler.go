@@ -691,12 +691,12 @@ func (g *GateModular) downloadObject(w http.ResponseWriter, reqCtx *RequestConte
 				log.CtxErrorw(reqCtx.Context(), "failed to recover piece", "error", recoverErr)
 				return err
 			}
-			if uint32(segmentIdx) >= segmentCount {
+			if segmentIdx >= segmentCount {
 				return err
 			}
 
 				task := &gfsptask.GfSpRecoverPieceTask{}
-				task.InitRecoverPieceTask(objectInfo, params, coretask.DefaultLargerTaskPriority+1, uint32(segmentIdx), int32(-1), maxSegmentSize, 50, 1)
+				task.InitRecoverPieceTask(objectInfo, params, coretask.DefaultLargerTaskPriority+1, segmentIdx, int32(-1), maxSegmentSize, 50, 1)
 				log.CtxWarnw(reqCtx.Context(), "init recover piece task, access the piece later", "task_info", task.Info())
 				g.baseApp.GfSpClient().ReportTask(reqCtx.Context(), task)
 				triggerRecovery = true

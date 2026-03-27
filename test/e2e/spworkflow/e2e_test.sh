@@ -8,9 +8,9 @@ workspace=${GITHUB_WORKSPACE}
 # some constants
 MOCA_TAG="main"
 # moca cmd tag name: v0.1.0
-MOCA_CMD_TAG="feat-adapt-tags"
+MOCA_CMD_TAG="main"
 # moca go sdk tag name: v1.0.0
-MOCA_GO_SDK_TAG="feat-adapt-tags"
+MOCA_GO_SDK_TAG="main"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
