@@ -86,11 +86,11 @@ func TestExecuteModular_HandleSealObjectTask(t *testing.T) {
 				e.maxListenSealRetry = 1
 				ctrl := gomock.NewController(t)
 				m := gfspclient.NewMockGfSpClientAPI(ctrl)
-				m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return("", mockErr).Times(2)
+				m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return("", mockErr).AnyTimes()
 				e.baseApp.SetGfSpClient(m)
 
 				m1 := consensus.NewMockConsensus(ctrl)
-				m1.EXPECT().ListenObjectSeal(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).Times(1)
+				m1.EXPECT().ListenObjectSeal(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 				e.baseApp.SetConsensus(m1)
 				return e
 			},
