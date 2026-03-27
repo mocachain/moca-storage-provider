@@ -1,5 +1,4 @@
 # This file configures github.com/golangci/golangci-lint.
-version: "2"
 
 run:
   concurrency: 4
@@ -7,7 +6,7 @@ run:
   tests: true
 
 linters:
-  default: none
+  disable-all: true
   enable:
     - goimports
     - gosimple
@@ -18,7 +17,7 @@ linters:
     - unconvert
     - unused
 
-  settings:
-    staticcheck:
-      checks:
-        - '-SA1029'
+linters-settings:
+  staticcheck:
+    checks:
+      - '-SA1029'

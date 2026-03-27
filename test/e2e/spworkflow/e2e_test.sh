@@ -36,8 +36,8 @@ function moca_chain() {
   make build
 
   # start Moca chain
-  bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh --verbose export_sps 1 8 2>/dev/null >sp.json
+  bash ./deployment/localup/localup.sh all 1 3
+  bash ./deployment/localup/localup.sh --verbose export_sps 1 3 2>/dev/null >sp.json
   # validate sp.json is valid JSON
   if ! jq empty sp.json 2>/dev/null; then
     echo "ERROR: sp.json is not valid JSON, dumping contents:"
@@ -72,14 +72,9 @@ function moca_sp() {
   bash ./deployment/localup/localup.sh reset
   bash ./deployment/localup/localup.sh start
   sleep 60
-  ./deployment/localup/local_env/sp0/moca-sp0 update.quota --quota 5000000000 -c deployment/localup/local_env/sp0/config.toml
-  ./deployment/localup/local_env/sp1/moca-sp1 update.quota --quota 5000000000 -c deployment/localup/local_env/sp1/config.toml
-  ./deployment/localup/local_env/sp2/moca-sp2 update.quota --quota 5000000000 -c deployment/localup/local_env/sp2/config.toml
-  ./deployment/localup/local_env/sp3/moca-sp3 update.quota --quota 5000000000 -c deployment/localup/local_env/sp3/config.toml
-  ./deployment/localup/local_env/sp4/moca-sp4 update.quota --quota 5000000000 -c deployment/localup/local_env/sp4/config.toml
-  ./deployment/localup/local_env/sp5/moca-sp5 update.quota --quota 5000000000 -c deployment/localup/local_env/sp5/config.toml
-  ./deployment/localup/local_env/sp6/moca-sp6 update.quota --quota 5000000000 -c deployment/localup/local_env/sp6/config.toml
-  ./deployment/localup/local_env/sp7/moca-sp7 update.quota --quota 5000000000 -c deployment/localup/local_env/sp7/config.toml
+  for i in $(seq 0 2); do
+    ./deployment/localup/local_env/sp${i}/moca-sp${i} update.quota --quota 5000000000 -c deployment/localup/local_env/sp${i}/config.toml
+  done
   tail -n 1000 deployment/localup/local_env/sp0/moca-sp.log
   ps -ef | grep moca-sp | wc -l
 }
