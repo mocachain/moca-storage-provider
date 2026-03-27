@@ -290,7 +290,16 @@ type RcmgrConfig struct {
 
 type LogConfig struct {
 	Level string `comment:"optional"`
-	Path  string `comment:"optional"`
+	Path  string `comment:"optional, default: ./logs"`
+}
+
+// DefaultConfig returns a GfSpConfig with safe defaults for fields that must not be empty.
+func DefaultConfig() *GfSpConfig {
+	return &GfSpConfig{
+		Log: LogConfig{
+			Path: "./logs",
+		},
+	}
 }
 
 type BlockSyncerConfig struct {

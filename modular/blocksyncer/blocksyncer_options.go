@@ -508,7 +508,8 @@ func makeBlockSyncerConfig(cfg *gfspconfig.GfSpConfig) *config.TomlConfig {
 			MaxOpenConnections: 30,
 		},
 		Logging: loggingconfig.Config{
-			Level: "debug",
+			Level:   cfg.Log.Level,
+			RootDir: cfg.Log.Path,
 		},
 	}
 }

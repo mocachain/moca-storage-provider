@@ -24,7 +24,7 @@ var ConfigDumpCmd = &cli.Command{
 
 // dumpConfigAction is the dump.config command action.
 func dumpConfigAction(ctx *cli.Context) error {
-	bz, err := toml.Marshal(&gfspconfig.GfSpConfig{})
+	bz, err := toml.Marshal(gfspconfig.DefaultConfig())
 	if err != nil {
 		return err
 	}
