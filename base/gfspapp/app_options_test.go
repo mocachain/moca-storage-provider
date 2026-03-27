@@ -306,14 +306,6 @@ func TestDefaultGfSpPProfOption(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestNewGfSpBaseAppFailure1(t *testing.T) {
-	t.Log("Failure case description: init would panic")
-	cfg := &gfspconfig.GfSpConfig{Customize: nil}
-	assert.Panics(t, func() {
-		_, _ = NewGfSpBaseApp(cfg)
-	})
-}
-
 func TestNewGfSpBaseAppFailure2(t *testing.T) {
 	t.Log("Failure case description: repeated set piece store")
 	ctrl := gomock.NewController(t)

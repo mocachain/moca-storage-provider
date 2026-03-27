@@ -5,7 +5,6 @@
 //
 //	mockgen -source=./modular.go -destination=./modular_mock.go -package=module
 //
-
 // Package module is a generated GoMock package.
 package module
 
@@ -14,15 +13,15 @@ import (
 	io "io"
 	reflect "reflect"
 
+	types "github.com/evmos/evmos/v12/x/sp/types"
+	types0 "github.com/evmos/evmos/v12/x/storage/types"
+	types1 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	gfspp2p "github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	gfspserver "github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	gfsptask "github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	rcmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 	spdb "github.com/mocachain/moca-storage-provider/core/spdb"
 	task "github.com/mocachain/moca-storage-provider/core/task"
-	types "github.com/evmos/evmos/v12/x/sp/types"
-	types0 "github.com/evmos/evmos/v12/x/storage/types"
-	types1 "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -1852,6 +1851,21 @@ func (mr *MockSignerMockRecorder) CancelSwapIn(ctx, cancelSwapIn any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelSwapIn", reflect.TypeOf((*MockSigner)(nil).CancelSwapIn), ctx, cancelSwapIn)
 }
 
+// CancelSwapInEvm mocks base method.
+func (m *MockSigner) CancelSwapInEvm(ctx context.Context, cancelSwapIn *types1.MsgCancelSwapIn) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelSwapInEvm", ctx, cancelSwapIn)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelSwapInEvm indicates an expected call of CancelSwapInEvm.
+func (mr *MockSignerMockRecorder) CancelSwapInEvm(ctx, cancelSwapIn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelSwapInEvm", reflect.TypeOf((*MockSigner)(nil).CancelSwapInEvm), ctx, cancelSwapIn)
+}
+
 // CompleteMigrateBucket mocks base method.
 func (m *MockSigner) CompleteMigrateBucket(ctx context.Context, migrateBucket *types0.MsgCompleteMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
@@ -1865,6 +1879,21 @@ func (m *MockSigner) CompleteMigrateBucket(ctx context.Context, migrateBucket *t
 func (mr *MockSignerMockRecorder) CompleteMigrateBucket(ctx, migrateBucket any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteMigrateBucket", reflect.TypeOf((*MockSigner)(nil).CompleteMigrateBucket), ctx, migrateBucket)
+}
+
+// CompleteMigrateBucketEvm mocks base method.
+func (m *MockSigner) CompleteMigrateBucketEvm(ctx context.Context, migrateBucket *types0.MsgCompleteMigrateBucket) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteMigrateBucketEvm", ctx, migrateBucket)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CompleteMigrateBucketEvm indicates an expected call of CompleteMigrateBucketEvm.
+func (mr *MockSignerMockRecorder) CompleteMigrateBucketEvm(ctx, migrateBucket any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteMigrateBucketEvm", reflect.TypeOf((*MockSigner)(nil).CompleteMigrateBucketEvm), ctx, migrateBucket)
 }
 
 // CompleteSPExit mocks base method.
@@ -1882,6 +1911,21 @@ func (mr *MockSignerMockRecorder) CompleteSPExit(ctx, completeSPExit any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSPExit", reflect.TypeOf((*MockSigner)(nil).CompleteSPExit), ctx, completeSPExit)
 }
 
+// CompleteSPExitEvm mocks base method.
+func (m *MockSigner) CompleteSPExitEvm(ctx context.Context, completeSPExit *types1.MsgCompleteStorageProviderExit) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteSPExitEvm", ctx, completeSPExit)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CompleteSPExitEvm indicates an expected call of CompleteSPExitEvm.
+func (mr *MockSignerMockRecorder) CompleteSPExitEvm(ctx, completeSPExit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSPExitEvm", reflect.TypeOf((*MockSigner)(nil).CompleteSPExitEvm), ctx, completeSPExit)
+}
+
 // CompleteSwapIn mocks base method.
 func (m *MockSigner) CompleteSwapIn(ctx context.Context, reserveSwapIn *types1.MsgCompleteSwapIn) (string, error) {
 	m.ctrl.T.Helper()
@@ -1895,6 +1939,21 @@ func (m *MockSigner) CompleteSwapIn(ctx context.Context, reserveSwapIn *types1.M
 func (mr *MockSignerMockRecorder) CompleteSwapIn(ctx, reserveSwapIn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSwapIn", reflect.TypeOf((*MockSigner)(nil).CompleteSwapIn), ctx, reserveSwapIn)
+}
+
+// CompleteSwapInEvm mocks base method.
+func (m *MockSigner) CompleteSwapInEvm(ctx context.Context, reserveSwapIn *types1.MsgCompleteSwapIn) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteSwapInEvm", ctx, reserveSwapIn)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CompleteSwapInEvm indicates an expected call of CompleteSwapInEvm.
+func (mr *MockSignerMockRecorder) CompleteSwapInEvm(ctx, reserveSwapIn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSwapInEvm", reflect.TypeOf((*MockSigner)(nil).CompleteSwapInEvm), ctx, reserveSwapIn)
 }
 
 // CompleteSwapOut mocks base method.
@@ -1912,6 +1971,21 @@ func (mr *MockSignerMockRecorder) CompleteSwapOut(ctx, completeSwapOut any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSwapOut", reflect.TypeOf((*MockSigner)(nil).CompleteSwapOut), ctx, completeSwapOut)
 }
 
+// CompleteSwapOutEvm mocks base method.
+func (m *MockSigner) CompleteSwapOutEvm(ctx context.Context, completeSwapOut *types1.MsgCompleteSwapOut) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteSwapOutEvm", ctx, completeSwapOut)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CompleteSwapOutEvm indicates an expected call of CompleteSwapOutEvm.
+func (mr *MockSignerMockRecorder) CompleteSwapOutEvm(ctx, completeSwapOut any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteSwapOutEvm", reflect.TypeOf((*MockSigner)(nil).CompleteSwapOutEvm), ctx, completeSwapOut)
+}
+
 // CreateGlobalVirtualGroup mocks base method.
 func (m *MockSigner) CreateGlobalVirtualGroup(ctx context.Context, gvg *types1.MsgCreateGlobalVirtualGroup) (string, error) {
 	m.ctrl.T.Helper()
@@ -1925,6 +1999,21 @@ func (m *MockSigner) CreateGlobalVirtualGroup(ctx context.Context, gvg *types1.M
 func (mr *MockSignerMockRecorder) CreateGlobalVirtualGroup(ctx, gvg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGlobalVirtualGroup", reflect.TypeOf((*MockSigner)(nil).CreateGlobalVirtualGroup), ctx, gvg)
+}
+
+// CreateGlobalVirtualGroupEvm mocks base method.
+func (m *MockSigner) CreateGlobalVirtualGroupEvm(ctx context.Context, gvg *types1.MsgCreateGlobalVirtualGroup) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateGlobalVirtualGroupEvm", ctx, gvg)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateGlobalVirtualGroupEvm indicates an expected call of CreateGlobalVirtualGroupEvm.
+func (mr *MockSignerMockRecorder) CreateGlobalVirtualGroupEvm(ctx, gvg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGlobalVirtualGroupEvm", reflect.TypeOf((*MockSigner)(nil).CreateGlobalVirtualGroupEvm), ctx, gvg)
 }
 
 // DelegateCreateObject mocks base method.
@@ -1942,6 +2031,21 @@ func (mr *MockSignerMockRecorder) DelegateCreateObject(ctx, msg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelegateCreateObject", reflect.TypeOf((*MockSigner)(nil).DelegateCreateObject), ctx, msg)
 }
 
+// DelegateCreateObjectEvm mocks base method.
+func (m *MockSigner) DelegateCreateObjectEvm(ctx context.Context, msg *types0.MsgDelegateCreateObject) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DelegateCreateObjectEvm", ctx, msg)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DelegateCreateObjectEvm indicates an expected call of DelegateCreateObjectEvm.
+func (mr *MockSignerMockRecorder) DelegateCreateObjectEvm(ctx, msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelegateCreateObjectEvm", reflect.TypeOf((*MockSigner)(nil).DelegateCreateObjectEvm), ctx, msg)
+}
+
 // DelegateUpdateObjectContent mocks base method.
 func (m *MockSigner) DelegateUpdateObjectContent(ctx context.Context, msg *types0.MsgDelegateUpdateObjectContent) (string, error) {
 	m.ctrl.T.Helper()
@@ -1955,6 +2059,21 @@ func (m *MockSigner) DelegateUpdateObjectContent(ctx context.Context, msg *types
 func (mr *MockSignerMockRecorder) DelegateUpdateObjectContent(ctx, msg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelegateUpdateObjectContent", reflect.TypeOf((*MockSigner)(nil).DelegateUpdateObjectContent), ctx, msg)
+}
+
+// DelegateUpdateObjectContentEvm mocks base method.
+func (m *MockSigner) DelegateUpdateObjectContentEvm(ctx context.Context, msg *types0.MsgDelegateUpdateObjectContent) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DelegateUpdateObjectContentEvm", ctx, msg)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DelegateUpdateObjectContentEvm indicates an expected call of DelegateUpdateObjectContentEvm.
+func (mr *MockSignerMockRecorder) DelegateUpdateObjectContentEvm(ctx, msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DelegateUpdateObjectContentEvm", reflect.TypeOf((*MockSigner)(nil).DelegateUpdateObjectContentEvm), ctx, msg)
 }
 
 // DeleteGlobalVirtualGroup mocks base method.
@@ -1972,6 +2091,21 @@ func (mr *MockSignerMockRecorder) DeleteGlobalVirtualGroup(ctx, deleteGVG any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGlobalVirtualGroup", reflect.TypeOf((*MockSigner)(nil).DeleteGlobalVirtualGroup), ctx, deleteGVG)
 }
 
+// DeleteGlobalVirtualGroupEvm mocks base method.
+func (m *MockSigner) DeleteGlobalVirtualGroupEvm(ctx context.Context, deleteGVG *types1.MsgDeleteGlobalVirtualGroup) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGlobalVirtualGroupEvm", ctx, deleteGVG)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteGlobalVirtualGroupEvm indicates an expected call of DeleteGlobalVirtualGroupEvm.
+func (mr *MockSignerMockRecorder) DeleteGlobalVirtualGroupEvm(ctx, deleteGVG any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGlobalVirtualGroupEvm", reflect.TypeOf((*MockSigner)(nil).DeleteGlobalVirtualGroupEvm), ctx, deleteGVG)
+}
+
 // Deposit mocks base method.
 func (m *MockSigner) Deposit(ctx context.Context, deposit *types1.MsgDeposit) (string, error) {
 	m.ctrl.T.Helper()
@@ -1987,6 +2121,21 @@ func (mr *MockSignerMockRecorder) Deposit(ctx, deposit any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Deposit", reflect.TypeOf((*MockSigner)(nil).Deposit), ctx, deposit)
 }
 
+// DepositEvm mocks base method.
+func (m *MockSigner) DepositEvm(ctx context.Context, deposit *types1.MsgDeposit) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DepositEvm", ctx, deposit)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DepositEvm indicates an expected call of DepositEvm.
+func (mr *MockSignerMockRecorder) DepositEvm(ctx, deposit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DepositEvm", reflect.TypeOf((*MockSigner)(nil).DepositEvm), ctx, deposit)
+}
+
 // DiscontinueBucket mocks base method.
 func (m *MockSigner) DiscontinueBucket(ctx context.Context, bucket *types0.MsgDiscontinueBucket) (string, error) {
 	m.ctrl.T.Helper()
@@ -2000,6 +2149,21 @@ func (m *MockSigner) DiscontinueBucket(ctx context.Context, bucket *types0.MsgDi
 func (mr *MockSignerMockRecorder) DiscontinueBucket(ctx, bucket any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscontinueBucket", reflect.TypeOf((*MockSigner)(nil).DiscontinueBucket), ctx, bucket)
+}
+
+// DiscontinueBucketEvm mocks base method.
+func (m *MockSigner) DiscontinueBucketEvm(ctx context.Context, bucket *types0.MsgDiscontinueBucket) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DiscontinueBucketEvm", ctx, bucket)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DiscontinueBucketEvm indicates an expected call of DiscontinueBucketEvm.
+func (mr *MockSignerMockRecorder) DiscontinueBucketEvm(ctx, bucket any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscontinueBucketEvm", reflect.TypeOf((*MockSigner)(nil).DiscontinueBucketEvm), ctx, bucket)
 }
 
 // Name mocks base method.
@@ -2031,6 +2195,21 @@ func (mr *MockSignerMockRecorder) RejectMigrateBucket(ctx, rejectMigrateBucket a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectMigrateBucket", reflect.TypeOf((*MockSigner)(nil).RejectMigrateBucket), ctx, rejectMigrateBucket)
 }
 
+// RejectMigrateBucketEvm mocks base method.
+func (m *MockSigner) RejectMigrateBucketEvm(ctx context.Context, rejectMigrateBucket *types0.MsgRejectMigrateBucket) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RejectMigrateBucketEvm", ctx, rejectMigrateBucket)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RejectMigrateBucketEvm indicates an expected call of RejectMigrateBucketEvm.
+func (mr *MockSignerMockRecorder) RejectMigrateBucketEvm(ctx, rejectMigrateBucket any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectMigrateBucketEvm", reflect.TypeOf((*MockSigner)(nil).RejectMigrateBucketEvm), ctx, rejectMigrateBucket)
+}
+
 // RejectUnSealObject mocks base method.
 func (m *MockSigner) RejectUnSealObject(ctx context.Context, object *types0.MsgRejectSealObject) (string, error) {
 	m.ctrl.T.Helper()
@@ -2044,6 +2223,21 @@ func (m *MockSigner) RejectUnSealObject(ctx context.Context, object *types0.MsgR
 func (mr *MockSignerMockRecorder) RejectUnSealObject(ctx, object any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectUnSealObject", reflect.TypeOf((*MockSigner)(nil).RejectUnSealObject), ctx, object)
+}
+
+// RejectUnSealObjectEvm mocks base method.
+func (m *MockSigner) RejectUnSealObjectEvm(ctx context.Context, object *types0.MsgRejectSealObject) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RejectUnSealObjectEvm", ctx, object)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RejectUnSealObjectEvm indicates an expected call of RejectUnSealObjectEvm.
+func (mr *MockSignerMockRecorder) RejectUnSealObjectEvm(ctx, object any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RejectUnSealObjectEvm", reflect.TypeOf((*MockSigner)(nil).RejectUnSealObjectEvm), ctx, object)
 }
 
 // ReleaseResource mocks base method.
@@ -2088,6 +2282,21 @@ func (mr *MockSignerMockRecorder) ReserveSwapIn(ctx, reserveSwapIn any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveSwapIn", reflect.TypeOf((*MockSigner)(nil).ReserveSwapIn), ctx, reserveSwapIn)
 }
 
+// ReserveSwapInEvm mocks base method.
+func (m *MockSigner) ReserveSwapInEvm(ctx context.Context, reserveSwapIn *types1.MsgReserveSwapIn) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReserveSwapInEvm", ctx, reserveSwapIn)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReserveSwapInEvm indicates an expected call of ReserveSwapInEvm.
+func (mr *MockSignerMockRecorder) ReserveSwapInEvm(ctx, reserveSwapIn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveSwapInEvm", reflect.TypeOf((*MockSigner)(nil).ReserveSwapInEvm), ctx, reserveSwapIn)
+}
+
 // SPExit mocks base method.
 func (m *MockSigner) SPExit(ctx context.Context, spExit *types1.MsgStorageProviderExit) (string, error) {
 	m.ctrl.T.Helper()
@@ -2101,6 +2310,21 @@ func (m *MockSigner) SPExit(ctx context.Context, spExit *types1.MsgStorageProvid
 func (mr *MockSignerMockRecorder) SPExit(ctx, spExit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SPExit", reflect.TypeOf((*MockSigner)(nil).SPExit), ctx, spExit)
+}
+
+// SPExitEvm mocks base method.
+func (m *MockSigner) SPExitEvm(ctx context.Context, spExit *types1.MsgStorageProviderExit) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SPExitEvm", ctx, spExit)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SPExitEvm indicates an expected call of SPExitEvm.
+func (mr *MockSignerMockRecorder) SPExitEvm(ctx, spExit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SPExitEvm", reflect.TypeOf((*MockSigner)(nil).SPExitEvm), ctx, spExit)
 }
 
 // SealObject mocks base method.
@@ -2118,6 +2342,21 @@ func (mr *MockSignerMockRecorder) SealObject(ctx, object any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SealObject", reflect.TypeOf((*MockSigner)(nil).SealObject), ctx, object)
 }
 
+// SealObjectEvm mocks base method.
+func (m *MockSigner) SealObjectEvm(ctx context.Context, object *types0.MsgSealObject) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SealObjectEvm", ctx, object)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SealObjectEvm indicates an expected call of SealObjectEvm.
+func (mr *MockSignerMockRecorder) SealObjectEvm(ctx, object any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SealObjectEvm", reflect.TypeOf((*MockSigner)(nil).SealObjectEvm), ctx, object)
+}
+
 // SealObjectV2 mocks base method.
 func (m *MockSigner) SealObjectV2(ctx context.Context, object *types0.MsgSealObjectV2) (string, error) {
 	m.ctrl.T.Helper()
@@ -2131,6 +2370,21 @@ func (m *MockSigner) SealObjectV2(ctx context.Context, object *types0.MsgSealObj
 func (mr *MockSignerMockRecorder) SealObjectV2(ctx, object any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SealObjectV2", reflect.TypeOf((*MockSigner)(nil).SealObjectV2), ctx, object)
+}
+
+// SealObjectV2Evm mocks base method.
+func (m *MockSigner) SealObjectV2Evm(ctx context.Context, object *types0.MsgSealObjectV2) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SealObjectV2Evm", ctx, object)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SealObjectV2Evm indicates an expected call of SealObjectV2Evm.
+func (mr *MockSignerMockRecorder) SealObjectV2Evm(ctx, object any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SealObjectV2Evm", reflect.TypeOf((*MockSigner)(nil).SealObjectV2Evm), ctx, object)
 }
 
 // SignBucketMigrationInfo mocks base method.
@@ -2371,6 +2625,21 @@ func (mr *MockSignerMockRecorder) SwapOut(ctx, swapOut any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwapOut", reflect.TypeOf((*MockSigner)(nil).SwapOut), ctx, swapOut)
 }
 
+// SwapOutEvm mocks base method.
+func (m *MockSigner) SwapOutEvm(ctx context.Context, swapOut *types1.MsgSwapOut) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwapOutEvm", ctx, swapOut)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SwapOutEvm indicates an expected call of SwapOutEvm.
+func (mr *MockSignerMockRecorder) SwapOutEvm(ctx, swapOut any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwapOutEvm", reflect.TypeOf((*MockSigner)(nil).SwapOutEvm), ctx, swapOut)
+}
+
 // UpdateSPPrice mocks base method.
 func (m *MockSigner) UpdateSPPrice(ctx context.Context, price *types.MsgUpdateSpStoragePrice) (string, error) {
 	m.ctrl.T.Helper()
@@ -2384,6 +2653,21 @@ func (m *MockSigner) UpdateSPPrice(ctx context.Context, price *types.MsgUpdateSp
 func (mr *MockSignerMockRecorder) UpdateSPPrice(ctx, price any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSPPrice", reflect.TypeOf((*MockSigner)(nil).UpdateSPPrice), ctx, price)
+}
+
+// UpdateSPPriceEvm mocks base method.
+func (m *MockSigner) UpdateSPPriceEvm(ctx context.Context, price *types.MsgUpdateSpStoragePrice) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSPPriceEvm", ctx, price)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSPPriceEvm indicates an expected call of UpdateSPPriceEvm.
+func (mr *MockSignerMockRecorder) UpdateSPPriceEvm(ctx, price any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSPPriceEvm", reflect.TypeOf((*MockSigner)(nil).UpdateSPPriceEvm), ctx, price)
 }
 
 // MockUploader is a mock of Uploader interface.

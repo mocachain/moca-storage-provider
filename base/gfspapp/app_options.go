@@ -53,6 +53,8 @@ const (
 	DefaultChainID = "moca_5252-1"
 	// DefaultChainAddress defines the default moca address.
 	DefaultChainAddress = "http://localhost:26750"
+	// DefaultEvmRpcAddress defines the default evm rpc address.
+	DefaultEvmRpcAddress = "http://localhost:8545"
 
 	// DefaultMemoryLimit defines the default memory limit for resource manager.
 	DefaultMemoryLimit = 8 * 1024 * 1024 * 1024
@@ -508,6 +510,9 @@ func DefaultGfSpConsensusOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) er
 	}
 	if len(cfg.Chain.ChainAddress) == 0 {
 		cfg.Chain.ChainAddress = []string{DefaultChainAddress}
+	}
+	if len(cfg.Chain.RpcAddress) == 0 {
+		cfg.Chain.RpcAddress = []string{DefaultEvmRpcAddress}
 	}
 	gnfdCfg := &gnfd.GnfdChainConfig{
 		ChainID:      cfg.Chain.ChainID,
