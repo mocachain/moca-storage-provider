@@ -221,31 +221,6 @@ func TestStringToBool(t *testing.T) {
 	}
 }
 
-func TestBoolToInt(t *testing.T) {
-	cases := []struct {
-		name       string
-		originBool bool
-		wantedInt  int
-	}{
-		{
-			"false bool",
-			false,
-			0,
-		},
-		{
-			"true bool",
-			true,
-			1,
-		},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			outputInt := BoolToInt(tt.originBool)
-			assert.Equal(t, tt.wantedInt, outputInt)
-		})
-	}
-}
-
 func TestJoinWithComma(t *testing.T) {
 	cases := []struct {
 		name              string
