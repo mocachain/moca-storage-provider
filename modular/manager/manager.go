@@ -51,6 +51,12 @@ const (
 
 var _ module.Manager = &ManageModular{}
 
+var (
+	newBucketMigrateSchedulerFn = NewBucketMigrateScheduler
+	newSPExitSchedulerFn        = NewSPExitScheduler
+	migrateSchedulerStartDelay  = 5 * time.Second
+)
+
 type ManageModular struct {
 	baseApp *gfspapp.GfSpBaseApp
 	scope   rcmgr.ResourceScope
@@ -218,13 +224,21 @@ func (m *ManageModular) delayStartMigrateScheduler() {
 	// delay start to wait metadata service ready.
 	// migrate scheduler init depend metadata.
 	for {
-		time.Sleep(5 * time.Second)
+		time.Sleep(migrateSchedulerStartDelay)
 		var err error
 		if m.bucketMigrateScheduler == nil {
-			if m.bucketMigrateScheduler, err = NewBucketMigrateScheduler(m); err != nil {
+			if m.bucketMigrateScheduler, err = newBucketMigrateSchedulerFn(m); err != nil {
 				log.Errorw("failed to new bucket migrate scheduler", "error", err)
 				continue
 			}
+			log.Info("succeed to start bucket migrate scheduler")
+		}
+		if m.spExitScheduler == nil {
+			if m.spExitScheduler, err = newSPExitSchedulerFn(m); err != nil {
+				log.Errorw("failed to new sp exit scheduler", "error", err)
+				continue
+			}
+			log.Info("succeed to start sp exit scheduler")
 		}
 		log.Info("succeed to start migrate scheduler")
 		return
