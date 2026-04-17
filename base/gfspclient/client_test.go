@@ -35,7 +35,9 @@ func TestGfSpClient_ManagerConnFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := s.ManagerConn(ctx)
-	assert.Contains(t, err.Error(), context.Canceled.Error())
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), context.Canceled.Error())
+	}
 }
 
 func TestGfSpClient_ApproverConnSuccess(t *testing.T) {
@@ -51,7 +53,9 @@ func TestGfSpClient_ApproverConnFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := s.ApproverConn(ctx)
-	assert.Contains(t, err.Error(), context.Canceled.Error())
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), context.Canceled.Error())
+	}
 }
 
 func TestGfSpClient_P2PConnSuccess(t *testing.T) {
@@ -67,7 +71,9 @@ func TestGfSpClient_P2PConnFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := s.P2PConn(ctx)
-	assert.Contains(t, err.Error(), context.Canceled.Error())
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), context.Canceled.Error())
+	}
 }
 
 func TestGfSpClient_SignerConnSuccess(t *testing.T) {
@@ -83,7 +89,9 @@ func TestGfSpClient_SignerConnFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := s.SignerConn(ctx)
-	assert.Contains(t, err.Error(), context.Canceled.Error())
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), context.Canceled.Error())
+	}
 }
 
 func TestGfSpClient_HTTPClient(t *testing.T) {
