@@ -79,7 +79,7 @@ function moca_sp() {
       "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"
     fi
   done
-  tail -n 1000 deployment/localup/local_env/sp0/moca-sp.log
+  tail -n 1000 deployment/localup/local_env/sp0/log.txt
   ps -ef | grep moca-sp | wc -l
 }
 

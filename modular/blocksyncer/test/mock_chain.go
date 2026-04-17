@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	golog "log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ var (
 	StatusRes          string
 	MockBLockRes       []string
 	MockBLockResultRes []string
+	mockChainReady     = make(chan struct{})
 )
 
 func initMockRes() {
@@ -187,15 +189,31 @@ func homePage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func setupRoutes() {
+func setupRoutes() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", homePage)
 	mux.HandleFunc("/websocket", wsEndpoint)
 
-	http.ListenAndServe(":8080", mux)
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		return err
+	}
+	close(mockChainReady)
+	return http.Serve(listener, mux)
 }
 
 func MockChainRPCServer() {
 	initMockRes()
-	setupRoutes()
+	if err := setupRoutes(); err != nil {
+		golog.Printf("failed to start mock chain rpc server: %v", err)
+	}
+}
+
+func WaitForMockChainRPCServer(timeout time.Duration) error {
+	select {
+	case <-mockChainReady:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("mock chain rpc server not ready within %s", timeout)
+	}
 }
