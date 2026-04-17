@@ -92,9 +92,9 @@ func TestExecuteModular_HandleSealObjectTask(t *testing.T) {
 		{
 			name: "object is sealed",
 			task: &gfsptask.GfSpSealObjectTask{
-				Task:          &gfsptask.GfSpTask{MaxRetry: 1},
-				ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
-				StorageParams: &storagetypes.Params{},
+				Task:                &gfsptask.GfSpTask{MaxRetry: 1},
+				ObjectInfo:          &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+				StorageParams:       &storagetypes.Params{},
 				SecondarySignatures: mustMarshalBLSSignatures(t, 4),
 			},
 			fn: func() *ExecuteModular {

@@ -57,9 +57,7 @@ jobs:
           # must be specified without patch version: we always use the
           # latest patch version.
           version: latest
-          skip-pkg-cache: true
           skip-cache: true
-          skip-build-cache: true
           args: --timeout 30m -v
           github-token: ${{ secrets.github_token }}
         if: env.GIT_DIFF
