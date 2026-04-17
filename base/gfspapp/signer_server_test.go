@@ -221,7 +221,7 @@ func TestGfSpBaseApp_GfSpSignSuccess12(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroup(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
 		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
@@ -608,7 +608,7 @@ func TestGfSpBaseApp_GfSpSignFailure13(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroup(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
 		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{

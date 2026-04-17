@@ -26,8 +26,8 @@ function make_config() {
 
   # chain
   sed -i -e "s/ChainID = '.*'/ChainID = 'moca_5151-1'/g" config.toml
-  sed -i -e "s/ChainAddress = \[.*\]/ChainAddress = \['http:\/\/localhost:8080'\]/g" config.toml
-  sed -i -e "s/RpcAddress = \[.*\]/RpcAddress = \['http:\/\/localhost:8545'\]/g" config.toml
+  sed -i -e "s/ChainAddress = \[.*\]/ChainAddress = \['http:\/\/127.0.0.1:8080'\]/g" config.toml
+  sed -i -e "s/RpcAddress = \[.*\]/RpcAddress = \['http:\/\/127.0.0.1:8545'\]/g" config.toml
   sed -i -e "/^\\[[Ll]og\\]/,/^\\[/ s|^Path = '.*'|Path = './bs-logs'|g" config.toml
 
   # blocksyncer
