@@ -38,7 +38,7 @@ function moca_chain() {
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 8
   bash ./deployment/localup/localup.sh export_sps 1 8
-  cp ./moca/deployment/localup/.local/sp_export.json ./moca/sp.json
+  cp ./deployment/localup/.local/sp_export.json ./sp.json
 
   # transfer some amoca tokens
   transfer_account

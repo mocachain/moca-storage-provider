@@ -272,7 +272,7 @@ func TestGfSpBaseApp_GfSpSignSuccess15(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteMigrateBucket(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
 		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
 			BucketName: "mockBucketName",
@@ -659,7 +659,7 @@ func TestGfSpBaseApp_GfSpSignFailure16(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteMigrateBucket(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
 		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
 			BucketName: "mockBucketName",
