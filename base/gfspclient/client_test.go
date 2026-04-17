@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc"
 )
 
 const mockAddress = "localhost:0"
@@ -34,7 +35,7 @@ func TestGfSpClient_ManagerConnFailure(t *testing.T) {
 	s := mockBufClient()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := s.ManagerConn(ctx)
+	_, err := s.ManagerConn(ctx, grpc.WithBlock())
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), context.Canceled.Error())
 	}
@@ -52,7 +53,7 @@ func TestGfSpClient_ApproverConnFailure(t *testing.T) {
 	s := mockBufClient()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := s.ApproverConn(ctx)
+	_, err := s.ApproverConn(ctx, grpc.WithBlock())
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), context.Canceled.Error())
 	}
@@ -70,7 +71,7 @@ func TestGfSpClient_P2PConnFailure(t *testing.T) {
 	s := mockBufClient()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := s.P2PConn(ctx)
+	_, err := s.P2PConn(ctx, grpc.WithBlock())
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), context.Canceled.Error())
 	}
@@ -88,7 +89,7 @@ func TestGfSpClient_SignerConnFailure(t *testing.T) {
 	s := mockBufClient()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := s.SignerConn(ctx)
+	_, err := s.SignerConn(ctx, grpc.WithBlock())
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), context.Canceled.Error())
 	}

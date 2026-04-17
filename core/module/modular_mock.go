@@ -1852,6 +1852,21 @@ func (mr *MockSignerMockRecorder) CancelSwapIn(ctx, cancelSwapIn any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelSwapIn", reflect.TypeOf((*MockSigner)(nil).CancelSwapIn), ctx, cancelSwapIn)
 }
 
+// CancelSwapInEvm mocks base method.
+func (m *MockSigner) CancelSwapInEvm(ctx context.Context, cancelSwapIn *types1.MsgCancelSwapIn) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CancelSwapInEvm", ctx, cancelSwapIn)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CancelSwapInEvm indicates an expected call of CancelSwapInEvm.
+func (mr *MockSignerMockRecorder) CancelSwapInEvm(ctx, cancelSwapIn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelSwapInEvm", reflect.TypeOf((*MockSigner)(nil).CancelSwapInEvm), ctx, cancelSwapIn)
+}
+
 // CompleteMigrateBucket mocks base method.
 func (m *MockSigner) CompleteMigrateBucket(ctx context.Context, migrateBucket *types0.MsgCompleteMigrateBucket) (string, error) {
 	m.ctrl.T.Helper()
