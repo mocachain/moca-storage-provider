@@ -306,7 +306,7 @@ func TestGfSpBaseApp_GfSpSignSuccess17(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SwapOut(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
 		SwapOut: &virtual_types.MsgSwapOut{
 			StorageProvider: "mockSP",
@@ -693,7 +693,7 @@ func TestGfSpBaseApp_GfSpSignFailure18(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SwapOut(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
 		SwapOut: &virtual_types.MsgSwapOut{
 			StorageProvider: "mockSP",
