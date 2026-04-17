@@ -36,7 +36,7 @@ import (
 var (
 	mockErr         = errors.New("mock error")
 	TestSpAddress   = "TestSpAddress"
-	TestUnsignedMsg = "I want to get approval from sp before creating the bucket."
+	TestUnsignedMsg = "use seed to sign this message"
 )
 
 func setup(t *testing.T) *AuthenticationModular {
@@ -188,7 +188,7 @@ func TestAuthModular_VerifyGNFD1EddsaSignature(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := spdb.NewMockSPDB(ctrl)
 	privateKey, _ := crypto.GenerateKey()
-	userEddsaSeed := "test_seed"
+	userEddsaSeed := stableEddsaSeed
 	// get the EDDSA private and public key
 	userEddsaPrivateKey, _ := GenerateEddsaPrivateKey(userEddsaSeed)
 
@@ -219,7 +219,7 @@ func TestAuthModular_VerifyGNFD1EddsaSignature_BadSig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := spdb.NewMockSPDB(ctrl)
 	privateKey, _ := crypto.GenerateKey()
-	userEddsaSeed := "test_seed"
+	userEddsaSeed := stableEddsaSeed
 	// get the EDDSA private and public key
 	userEddsaPrivateKey, _ := GenerateEddsaPrivateKey(userEddsaSeed)
 
@@ -250,7 +250,7 @@ func TestAuthModular_VerifyGNFD1EddsaSignature_GetNonceError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := spdb.NewMockSPDB(ctrl)
 	privateKey, _ := crypto.GenerateKey()
-	userEddsaSeed := "test_seed"
+	userEddsaSeed := stableEddsaSeed
 	// get the EDDSA private and public key
 	userEddsaPrivateKey, _ := GenerateEddsaPrivateKey(userEddsaSeed)
 
@@ -271,7 +271,7 @@ func TestAuthModular_VerifyGNFD1EddsaSignature_NonceExpired(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := spdb.NewMockSPDB(ctrl)
 	privateKey, _ := crypto.GenerateKey()
-	userEddsaSeed := "test_seed"
+	userEddsaSeed := stableEddsaSeed
 	// get the EDDSA private and public key
 	userEddsaPrivateKey, _ := GenerateEddsaPrivateKey(userEddsaSeed)
 
@@ -303,7 +303,7 @@ func TestAuthModular_VerifyGNFD1EddsaSignature_SigVerificationFailure(t *testing
 	ctrl := gomock.NewController(t)
 	m := spdb.NewMockSPDB(ctrl)
 	privateKey, _ := crypto.GenerateKey()
-	userEddsaSeed := "test_seed"
+	userEddsaSeed := stableEddsaSeed
 	// get the EDDSA private and public key
 	userEddsaPrivateKey, _ := GenerateEddsaPrivateKey(userEddsaSeed)
 

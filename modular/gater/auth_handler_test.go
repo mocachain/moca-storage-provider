@@ -47,7 +47,7 @@ Resources:
 	SampleNonce       = "123456"
 	SampleExpiryDate  = "test_expiry_date"
 
-	UnsignedContentTemplateV2 string = `%s wants you to sign in with your Moca account:
+	UnsignedContentTemplateV2 string = `%s wants you to sign in with your Moca Chain account:
 %s
 Register your identity public key %s
 

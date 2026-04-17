@@ -357,7 +357,7 @@ func TestGfSpBaseApp_GfSpSignSuccess20(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SPExit(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
 		SpExit: &virtual_types.MsgStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -374,7 +374,7 @@ func TestGfSpBaseApp_GfSpSignSuccess21(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSPExit(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
 		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -391,7 +391,7 @@ func TestGfSpBaseApp_GfSpSignSuccess22(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().UpdateSPPrice(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
 		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
 			SpAddress: "mockSpAddress",
@@ -744,7 +744,7 @@ func TestGfSpBaseApp_GfSpSignFailure21(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SPExit(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
 		SpExit: &virtual_types.MsgStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -761,7 +761,7 @@ func TestGfSpBaseApp_GfSpSignFailure22(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSPExit(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
 		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -778,7 +778,7 @@ func TestGfSpBaseApp_GfSpSignFailure23(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().UpdateSPPrice(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
 		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
 			SpAddress: "mockSpAddress",

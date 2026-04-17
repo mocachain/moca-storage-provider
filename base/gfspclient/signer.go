@@ -13,6 +13,16 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
+func safeInfoString(infoFn func() string, fallback string) (info string) {
+	info = fallback
+	defer func() {
+		if recover() != nil {
+			info = fallback
+		}
+	}()
+	return infoFn()
+}
+
 func (s *GfSpClient) SignCreateBucketApproval(ctx context.Context, bucket *storagetypes.MsgCreateBucket) ([]byte, error) {
 	conn, connErr := s.SignerConn(ctx)
 	if connErr != nil {
@@ -519,7 +529,8 @@ func (s *GfSpClient) SignMigrateGVG(ctx context.Context, task *gfsptask.GfSpMigr
 	resp, err := gfspserver.NewGfSpSignServiceClient(conn).GfSpSign(ctx, req)
 	if err != nil {
 		log.CtxErrorw(ctx, "client failed to sign migrate gvg", "migrate_gvg", task, "error", err)
-		return nil, ErrRPCUnknownWithDetail("client failed to sign migrate gvg, migrate_gvg: "+task.Info()+", error: ", err)
+		taskInfo := safeInfoString(func() string { return task.Info() }, "unavailable")
+		return nil, ErrRPCUnknownWithDetail("client failed to sign migrate gvg, migrate_gvg: "+taskInfo+", error: ", err)
 	}
 	if resp.GetErr() != nil {
 		return nil, resp.GetErr()
@@ -541,7 +552,8 @@ func (s *GfSpClient) SignBucketMigrationInfo(ctx context.Context, task *gfsptask
 	resp, err := gfspserver.NewGfSpSignServiceClient(conn).GfSpSign(ctx, req)
 	if err != nil {
 		log.CtxErrorw(ctx, "client failed to sign bucket migrate info", "bucket_migration_info", task, "error", err)
-		return nil, ErrRPCUnknownWithDetail("client failed to sign bucket migrate info, bucket migration info: "+task.Info()+", error: ", err)
+		taskInfo := safeInfoString(func() string { return task.Info() }, "unavailable")
+		return nil, ErrRPCUnknownWithDetail("client failed to sign bucket migrate info, bucket migration info: "+taskInfo+", error: ", err)
 	}
 	if resp.GetErr() != nil {
 		return nil, resp.GetErr()
