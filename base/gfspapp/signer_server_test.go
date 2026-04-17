@@ -79,7 +79,7 @@ func TestGfSpBaseApp_GfSpSignSuccess4(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SealObjectEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SealObjectInfo{
 		SealObjectInfo: &storagetypes.MsgSealObject{
 			ObjectName: "mockObjectName",
@@ -97,7 +97,7 @@ func TestGfSpBaseApp_GfSpSignSuccess5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().RejectUnSealObject(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().RejectUnSealObjectEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_RejectObjectInfo{
 		RejectObjectInfo: &storagetypes.MsgRejectSealObject{
 			ObjectName: "mockObjectName",
@@ -115,7 +115,7 @@ func TestGfSpBaseApp_GfSpSignSuccess6(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().DiscontinueBucket(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().DiscontinueBucketEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DiscontinueBucketInfo{
 		DiscontinueBucketInfo: &storagetypes.MsgDiscontinueBucket{
 			BucketName: "mockBucketName",
@@ -466,7 +466,7 @@ func TestGfSpBaseApp_GfSpSignFailure5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SealObjectEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SealObjectInfo{
 		SealObjectInfo: &storagetypes.MsgSealObject{
 			ObjectName: "mockObjectName",
@@ -484,7 +484,7 @@ func TestGfSpBaseApp_GfSpSignFailure6(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().RejectUnSealObject(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().RejectUnSealObjectEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_RejectObjectInfo{
 		RejectObjectInfo: &storagetypes.MsgRejectSealObject{
 			ObjectName: "mockObjectName",
@@ -502,7 +502,7 @@ func TestGfSpBaseApp_GfSpSignFailure7(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().DiscontinueBucket(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().DiscontinueBucketEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DiscontinueBucketInfo{
 		DiscontinueBucketInfo: &storagetypes.MsgDiscontinueBucket{
 			BucketName: "mockBucketName",

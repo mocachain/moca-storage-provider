@@ -10,12 +10,11 @@ import (
 	tmctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/gogoproto/proto"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/log"
 	"github.com/forbole/juno/v4/models"
-
 	blockcommon "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/common"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 )
 
 var (
