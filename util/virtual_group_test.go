@@ -199,9 +199,9 @@ func TestBlsAggregate(t *testing.T) {
 		wantedIsErr   bool
 	}{
 		{
-			name: "Aggregate bls signature correctly",
+			name:          "Aggregate bls signature correctly",
 			secondarySigs: mustMarshalValidBLSSignatures(t, 4),
-			wantedIsErr: false,
+			wantedIsErr:   false,
 		},
 		{
 			name:          "Cannot aggregate bls signature",
