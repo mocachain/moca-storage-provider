@@ -37,7 +37,8 @@ function moca_chain() {
 
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8 >sp.json
+  bash ./deployment/localup/localup.sh export_sps 1 8
+  cp ./deployment/localup/.local/sp_export.json ./sp.json
 
   # transfer some amoca tokens
   transfer_account
@@ -62,19 +63,23 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
-  bash ./deployment/localup/localup.sh --generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
-  bash ./deployment/localup/localup.sh --reset
-  bash ./deployment/localup/localup.sh --start
+  bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
+  bash ./deployment/localup/localup.sh reset
+  bash ./deployment/localup/localup.sh start
   sleep 60
-  ./deployment/localup/local_env/sp0/moca-sp0 update.quota --quota 5000000000 -c deployment/localup/local_env/sp0/config.toml
-  ./deployment/localup/local_env/sp1/moca-sp1 update.quota --quota 5000000000 -c deployment/localup/local_env/sp1/config.toml
-  ./deployment/localup/local_env/sp2/moca-sp2 update.quota --quota 5000000000 -c deployment/localup/local_env/sp2/config.toml
-  ./deployment/localup/local_env/sp3/moca-sp3 update.quota --quota 5000000000 -c deployment/localup/local_env/sp3/config.toml
-  ./deployment/localup/local_env/sp4/moca-sp4 update.quota --quota 5000000000 -c deployment/localup/local_env/sp4/config.toml
-  ./deployment/localup/local_env/sp5/moca-sp5 update.quota --quota 5000000000 -c deployment/localup/local_env/sp5/config.toml
-  ./deployment/localup/local_env/sp6/moca-sp6 update.quota --quota 5000000000 -c deployment/localup/local_env/sp6/config.toml
-  ./deployment/localup/local_env/sp7/moca-sp7 update.quota --quota 5000000000 -c deployment/localup/local_env/sp7/config.toml
-  tail -n 1000 deployment/localup/local_env/sp0/moca-sp.log
+  for sp_dir in ./deployment/localup/local_env/sp*; do
+    if [ ! -d "${sp_dir}" ]; then
+      continue
+    fi
+
+    sp_name=$(basename "${sp_dir}")
+    sp_bin="${sp_dir}/moca-${sp_name}"
+    sp_config="${sp_dir}/config.toml"
+    if [ -x "${sp_bin}" ] && [ -f "${sp_config}" ]; then
+      "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"
+    fi
+  done
+  tail -n 1000 deployment/localup/local_env/sp0/log.txt
   ps -ef | grep moca-sp | wc -l
 }
 

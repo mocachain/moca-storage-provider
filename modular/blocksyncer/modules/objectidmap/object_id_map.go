@@ -11,8 +11,8 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/log"
 
-	"github.com/mocachain/moca-storage-provider/store/bsdb"
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	"github.com/mocachain/moca-storage-provider/store/bsdb"
 )
 
 var (

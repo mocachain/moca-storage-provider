@@ -7,8 +7,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-sql-driver/mysql"
-	"github.com/stretchr/testify/assert"
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
+	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 )
 

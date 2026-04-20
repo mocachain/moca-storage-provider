@@ -3,9 +3,9 @@ package downloader
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewDownloadModular(t *testing.T) {

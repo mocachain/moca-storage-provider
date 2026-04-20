@@ -7,9 +7,9 @@ import (
 
 	"cosmossdk.io/math"
 	"github.com/forbole/juno/v4/common"
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
 
