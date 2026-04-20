@@ -16,8 +16,6 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
-const stableEddsaSeed = "testeeetgcxsaahsadcastzxbmjhgmgjhcarwewfseasdasdavacsafaewe"
-
 func TestEd25519PrivateKeyAndVerify(t *testing.T) {
 	userEddsaPublicKeyStr := "1db9bfd4f2a457f32a1c500d6d6848b843602942f1b0577d968ea378cbfacf97"
 	msg := "I want to sign a message"
@@ -81,7 +79,7 @@ func TestUserOffChainAuthSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	err = VerifyEddsaSignature(userEddsaPublicKeyStr, sig, []byte("This msg doesn't match with the sig"))
-	assert.Error(t, err)
+	assert.Equal(t, ErrBadSignature, err)
 }
 
 // TestUseUserPublicKeyToVerifyUserOffChainAuthSignature
@@ -110,7 +108,7 @@ func TestUseUserPublicKeyToVerifyUserOffChainAuthSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	err = VerifyEddsaSignature(userEddsaPublicKeyStr, sig, []byte("This msg doesn't match with the sig"))
-	assert.Error(t, err)
+	assert.Equal(t, ErrBadSignature, err)
 }
 
 func TestErrorCases(t *testing.T) {

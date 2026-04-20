@@ -13,6 +13,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
+// safeInfoString calls infoFn and returns fallback if it panics.
+// Uses a named return so the deferred recover can overwrite the result on panic.
 func safeInfoString(infoFn func() string, fallback string) (info string) {
 	info = fallback
 	defer func() {
@@ -20,7 +22,8 @@ func safeInfoString(infoFn func() string, fallback string) (info string) {
 			info = fallback
 		}
 	}()
-	return infoFn()
+	info = infoFn()
+	return
 }
 
 func (s *GfSpClient) SignCreateBucketApproval(ctx context.Context, bucket *storagetypes.MsgCreateBucket) ([]byte, error) {
