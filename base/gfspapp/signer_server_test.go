@@ -79,7 +79,7 @@ func TestGfSpBaseApp_GfSpSignSuccess4(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SealObjectEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SealObjectInfo{
 		SealObjectInfo: &storagetypes.MsgSealObject{
 			ObjectName: "mockObjectName",
@@ -97,7 +97,7 @@ func TestGfSpBaseApp_GfSpSignSuccess5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().RejectUnSealObject(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().RejectUnSealObjectEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_RejectObjectInfo{
 		RejectObjectInfo: &storagetypes.MsgRejectSealObject{
 			ObjectName: "mockObjectName",
@@ -115,7 +115,7 @@ func TestGfSpBaseApp_GfSpSignSuccess6(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().DiscontinueBucket(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().DiscontinueBucketEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DiscontinueBucketInfo{
 		DiscontinueBucketInfo: &storagetypes.MsgDiscontinueBucket{
 			BucketName: "mockBucketName",
@@ -221,7 +221,7 @@ func TestGfSpBaseApp_GfSpSignSuccess12(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroup(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
 		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
@@ -272,7 +272,7 @@ func TestGfSpBaseApp_GfSpSignSuccess15(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteMigrateBucket(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
 		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
 			BucketName: "mockBucketName",
@@ -306,7 +306,7 @@ func TestGfSpBaseApp_GfSpSignSuccess17(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SwapOut(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
 		SwapOut: &virtual_types.MsgSwapOut{
 			StorageProvider: "mockSP",
@@ -340,7 +340,7 @@ func TestGfSpBaseApp_GfSpSignSuccess19(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSwapOut(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CompleteSwapOutEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapOut{
 		CompleteSwapOut: &virtual_types.MsgCompleteSwapOut{
 			StorageProvider: "mockSP",
@@ -357,7 +357,7 @@ func TestGfSpBaseApp_GfSpSignSuccess20(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SPExit(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
 		SpExit: &virtual_types.MsgStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -374,7 +374,7 @@ func TestGfSpBaseApp_GfSpSignSuccess21(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSPExit(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
 		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -391,7 +391,7 @@ func TestGfSpBaseApp_GfSpSignSuccess22(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().UpdateSPPrice(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
+	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
 		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
 			SpAddress: "mockSpAddress",
@@ -466,7 +466,7 @@ func TestGfSpBaseApp_GfSpSignFailure5(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SealObjectEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SealObjectInfo{
 		SealObjectInfo: &storagetypes.MsgSealObject{
 			ObjectName: "mockObjectName",
@@ -484,7 +484,7 @@ func TestGfSpBaseApp_GfSpSignFailure6(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().RejectUnSealObject(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().RejectUnSealObjectEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_RejectObjectInfo{
 		RejectObjectInfo: &storagetypes.MsgRejectSealObject{
 			ObjectName: "mockObjectName",
@@ -502,7 +502,7 @@ func TestGfSpBaseApp_GfSpSignFailure7(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().DiscontinueBucket(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().DiscontinueBucketEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DiscontinueBucketInfo{
 		DiscontinueBucketInfo: &storagetypes.MsgDiscontinueBucket{
 			BucketName: "mockBucketName",
@@ -608,7 +608,7 @@ func TestGfSpBaseApp_GfSpSignFailure13(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroup(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
 		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
@@ -659,7 +659,7 @@ func TestGfSpBaseApp_GfSpSignFailure16(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteMigrateBucket(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
 		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
 			BucketName: "mockBucketName",
@@ -693,7 +693,7 @@ func TestGfSpBaseApp_GfSpSignFailure18(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SwapOut(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
 		SwapOut: &virtual_types.MsgSwapOut{
 			StorageProvider: "mockSP",
@@ -727,7 +727,7 @@ func TestGfSpBaseApp_GfSpSignFailure20(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSwapOut(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CompleteSwapOutEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapOut{
 		CompleteSwapOut: &virtual_types.MsgCompleteSwapOut{
 			StorageProvider: "mockSP",
@@ -744,7 +744,7 @@ func TestGfSpBaseApp_GfSpSignFailure21(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().SPExit(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
 		SpExit: &virtual_types.MsgStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -761,7 +761,7 @@ func TestGfSpBaseApp_GfSpSignFailure22(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().CompleteSPExit(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
 		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
 			StorageProvider: "mockSP",
@@ -778,7 +778,7 @@ func TestGfSpBaseApp_GfSpSignFailure23(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := module.NewMockSigner(ctrl)
 	g.signer = m
-	m.EXPECT().UpdateSPPrice(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
+	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
 		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
 			SpAddress: "mockSpAddress",

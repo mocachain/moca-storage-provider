@@ -43,6 +43,17 @@ function generate_sp_db_info() {
   db_user=$2
   db_password=$3
   db_address=$4
+  if ! jq -e '.sp0' "${sp_json_file}" >/dev/null 2>&1; then
+    sp_json_tmp=$(mktemp)
+    sed -n '/^{/,$p' "${sp_json_file}" >"${sp_json_tmp}"
+    if ! jq -e '.sp0' "${sp_json_tmp}" >/dev/null 2>&1; then
+      echo "ERROR: invalid sp json file ${sp_json_file}"
+      rm -f "${sp_json_tmp}"
+      exit 1
+    fi
+    sp_json_file="${sp_json_tmp}"
+    trap 'rm -f "${sp_json_file}"' EXIT
+  fi
   for ((i = 0; i < ${SP_NUM}; i++)); do
     mkdir -p "${workspace}"/"${SP_DEPLOY_DIR}"/sp${i}
     cp -rf "${sp_bin}" "${workspace}"/"${SP_DEPLOY_DIR}"/sp${i}/${sp_bin_name}${i}
@@ -356,29 +367,29 @@ function reset_sp() {
 function main() {
   CMD=$1
   case ${CMD} in
-  generate)
+  generate | --generate)
     generate_sp_db_info "$2" "$3" "$4" "$5"
     ;;
-  make_config)
+  make_config | config | --make_config | --config)
     make_config
     ;;
-  reset)
+  reset | --reset)
     reset_sp
     ;;
-  start)
+  start | --start)
     stop_sp
     start_sp
     ;;
-  stop)
+  stop | --stop)
     stop_sp
     ;;
-  clean)
+  clean | --clean)
     clean_local_sp_env
     ;;
-  print)
+  print | --print)
     print_work_dir
     ;;
-  rebuild)
+  rebuild | --rebuild)
     rebuild
     ;;
   help | *)

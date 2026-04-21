@@ -27,7 +27,8 @@ func (s *GfSpClient) UploadObject(ctx context.Context, task coretask.UploadObjec
 	defer func() {
 		_ = conn.Close()
 		if task != nil {
-			log.CtxDebugw(ctx, "succeed to send payload data", "info", task.Info(),
+			taskInfo := safeInfoString(func() string { return task.Info() }, "unavailable")
+			log.CtxDebugw(ctx, "succeed to send payload data", "info", taskInfo,
 				"send_size", sendSize)
 		} else {
 			log.CtxDebugw(ctx, "finished to send payload data", "send_size", sendSize)
@@ -106,7 +107,8 @@ func (s *GfSpClient) ResumableUploadObject(ctx context.Context, task coretask.Re
 	defer func() {
 		conn.Close()
 		if task != nil {
-			log.CtxDebugw(ctx, "succeed to send payload data", "info", task.Info(),
+			taskInfo := safeInfoString(func() string { return task.Info() }, "info unavailable")
+			log.CtxDebugw(ctx, "succeed to send payload data", "info", taskInfo,
 				"send_size", sendSize)
 		} else {
 			log.CtxDebugw(ctx, "failed to send payload data", "send_size", sendSize)
@@ -115,7 +117,7 @@ func (s *GfSpClient) ResumableUploadObject(ctx context.Context, task coretask.Re
 	client, err := gfspserver.NewGfSpUploadServiceClient(conn).GfSpResumableUploadObject(ctx)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to new uploader stream client", "error", err)
-		return ErrRPCUnknownWithDetail("failed to new uploader stream client, error: ", connErr)
+		return ErrRPCUnknownWithDetail("failed to new uploader stream client, error: ", err)
 	}
 	buf := make([]byte, DefaultStreamBufSize)
 	for {
