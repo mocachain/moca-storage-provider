@@ -79,6 +79,7 @@ func TestExecuteModular_StartSuccess(t *testing.T) {
 	manage.syncConsensusInfoInterval = 1
 	manage.discontinueBucketTimeInterval = 1
 	manage.bucketMigrateScheduler = &BucketMigrateScheduler{}
+	manage.spExitScheduler = &SPExitScheduler{}
 	ctrl := gomock.NewController(t)
 	m := corercmgr.NewMockResourceManager(ctrl)
 	manage.baseApp.SetResourceManager(m)
@@ -358,44 +359,80 @@ func TestManageModular_QueryRecoverProcessGVG(t *testing.T) {
 
 func TestManageModular_DelayStartMigrateScheduler(t *testing.T) {
 	manage := setup(t)
-	ctrl := gomock.NewController(t)
 	manage.bucketMigrateScheduler = nil
-	manage.subscribeBucketMigrateEventInterval = 300
-	m1 := consensus.NewMockConsensus(ctrl)
-	manage.baseApp.SetConsensus(m1)
-	m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{}, nil).AnyTimes()
+	manage.spExitScheduler = nil
 
-	m2 := spdb.NewMockSPDB(ctrl)
-	manage.baseApp.SetGfSpDB(m2)
-	m2.EXPECT().QueryBucketMigrateSubscribeProgress().Return(uint64(1), nil).AnyTimes()
+	origDelay := migrateSchedulerStartDelay
+	origNewBucket := newBucketMigrateSchedulerFn
+	origNewSPExit := newSPExitSchedulerFn
+	t.Cleanup(func() {
+		migrateSchedulerStartDelay = origDelay
+		newBucketMigrateSchedulerFn = origNewBucket
+		newSPExitSchedulerFn = origNewSPExit
+	})
 
-	m3 := gfspclient.NewMockGfSpClientAPI(ctrl)
-	manage.baseApp.SetGfSpClient(m3)
-	m3.EXPECT().ListMigrateBucketEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*types.ListMigrateBucketEvents{
-		{
-			Event: &types0.EventMigrationBucket{
-				BucketId:   sdkmath.NewUint(1),
-				BucketName: "test",
-			},
-		},
-	}, nil).AnyTimes()
-
-	m1.EXPECT().QueryBucketInfoById(gomock.Any(), gomock.Any()).Return(&types0.BucketInfo{
-		BucketStatus: types0.BUCKET_STATUS_CREATED,
-	}, nil).AnyTimes()
-
-	m2.EXPECT().ListBucketMigrationToConfirm(gomock.Any()).Return([]*spdb.MigrateBucketProgressMeta{
-		{
-			BucketID: 1,
-		},
-	}, nil).AnyTimes()
-
-	m3.EXPECT().GetBucketSize(gomock.Any(), gomock.Any()).Return("10", nil).AnyTimes()
-	m3.EXPECT().ListCompleteMigrationBucketEvents(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*types0.EventCompleteMigrationBucket{}, nil).AnyTimes()
-	m2.EXPECT().UpdateBucketMigrateGCSubscribeProgress(gomock.Any()).Return(nil).AnyTimes()
-	m2.EXPECT().UpdateBucketMigrateSubscribeProgress(gomock.Any()).Return(nil).AnyTimes()
+	migrateSchedulerStartDelay = 0
+	bucketCalled := 0
+	spExitCalled := 0
+	newBucketMigrateSchedulerFn = func(manager *ManageModular) (*BucketMigrateScheduler, error) {
+		bucketCalled++
+		return &BucketMigrateScheduler{manager: manager}, nil
+	}
+	newSPExitSchedulerFn = func(manager *ManageModular) (*SPExitScheduler, error) {
+		spExitCalled++
+		return &SPExitScheduler{manager: manager}, nil
+	}
 
 	manage.delayStartMigrateScheduler()
+
+	assert.NotNil(t, manage.bucketMigrateScheduler)
+	assert.NotNil(t, manage.spExitScheduler)
+	assert.Equal(t, 1, bucketCalled)
+	assert.Equal(t, 1, spExitCalled)
+}
+
+func TestManageModular_QuerySpExitAfterDelayedSchedulerStartup(t *testing.T) {
+	manage := setup(t)
+	manage.bucketMigrateScheduler = nil
+	manage.spExitScheduler = nil
+
+	_, err := manage.QuerySpExit(context.TODO())
+	assert.EqualError(t, err, "spExitScheduler not exit")
+
+	origDelay := migrateSchedulerStartDelay
+	origNewBucket := newBucketMigrateSchedulerFn
+	origNewSPExit := newSPExitSchedulerFn
+	t.Cleanup(func() {
+		migrateSchedulerStartDelay = origDelay
+		newBucketMigrateSchedulerFn = origNewBucket
+		newSPExitSchedulerFn = origNewSPExit
+	})
+
+	migrateSchedulerStartDelay = 0
+	newBucketMigrateSchedulerFn = func(manager *ManageModular) (*BucketMigrateScheduler, error) {
+		return &BucketMigrateScheduler{manager: manager}, nil
+	}
+	newSPExitSchedulerFn = func(manager *ManageModular) (*SPExitScheduler, error) {
+		return &SPExitScheduler{
+			manager: manager,
+			selfSP:  &sptypes.StorageProvider{Id: 1},
+			taskRunner: &DestSPTaskRunner{
+				manager:        manager,
+				keyIndexMap:    make(map[string]int),
+				gvgUnits:       make([]*SPExitGVGExecuteUnit, 0),
+				swapOutUnitMap: make(map[string]*SwapOutUnit),
+			},
+		}, nil
+	}
+
+	manage.delayStartMigrateScheduler()
+
+	res, err := manage.QuerySpExit(context.TODO())
+	assert.NoError(t, err)
+	assert.NotNil(t, res)
+	assert.Equal(t, uint32(1), res.GetSelfSpId())
+	assert.Empty(t, res.GetSwapOutSrc())
+	assert.Empty(t, res.GetSwapOutDest())
 }
 
 func TestManageModular_QueryBucketMigrationProgress(t *testing.T) {
