@@ -9,12 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 	slimiter "github.com/ulule/limiter/v3"
 	smemory "github.com/ulule/limiter/v3/drivers/store/memory"
-	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
-
-	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 const (

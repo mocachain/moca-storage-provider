@@ -26,8 +26,27 @@ function make_config() {
 
   # chain
   sed -i -e "s/ChainID = '.*'/ChainID = 'moca_5151-1'/g" config.toml
-  sed -i -e "s/ChainAddress = \[.*\]/ChainAddress = \['http:\/\/localhost:8080'\]/g" config.toml
-  sed -i -e "s/RpcAddress = \[.*\]/RpcAddress = \['http:\/\/localhost:8080'\]/g" config.toml
+  sed -i -e "s/ChainAddress = \[.*\]/ChainAddress = \['http:\/\/127.0.0.1:8080'\]/g" config.toml
+  sed -i -e "s/RpcAddress = \[.*\]/RpcAddress = \['http:\/\/127.0.0.1:8545'\]/g" config.toml
+  python3 - <<'PY'
+from pathlib import Path
+
+path = Path("config.toml")
+lines = path.read_text().splitlines()
+in_log = False
+for i, line in enumerate(lines):
+    stripped = line.strip()
+    if stripped == "[Log]":
+        in_log = True
+        continue
+    if in_log and stripped.startswith("[") and stripped.endswith("]"):
+        in_log = False
+    if in_log and stripped.startswith("Path = "):
+        lines[i] = "Path = './bs-logs/blocksyncer.log'"
+        break
+path.write_text("\n".join(lines) + "\n")
+PY
+  mkdir -p bs-logs
 
   # blocksyncer
   sed -i -e "s/Modules = \[\]/Modules = \[\'epoch\',\'bucket\',\'object\',\'payment\',\'group\',\'permission\',\'storage_provider\'\,\'prefix_tree\'\,\'virtual_group\'\,\'sp_exit_events\'\,\'object_id_map\'\,\'general\'\]/g" config.toml

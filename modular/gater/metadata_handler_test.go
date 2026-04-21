@@ -22,6 +22,7 @@ import (
 	payment_types "github.com/evmos/evmos/v12/x/payment/types"
 	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
@@ -30,6 +31,40 @@ import (
 const (
 	testAccount = "0xF72aDa8130f934887755492879496b026665FbAB"
 )
+
+func mustMarshalXML(t *testing.T, v any) string {
+	t.Helper()
+	body, err := xml.Marshal(v)
+	assert.NoError(t, err)
+	return string(body)
+}
+
+func withValidExpiryHeader(req *http.Request) *http.Request {
+	if req.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp) == "" {
+		req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(60*time.Hour).Format(ExpiryDateFormat))
+	}
+	return req
+}
+
+func withMetadataTestAuth(g *GateModular, req *http.Request) *http.Request {
+	req = withValidExpiryHeader(req)
+	if req.Header.Get(GnfdAuthorizationHeader) == "" {
+		req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+	}
+	if req.Header.Get(GnfdUserAddressHeader) == "" {
+		req.Header.Set(GnfdUserAddressHeader, testAccount)
+	}
+	if req.Header.Get(GnfdOffChainAuthAppDomainHeader) == "" {
+		req.Header.Set(GnfdOffChainAuthAppDomainHeader, testDomain)
+	}
+	if clientMock, ok := g.baseApp.GfSpClient().(*gfspclient.MockGfSpClientAPI); ok {
+		clientMock.EXPECT().
+			VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(false, nil).
+			AnyTimes()
+	}
+	return req
+}
 
 func mockListObjectsByBucketNameRoute(t *testing.T, g *GateModular) *mux.Router {
 	t.Helper()
@@ -526,17 +561,19 @@ func TestGateModular_ListObjectsByBucketNameHandler(t *testing.T) {
 					return false
 				}
 				assert.Equal(t, len(mockData), len(res.Objects))
-				assert.Equal(t, mockData[0].ObjectInfo.Id, res.Objects[0].ObjectInfo.Id)
+				assert.Equal(t, mockData[0].ObjectInfo.ObjectName, res.Objects[0].ObjectInfo.ObjectName)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListObjectsByBucketNameRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListObjectsByBucketNameRoute(t, g)
 			w := httptest.NewRecorder()
 			begin := time.Now()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			end := time.Now()
 			assert.Less(t, end.UnixMilli()-begin.UnixMilli(), int64(1000)) // we expected this API can return response in 1 sec after it gets data from DB.
 			if tt.wantedResult != "" {
@@ -664,17 +701,20 @@ func TestGateModular_GetObjectMetaHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpGetObjectMetaResponse><Object><ObjectInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><Creator>0xF72aDa8130f934887755492879496b026665FbAB</Creator><BucketName>mock-bucket-name</BucketName><ObjectName>mock-object-name</ObjectName><Id>24662</Id><LocalVirtualGroupId>1</LocalVirtualGroupId><PayloadSize>4802764</PayloadSize><Visibility>3</Visibility><ContentType>application/octet-stream</ContentType><CreateAt>1699781700</CreateAt><ObjectStatus>1</ObjectStatus><RedundancyType>0</RedundancyType><SourceType>0</SourceType><Checksums>tPsLBcgLxRVKTRJCeYw5FVj0jjqPsqFnbDCr77pf7RA=</Checksums><Checksums>7YqCbwK/qC+zaAoJvd971fuJCE0OVQ9ky8bgomUkmRI=</Checksums><Checksums>i59qS3vgvN8QIcNKOJggtN4JsZRLYt1ugeGDtP6x7Sk=</Checksums><Checksums>tBBu4BPpANbc12SO5TVeQ64DtKwl0F2inE29H9jAw54=</Checksums><Checksums>vOw+loeUIXXPEvfYNFmnElTIxj/b0dEEBBF1YbKOoEI=</Checksums><Checksums>e0nSN4a5u3EDPaAqemGDZ5gYJ0l6NUjtalmj/BH2uWE=</Checksums><Checksums>rRm6iKPMc8gZbw1WKKF2kPXveU2VFEh2izs9e8ovfwk=</Checksums><IsUpdating>false</IsUpdating><UpdatedAt>0</UpdatedAt><UpdatedBy></UpdatedBy><Version>0</Version></ObjectInfo><LockedBalance>0x0000000000000000000000000000000000000000000000000000000000000000</LockedBalance><Removed>false</Removed><UpdateAt>1280048</UpdateAt><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateTxHash>0x491227c644bc89f5a058d92167c00d452c63a1dd8d5776c81617a41ec76fcc8c</CreateTxHash><UpdateTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</UpdateTxHash><SealTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</SealTxHash></Object></GfSpGetObjectMetaResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpGetObjectMetaResponse{
+					Object: getOneTestObjectResponse(),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetObjectMetaRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetObjectMetaRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -816,10 +856,12 @@ func TestGateModular_ListObjectsByIDsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Contains(t, body, "<ObjectEntry><Id>0</Id><Value><ObjectInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><Creator>0xF72aDa8130f934887755492879496b026665FbAB</Creator><BucketName>mock-bucket-name</BucketName><ObjectName>mock-object-name0</ObjectName><Id>0</Id><LocalVirtualGroupId>1</LocalVirtualGroupId><PayloadSize>4802764</PayloadSize><Visibility>3</Visibility><ContentType>application/octet-stream</ContentType><CreateAt>1699781700</CreateAt><ObjectStatus>1</ObjectStatus><RedundancyType>0</RedundancyType><SourceType>0</SourceType><Checksums>tPsLBcgLxRVKTRJCeYw5FVj0jjqPsqFnbDCr77pf7RA=</Checksums><Checksums>7YqCbwK/qC+zaAoJvd971fuJCE0OVQ9ky8bgomUkmRI=</Checksums><Checksums>i59qS3vgvN8QIcNKOJggtN4JsZRLYt1ugeGDtP6x7Sk=</Checksums><Checksums>tBBu4BPpANbc12SO5TVeQ64DtKwl0F2inE29H9jAw54=</Checksums><Checksums>vOw+loeUIXXPEvfYNFmnElTIxj/b0dEEBBF1YbKOoEI=</Checksums><Checksums>e0nSN4a5u3EDPaAqemGDZ5gYJ0l6NUjtalmj/BH2uWE=</Checksums><Checksums>rRm6iKPMc8gZbw1WKKF2kPXveU2VFEh2izs9e8ovfwk=</Checksums><IsUpdating>false</IsUpdating><UpdatedAt>0</UpdatedAt><UpdatedBy></UpdatedBy><Version>0</Version></ObjectInfo><LockedBalance>0x0000000000000000000000000000000000000000000000000000000000000000</LockedBalance><Removed>false</Removed><UpdateAt>1280048</UpdateAt><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateTxHash>0x491227c644bc89f5a058d92167c00d452c63a1dd8d5776c81617a41ec76fcc8c</CreateTxHash><UpdateTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</UpdateTxHash><SealTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</SealTxHash></Value></ObjectEntry>")
+				assert.Contains(t, body, "<ObjectEntry><Id>0</Id>")
+				assert.Contains(t, body, "<ObjectName>mock-object-name0</ObjectName>")
 				assert.Contains(t, body, "<ObjectEntry><Id>4</Id></ObjectEntry>")
 				assert.Contains(t, body, "<ObjectEntry><Id>5</Id><Value><LockedBalance></LockedBalance><Removed>false</Removed><UpdateAt>0</UpdateAt><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator></Operator><CreateTxHash></CreateTxHash><UpdateTxHash></UpdateTxHash><SealTxHash></SealTxHash></Value></ObjectEntry>")
-				assert.Contains(t, body, "ObjectEntry><Id>6</Id><Value><ObjectInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><Creator>0xF72aDa8130f934887755492879496b026665FbAB</Creator><BucketName>mock-bucket-name</BucketName><ObjectName>mock-object-name6</ObjectName><Id>6</Id><LocalVirtualGroupId>1</LocalVirtualGroupId><PayloadSize>4802764</PayloadSize><Visibility>3</Visibility><ContentType>application/octet-stream</ContentType><CreateAt>1699781700</CreateAt><ObjectStatus>1</ObjectStatus><RedundancyType>0</RedundancyType><SourceType>0</SourceType><IsUpdating>false</IsUpdating><UpdatedAt>0</UpdatedAt><UpdatedBy></UpdatedBy><Version>0</Version></ObjectInfo><LockedBalance>0x0000000000000000000000000000000000000000000000000000000000000000</LockedBalance><Removed>false</Removed><UpdateAt>1280048</UpdateAt><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateTxHash>0x491227c644bc89f5a058d92167c00d452c63a1dd8d5776c81617a41ec76fcc8c</CreateTxHash><UpdateTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</UpdateTxHash><SealTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</SealTxHash></Value></ObjectEntry>")
+				assert.Contains(t, body, "<ObjectEntry><Id>6</Id>")
+				assert.Contains(t, body, "<ObjectName>mock-object-name6</ObjectName>")
 				return true
 			},
 		},
@@ -840,17 +882,20 @@ func TestGateModular_ListObjectsByIDsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpListObjectsByIDsResponse><ObjectEntry><Id>0</Id><Value><ObjectInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><Creator>0xF72aDa8130f934887755492879496b026665FbAB</Creator><BucketName>mock-bucket-name</BucketName><ObjectName>mock-object-name0</ObjectName><Id>0</Id><LocalVirtualGroupId>1</LocalVirtualGroupId><PayloadSize>4802764</PayloadSize><Visibility>3</Visibility><ContentType>application/octet-stream</ContentType><CreateAt>1699781700</CreateAt><ObjectStatus>1</ObjectStatus><RedundancyType>0</RedundancyType><SourceType>0</SourceType><Checksums>tPsLBcgLxRVKTRJCeYw5FVj0jjqPsqFnbDCr77pf7RA=</Checksums><Checksums>7YqCbwK/qC+zaAoJvd971fuJCE0OVQ9ky8bgomUkmRI=</Checksums><Checksums>i59qS3vgvN8QIcNKOJggtN4JsZRLYt1ugeGDtP6x7Sk=</Checksums><Checksums>tBBu4BPpANbc12SO5TVeQ64DtKwl0F2inE29H9jAw54=</Checksums><Checksums>vOw+loeUIXXPEvfYNFmnElTIxj/b0dEEBBF1YbKOoEI=</Checksums><Checksums>e0nSN4a5u3EDPaAqemGDZ5gYJ0l6NUjtalmj/BH2uWE=</Checksums><Checksums>rRm6iKPMc8gZbw1WKKF2kPXveU2VFEh2izs9e8ovfwk=</Checksums><IsUpdating>false</IsUpdating><UpdatedAt>0</UpdatedAt><UpdatedBy></UpdatedBy><Version>0</Version></ObjectInfo><LockedBalance>0x0000000000000000000000000000000000000000000000000000000000000000</LockedBalance><Removed>false</Removed><UpdateAt>1280048</UpdateAt><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateTxHash>0x491227c644bc89f5a058d92167c00d452c63a1dd8d5776c81617a41ec76fcc8c</CreateTxHash><UpdateTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</UpdateTxHash><SealTxHash>0x238737f109a40c675e1bef5ebfb2adef2cac0a723ee20fbd752e78efbf3d579e</SealTxHash></Value></ObjectEntry></GfSpListObjectsByIDsResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpListObjectsByIDsResponse{
+					Objects: getTestObjectsInIdMap(1),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListObjectsByIDsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListObjectsByIDsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -960,17 +1005,20 @@ func TestGateModular_ListGroupsByIDsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpListGroupsByIDsResponse><GroupEntry><Id>0</Id><Value><Group><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><GroupName>TestGroupName 0</GroupName><SourceType>0</SourceType><Id>0</Id><Extra></Extra></Group><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateAt>0</CreateAt><CreateTime>0</CreateTime><UpdateAt>1280048</UpdateAt><UpdateTime>0</UpdateTime><NumberOfMembers>1</NumberOfMembers><Removed>false</Removed></Value></GroupEntry></GfSpListGroupsByIDsResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpListGroupsByIDsResponse{
+					Groups: getTestGroupsInIdMap(1),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListGroupsByIDsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListGroupsByIDsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -1125,8 +1173,10 @@ func TestGateModular_GetGroupListHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpGetGroupListResponse><Groups><Group><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><GroupName>TestGroupName 0</GroupName><SourceType>0</SourceType><Id>0</Id><Extra></Extra></Group><Operator>0x03AbbEe8E426C9887A8ae3C34602AbCA42aeDFa0</Operator><CreateAt>0</CreateAt><CreateTime>0</CreateTime><UpdateAt>1280048</UpdateAt><UpdateTime>0</UpdateTime><NumberOfMembers>1</NumberOfMembers><Removed>false</Removed></Groups><Count>1</Count></GfSpGetGroupListResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpGetGroupListResponse{
+					Groups: getTestGroupsResponse(1),
+					Count:  1,
+				}), body)
 				return true
 			},
 		},
@@ -1188,9 +1238,11 @@ func TestGateModular_GetGroupListHandler(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetGroupListHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetGroupListHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -1265,17 +1317,20 @@ func TestGateModular_ListPaymentAccountStreamsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpListPaymentAccountStreamsResponse><Buckets><BucketInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><BucketName>mock-bucket-name0</BucketName><Visibility>1</Visibility><Id>0</Id><SourceType>0</SourceType><CreateAt>1699781080</CreateAt><PaymentAddress>0xF72aDa8130f934887755492879496b026665FbAB</PaymentAddress><GlobalVirtualGroupFamilyId>3</GlobalVirtualGroupFamilyId><ChargedReadQuota>0</ChargedReadQuota><BucketStatus>0</BucketStatus><SpAsDelegatedAgentDisabled>false</SpAsDelegatedAgentDisabled></BucketInfo><Removed>false</Removed><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateTxHash>0x21c349a869bde1f44378936e2a9a15ed3fb2d54a43eaea8787960bba1134cdc2</CreateTxHash><UpdateTxHash>0x0cbff0ff3831d61345dbfda5b984e254c4bf87ecf80b45ccbb0635c0547a3b1a</UpdateTxHash><UpdateAt>1279811</UpdateAt><UpdateTime>1699781103</UpdateTime><StorageSize></StorageSize><OffChainStatus>0</OffChainStatus></Buckets></GfSpListPaymentAccountStreamsResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpListPaymentAccountStreamsResponse{
+					Buckets: getTestBuckets(1),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListPaymentAccountStreamsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListPaymentAccountStreamsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -1356,17 +1411,20 @@ func TestGateModular_ListUserPaymentAccountsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpListUserPaymentAccountsResponse><PaymentAccounts><PaymentAccount><Address>0xF72aDa8130f934887755492879496b026665FbAB</Address><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><Refundable>true</Refundable><UpdateAt>1279659</UpdateAt><UpdateTime>1699780707</UpdateTime></PaymentAccount><StreamRecord><Account>0xF72aDa8130f934887755492879496b026665FbAB</Account><CrudTimestamp>1699780994</CrudTimestamp><NetflowRate>0</NetflowRate><StaticBalance>240000000000000001</StaticBalance><BufferBalance>0</BufferBalance><LockBalance>0</LockBalance><Status>0</Status><SettleTimestamp>0</SettleTimestamp><OutFlowCount>0</OutFlowCount><FrozenNetflowRate>0</FrozenNetflowRate></StreamRecord></PaymentAccounts></GfSpListUserPaymentAccountsResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpListUserPaymentAccountsResponse{
+					PaymentAccounts: getTestPaymentAccountMeta(),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListUserPaymentAccountsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListUserPaymentAccountsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -1476,17 +1534,20 @@ func TestGateModular_ListBucketsByIDsHandler(t *testing.T) {
 				return req
 			},
 			wantedResultFn: func(body string) bool {
-				assert.Equal(t, "<GfSpListBucketsByIDsResponse><BucketEntry><Id>0</Id><Value><BucketInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><BucketName>mock-bucket-name0</BucketName><Visibility>1</Visibility><Id>0</Id><SourceType>0</SourceType><CreateAt>1699781080</CreateAt><PaymentAddress>0xF72aDa8130f934887755492879496b026665FbAB</PaymentAddress><GlobalVirtualGroupFamilyId>3</GlobalVirtualGroupFamilyId><ChargedReadQuota>0</ChargedReadQuota><BucketStatus>0</BucketStatus><SpAsDelegatedAgentDisabled>false</SpAsDelegatedAgentDisabled></BucketInfo><Removed>false</Removed><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateTxHash>0x21c349a869bde1f44378936e2a9a15ed3fb2d54a43eaea8787960bba1134cdc2</CreateTxHash><UpdateTxHash>0x0cbff0ff3831d61345dbfda5b984e254c4bf87ecf80b45ccbb0635c0547a3b1a</UpdateTxHash><UpdateAt>1279811</UpdateAt><UpdateTime>1699781103</UpdateTime><StorageSize></StorageSize><OffChainStatus>0</OffChainStatus></Value></BucketEntry></GfSpListBucketsByIDsResponse>",
-					body)
+				assert.Equal(t, mustMarshalXML(t, &types.GfSpListBucketsByIDsResponse{
+					Buckets: getTestBucketsInIdMap(1),
+				}), body)
 				return true
 			},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListBucketsByIDsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListBucketsByIDsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -1597,7 +1658,7 @@ func TestGateModular_GetUserGroupsHandler(t *testing.T) {
 				req.Header.Set(GnfdUserAddressHeader, testAccount)
 				return req
 			},
-			wantedResult: "<GfSpGetUserGroupsResponse><Groups><Group><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><GroupName>TestGroupName 0</GroupName><SourceType>0</SourceType><Id>0</Id><Extra></Extra></Group><AccountId>0xF72aDa8130f934887755492879496b026665FbAB</AccountId><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateAt>1376086</CreateAt><CreateTime>1700032197</CreateTime><UpdateAt>1376086</UpdateAt><UpdateTime>1700032197</UpdateTime><Removed>false</Removed><ExpirationTime>253402300799</ExpirationTime></Groups></GfSpGetUserGroupsResponse>",
+			wantedResult: mustMarshalXML(t, &types.GfSpGetUserGroupsResponse{Groups: getTestGroupMembersResponse(1)}),
 			wantedResultFn: func(body string) bool {
 				var res types.GfSpGetUserGroupsResponse
 				err := xml.Unmarshal([]byte(body), &res)
@@ -1637,10 +1698,12 @@ func TestGateModular_GetUserGroupsHandler(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetUserGroupsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetUserGroupsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
 			begin := time.Now()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			end := time.Now()
 			log.Printf("GetUserGroupsHandler takes %d to finish", end.UnixMilli()-begin.UnixMilli())
 
@@ -1750,7 +1813,7 @@ func TestGateModular_GetGroupMembersHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				return req
 			},
-			wantedResult: "<GfSpGetGroupMembersResponse><Groups><Group><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><GroupName>TestGroupName 0</GroupName><SourceType>0</SourceType><Id>0</Id><Extra></Extra></Group><AccountId>0xF72aDa8130f934887755492879496b026665FbAB</AccountId><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateAt>1376086</CreateAt><CreateTime>1700032197</CreateTime><UpdateAt>1376086</UpdateAt><UpdateTime>1700032197</UpdateTime><Removed>false</Removed><ExpirationTime>253402300799</ExpirationTime></Groups></GfSpGetGroupMembersResponse>",
+			wantedResult: mustMarshalXML(t, &types.GfSpGetGroupMembersResponse{Groups: getTestGroupMembersResponse(1)}),
 			wantedResultFn: func(body string) bool {
 				var res types.GfSpGetGroupMembersResponse
 				err := xml.Unmarshal([]byte(body), &res)
@@ -1789,10 +1852,12 @@ func TestGateModular_GetGroupMembersHandler(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetGroupMembersHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetGroupMembersHandlerRoute(t, g)
 			w := httptest.NewRecorder()
 			begin := time.Now()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			end := time.Now()
 			log.Printf("GetGroupMembersHandler takes %d to finish", end.UnixMilli()-begin.UnixMilli())
 			assert.Less(t, end.UnixMilli()-begin.UnixMilli(), int64(300)) // we expected this API can return response in 0.3 sec after it gets data from DB.
@@ -1907,7 +1972,7 @@ func TestGateModular_GetUserOwnedGroupsHandler(t *testing.T) {
 				req.Header.Set(GnfdUserAddressHeader, testAccount)
 				return req
 			},
-			wantedResult: "<GfSpGetUserOwnedGroupsResponse><Groups><Group><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><GroupName>TestGroupName 0</GroupName><SourceType>0</SourceType><Id>0</Id><Extra></Extra></Group><AccountId>0xF72aDa8130f934887755492879496b026665FbAB</AccountId><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateAt>1376086</CreateAt><CreateTime>1700032197</CreateTime><UpdateAt>1376086</UpdateAt><UpdateTime>1700032197</UpdateTime><Removed>false</Removed><ExpirationTime>253402300799</ExpirationTime></Groups></GfSpGetUserOwnedGroupsResponse>",
+			wantedResult: mustMarshalXML(t, &types.GfSpGetUserOwnedGroupsResponse{Groups: getTestGroupMembersResponse(1)}),
 			wantedResultFn: func(body string) bool {
 				var res types.GfSpGetUserOwnedGroupsResponse
 				err := xml.Unmarshal([]byte(body), &res)
@@ -1947,10 +2012,12 @@ func TestGateModular_GetUserOwnedGroupsHandler(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetUserOwnedGroupsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetUserOwnedGroupsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
 			begin := time.Now()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			end := time.Now()
 			log.Printf("GetUserOwnedGroupsHandler takes %d to finish", end.UnixMilli()-begin.UnixMilli())
 			assert.Less(t, end.UnixMilli()-begin.UnixMilli(), int64(300)) // we expected this API can return response in 0.3 sec after it gets data from DB.
@@ -2032,14 +2099,19 @@ func TestGateModular_GetBucketMetaHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				return req
 			},
-			wantedResult: "<GfSpGetBucketMetaResponse><Bucket><BucketInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><BucketName>mock-bucket-name0</BucketName><Visibility>1</Visibility><Id>0</Id><SourceType>0</SourceType><CreateAt>1699781080</CreateAt><PaymentAddress>0xF72aDa8130f934887755492879496b026665FbAB</PaymentAddress><GlobalVirtualGroupFamilyId>3</GlobalVirtualGroupFamilyId><ChargedReadQuota>0</ChargedReadQuota><BucketStatus>0</BucketStatus><SpAsDelegatedAgentDisabled>false</SpAsDelegatedAgentDisabled></BucketInfo><Removed>false</Removed><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateTxHash>0x21c349a869bde1f44378936e2a9a15ed3fb2d54a43eaea8787960bba1134cdc2</CreateTxHash><UpdateTxHash>0x0cbff0ff3831d61345dbfda5b984e254c4bf87ecf80b45ccbb0635c0547a3b1a</UpdateTxHash><UpdateAt>1279811</UpdateAt><UpdateTime>1699781103</UpdateTime><Vgf><Id>0</Id><PrimarySpId>3</PrimarySpId><VirtualPaymentAddress>0x26281179b8885F21f95b0a246c8AD70957A95A23</VirtualPaymentAddress></Vgf><StorageSize></StorageSize><OffChainStatus>0</OffChainStatus></Bucket><StreamRecord><Account>0xF72aDa8130f934887755492879496b026665FbAB</Account><CrudTimestamp>1699780994</CrudTimestamp><NetflowRate>0</NetflowRate><StaticBalance>240000000000000001</StaticBalance><BufferBalance>0</BufferBalance><LockBalance>0</LockBalance><Status>0</Status><SettleTimestamp>0</SettleTimestamp><OutFlowCount>0</OutFlowCount><FrozenNetflowRate>0</FrozenNetflowRate></StreamRecord></GfSpGetBucketMetaResponse>",
+			wantedResult: mustMarshalXML(t, &types.GfSpGetBucketMetaResponse{
+				Bucket:       getTestVGFInfoBuckets(1)[0],
+				StreamRecord: getTestStreamRecord(),
+			}),
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetBucketMetaHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetBucketMetaHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -2135,14 +2207,16 @@ func TestGateModular_GetUserBucketsHandler(t *testing.T) {
 				req.Header.Set(GnfdUserAddressHeader, testAccount)
 				return req
 			},
-			wantedResult: "<GfSpGetUserBucketsResponse><Buckets><BucketInfo><Owner>0xF72aDa8130f934887755492879496b026665FbAB</Owner><BucketName>mock-bucket-name0</BucketName><Visibility>1</Visibility><Id>0</Id><SourceType>0</SourceType><CreateAt>1699781080</CreateAt><PaymentAddress>0xF72aDa8130f934887755492879496b026665FbAB</PaymentAddress><GlobalVirtualGroupFamilyId>3</GlobalVirtualGroupFamilyId><ChargedReadQuota>0</ChargedReadQuota><BucketStatus>0</BucketStatus><SpAsDelegatedAgentDisabled>false</SpAsDelegatedAgentDisabled></BucketInfo><Removed>false</Removed><DeleteAt>0</DeleteAt><DeleteReason></DeleteReason><Operator>0xF72aDa8130f934887755492879496b026665FbAB</Operator><CreateTxHash>0x21c349a869bde1f44378936e2a9a15ed3fb2d54a43eaea8787960bba1134cdc2</CreateTxHash><UpdateTxHash>0x0cbff0ff3831d61345dbfda5b984e254c4bf87ecf80b45ccbb0635c0547a3b1a</UpdateTxHash><UpdateAt>1279811</UpdateAt><UpdateTime>1699781103</UpdateTime><Vgf><Id>0</Id><PrimarySpId>3</PrimarySpId><VirtualPaymentAddress>0x26281179b8885F21f95b0a246c8AD70957A95A23</VirtualPaymentAddress></Vgf><StorageSize></StorageSize><OffChainStatus>0</OffChainStatus></Buckets></GfSpGetUserBucketsResponse>",
+			wantedResult: mustMarshalXML(t, &types.GfSpGetUserBucketsResponse{Buckets: getTestVGFInfoBuckets(1)}),
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockGetUserBucketsHandlerRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockGetUserBucketsHandlerRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			if tt.wantedResult != "" {
 				assert.Contains(t, w.Body.String(), tt.wantedResult)
 			}
@@ -2297,9 +2371,11 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			router := mockListObjectPoliciesRoute(t, tt.fn())
+			g := tt.fn()
+			router := mockListObjectPoliciesRoute(t, g)
 			w := httptest.NewRecorder()
-			router.ServeHTTP(w, tt.request())
+			req := withMetadataTestAuth(g, tt.request())
+			router.ServeHTTP(w, req)
 			assert.Equal(t, w.Code, tt.wantedCode)
 		})
 	}

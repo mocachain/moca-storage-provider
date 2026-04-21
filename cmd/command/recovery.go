@@ -8,6 +8,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -15,7 +16,6 @@ import (
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/util"
-	"github.com/evmos/evmos/v12/x/storage/types"
 )
 
 const (

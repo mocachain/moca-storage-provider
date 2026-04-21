@@ -1443,7 +1443,7 @@ func TestGateModular_getObjectHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 				return g
 			},
@@ -1482,7 +1482,7 @@ func TestGateModular_getObjectHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -1526,7 +1526,7 @@ func TestGateModular_getObjectHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -2102,7 +2102,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -2155,7 +2155,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -2208,7 +2208,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -2264,7 +2264,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 				req.Header.Set("User-Agent", "Chrome")
 				return req
 			},
-			wantedResult: "<!doctype html>",
+			wantedResult: "errorCode(NO_PERMISSION)",
 			wantedResponseHeader: map[string]string{
 				ContentDispositionHeader: "",
 			},
@@ -2627,8 +2627,8 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 				req.Header.Set("User-Agent", "Chrome")
 				return req
 			},
-			wantedResult:       "<!doctype html>",
-			wantedHttpRespCode: 200,
+			wantedResult:       "errorCode(NO_PERMISSION)",
+			wantedHttpRespCode: 500,
 		},
 
 		{
@@ -2692,7 +2692,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)
@@ -2763,7 +2763,7 @@ func TestGateModular_getObjectByUniversalEndpointHandler(t *testing.T) {
 					Id: sdkmath.NewUint(2),
 				}, nil).Times(1)
 				consensusMock.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(
-					&storagetypes.Params{MaxPayloadSize: 10}, nil).Times(1)
+					&storagetypes.Params{MaxPayloadSize: 10, VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 10}}, nil).Times(1)
 				g.baseApp.SetConsensus(consensusMock)
 
 				pieceOpMock := piecestore.NewMockPieceOp(ctrl)

@@ -3,8 +3,8 @@ package piecestore_e2e
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/store/piecestore/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestS3Store(t *testing.T) {
