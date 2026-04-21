@@ -75,14 +75,6 @@ func StringToBool(str string) (bool, error) {
 	return b, nil
 }
 
-// BoolToInt converts bool to int
-func BoolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // JoinWithComma converts string slice to one string with comma
 func JoinWithComma(slice []string) string {
 	return strings.Join(slice, ",")
