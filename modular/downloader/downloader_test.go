@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/rcmgr"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
 

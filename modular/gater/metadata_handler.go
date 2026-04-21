@@ -15,12 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
-	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
-	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
-	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/evmos/evmos/v12/types/resource"
 	resource_types "github.com/evmos/evmos/v12/types/resource"
 	"github.com/evmos/evmos/v12/types/s3util"
@@ -29,6 +23,12 @@ import (
 	sp_types "github.com/evmos/evmos/v12/x/sp/types"
 	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
+	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/mocachain/moca-storage-provider/util"
 )
 
 const (

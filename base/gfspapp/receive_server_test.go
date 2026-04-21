@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/rcmgr"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
 

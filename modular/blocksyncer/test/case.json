@@ -12,7 +12,7 @@
   {
     "name": "delete bucket",
     "block": "{\"block\":{\"header\":{\"height\":\"3\",\"time\":\"2023-08-24T17:09:07.49508671Z\"},\"data\":{\"txs\":[]}}}",
-    "block_results": "{\"height\":\"3\",\"end_block_events\":[{\"type\":\"moca.storage.EventDeleteBucket\",\"attributes\":[{\"key\":\"bucket_id\",\"value\":\"\\\"649851\\\"\",\"index\":true},{\"key\":\"bucket_name\",\"value\":\"\\\"full-node-v1-acc0000000072-buc0000000000\\\"\",\"index\":true},{\"key\":\"global_virtual_group_family_id\",\"value\":\"17\",\"index\":true},{\"key\":\"operator\",\"value\":\"\\\"0x3344EEa9FBD7dDA1c71bae83bF723C85D94e8659\\\"\",\"index\":true},{\"key\":\"owner\",\"value\":\"\\\"0x869c40d496a79634BEf43af8EEb817F2b8A1CB2c\\\"\",\"index\":true}]}]}"
+    "block_results": "{\"height\":\"3\",\"finalize_block_events\":[{\"type\":\"moca.storage.EventDeleteBucket\",\"attributes\":[{\"key\":\"bucket_id\",\"value\":\"\\\"649851\\\"\",\"index\":true},{\"key\":\"bucket_name\",\"value\":\"\\\"full-node-v1-acc0000000072-buc0000000000\\\"\",\"index\":true},{\"key\":\"global_virtual_group_family_id\",\"value\":\"17\",\"index\":true},{\"key\":\"operator\",\"value\":\"\\\"0x3344EEa9FBD7dDA1c71bae83bF723C85D94e8659\\\"\",\"index\":true},{\"key\":\"owner\",\"value\":\"\\\"0x869c40d496a79634BEf43af8EEb817F2b8A1CB2c\\\"\",\"index\":true}]}]}"
   },
   {
     "name": "EventDiscontinueBucket",

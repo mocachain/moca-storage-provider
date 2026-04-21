@@ -20,6 +20,7 @@ func (s *BasicTestSuite) SetupSuite() {
 
 func (s *BasicTestSuite) Test_BlockSyncer() {
 	go test.MockChainRPCServer()
+	s.Require().NoError(test.WaitForMockChainRPCServer(5 * time.Second))
 
 	args := []string{"", "-config", "config.toml", "--server", "blocksyncer"}
 

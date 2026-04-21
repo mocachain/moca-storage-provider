@@ -66,7 +66,7 @@ func NewGnfd(cfg *GnfdChainConfig) (*Gnfd, error) {
 		return nil, errors.New("moca nodes missing")
 	}
 	if len(cfg.RpcAddress) == 0 {
-		return nil, errors.New("moca rpc address missing")
+		return nil, errors.New("moca evm rpc nodes missing")
 	}
 
 	var clients []*MocaClient

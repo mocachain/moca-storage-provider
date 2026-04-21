@@ -63,6 +63,3 @@ func TestIsNonceError_NilError(t *testing.T) {
 		t.Fatal("expected isNonceError(nil) to be false")
 	}
 }
-
-
-
