@@ -443,8 +443,8 @@ func (s *SPExitScheduler) produceSwapOutPlan(buildMetaByDB bool) (*SrcSPSwapOutP
 			plan.swapOutUnitMap[makeSwapOutKey(sUnit.swapOut)] = sUnit
 		}
 	}
-	if secondaryGVGList, err = s.manager.baseApp.GfSpClient().ListGlobalVirtualGroupsBySecondarySP(context.Background(), s.selfSP.GetId()); err != nil {
-		log.Errorw("failed to list secondary virtual group", "error", err)
+	if secondaryGVGList, err = s.listSecondaryGVGsFromChain(); err != nil {
+		log.Errorw("failed to list secondary virtual group from chain", "error", err)
 		return plan, err
 	}
 	for _, g := range secondaryGVGList {
@@ -503,6 +503,48 @@ func (s *SPExitScheduler) produceSwapOutPlan(buildMetaByDB bool) (*SrcSPSwapOutP
 	log.Infow("succeed to produce swap out plan")
 	err = plan.storeToDB(buildMetaByDB)
 	return plan, err
+}
+
+func (s *SPExitScheduler) listSecondaryGVGsFromChain() ([]*virtualgrouptypes.GlobalVirtualGroup, error) {
+	var (
+		err               error
+		sps               []*sptypes.StorageProvider
+		secondaryGVGMap   = make(map[uint32]*virtualgrouptypes.GlobalVirtualGroup)
+		secondaryGVGList  = make([]*virtualgrouptypes.GlobalVirtualGroup, 0)
+		primaryFamilyList []*virtualgrouptypes.GlobalVirtualGroupFamily
+	)
+
+	if sps, err = s.manager.baseApp.Consensus().ListSPs(context.Background()); err != nil {
+		return nil, err
+	}
+
+	for _, sp := range sps {
+		if sp == nil || sp.GetId() == s.selfSP.GetId() {
+			continue
+		}
+
+		if primaryFamilyList, err = s.manager.baseApp.Consensus().ListVirtualGroupFamilies(context.Background(), sp.GetId()); err != nil {
+			return nil, err
+		}
+
+		for _, family := range primaryFamilyList {
+			familyGVGs, listErr := s.manager.baseApp.Consensus().ListGlobalVirtualGroupsByFamilyID(context.Background(), family.GetId())
+			if listErr != nil {
+				return nil, listErr
+			}
+
+			for _, gvg := range familyGVGs {
+				if _, getIndexErr := util.GetSecondarySPIndexFromGVG(gvg, s.selfSP.GetId()); getIndexErr == nil {
+					secondaryGVGMap[gvg.GetId()] = gvg
+				}
+			}
+		}
+	}
+
+	for _, gvg := range secondaryGVGMap {
+		secondaryGVGList = append(secondaryGVGList, gvg)
+	}
+	return secondaryGVGList, nil
 }
 
 // SwapOutUnit is used by swap out plan and task runner.
