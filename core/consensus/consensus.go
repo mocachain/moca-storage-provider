@@ -23,6 +23,8 @@ type Consensus interface {
 	HasAccount(ctx context.Context, account string) (bool, error)
 	// ListSPs returns all SP info.
 	ListSPs(ctx context.Context) ([]*sptypes.StorageProvider, error)
+	// ListGlobalVirtualGroupFamilies returns all virtual group families.
+	ListGlobalVirtualGroupFamilies(ctx context.Context) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error)
 	// QuerySP returns the sp info by operator address.
 	QuerySP(context.Context, string) (*sptypes.StorageProvider, error)
 	// QuerySPByID returns the sp info by sp id.
@@ -94,6 +96,9 @@ func (*NullConsensus) HasAccount(context.Context, string) (bool, error) {
 	return false, nil
 }
 func (*NullConsensus) ListSPs(context.Context) ([]*sptypes.StorageProvider, error) {
+	return nil, nil
+}
+func (*NullConsensus) ListGlobalVirtualGroupFamilies(context.Context) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error) {
 	return nil, nil
 }
 func (*NullConsensus) QuerySP(context.Context, string) (*sptypes.StorageProvider, error) {

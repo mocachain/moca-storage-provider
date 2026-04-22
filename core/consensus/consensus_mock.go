@@ -13,12 +13,12 @@ import (
 	context "context"
 	reflect "reflect"
 
+	types3 "github.com/cosmos/cosmos-sdk/types"
+	types4 "github.com/cosmos/cosmos-sdk/x/staking/types"
 	types "github.com/evmos/evmos/v12/x/payment/types"
 	types0 "github.com/evmos/evmos/v12/x/sp/types"
 	types1 "github.com/evmos/evmos/v12/x/storage/types"
 	types2 "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	types3 "github.com/cosmos/cosmos-sdk/types"
-	types4 "github.com/cosmos/cosmos-sdk/x/staking/types"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -162,6 +162,21 @@ func (m *MockConsensus) ListSPs(ctx context.Context) ([]*types0.StorageProvider,
 func (mr *MockConsensusMockRecorder) ListSPs(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSPs", reflect.TypeOf((*MockConsensus)(nil).ListSPs), ctx)
+}
+
+// ListGlobalVirtualGroupFamilies mocks base method.
+func (m *MockConsensus) ListGlobalVirtualGroupFamilies(ctx context.Context) ([]*types2.GlobalVirtualGroupFamily, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGlobalVirtualGroupFamilies", ctx)
+	ret0, _ := ret[0].([]*types2.GlobalVirtualGroupFamily)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGlobalVirtualGroupFamilies indicates an expected call of ListGlobalVirtualGroupFamilies.
+func (mr *MockConsensusMockRecorder) ListGlobalVirtualGroupFamilies(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGlobalVirtualGroupFamilies", reflect.TypeOf((*MockConsensus)(nil).ListGlobalVirtualGroupFamilies), ctx)
 }
 
 // ListVirtualGroupFamilies mocks base method.

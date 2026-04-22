@@ -38,7 +38,6 @@ func TestSPExitSchedulerProduceSwapOutPlanLoadsSecondaryGVGsFromChain(t *testing
 		Id:              1,
 		OperatorAddress: "operator-1",
 	}
-	primarySP := &sptypes.StorageProvider{Id: 2}
 	destSP := &sptypes.StorageProvider{Id: 9}
 	secondaryGVG := &virtualgrouptypes.GlobalVirtualGroup{
 		Id:             18,
@@ -48,8 +47,7 @@ func TestSPExitSchedulerProduceSwapOutPlanLoadsSecondaryGVGsFromChain(t *testing
 	}
 
 	chain.EXPECT().ListVirtualGroupFamilies(gomock.Any(), uint32(1)).Return(nil, nil)
-	chain.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{selfSP, primarySP}, nil)
-	chain.EXPECT().ListVirtualGroupFamilies(gomock.Any(), uint32(2)).Return([]*virtualgrouptypes.GlobalVirtualGroupFamily{
+	chain.EXPECT().ListGlobalVirtualGroupFamilies(gomock.Any()).Return([]*virtualgrouptypes.GlobalVirtualGroupFamily{
 		{Id: 7},
 	}, nil)
 	chain.EXPECT().ListGlobalVirtualGroupsByFamilyID(gomock.Any(), uint32(7)).Return([]*virtualgrouptypes.GlobalVirtualGroup{
@@ -85,4 +83,40 @@ func TestSPExitSchedulerProduceSwapOutPlanLoadsSecondaryGVGsFromChain(t *testing
 	require.False(t, unit.isConflicted)
 	require.Equal(t, []uint32{uint32(18)}, unit.swapOut.GetGlobalVirtualGroupIds())
 	require.Equal(t, uint32(9), unit.swapOut.GetSuccessorSpId())
+}
+
+func TestSPExitSchedulerListSecondaryGVGsFromChainScansFamiliesOnce(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := setup(t)
+	chain := consensus.NewMockConsensus(ctrl)
+	manager.baseApp.SetConsensus(chain)
+
+	selfSP := &sptypes.StorageProvider{
+		Id:              1,
+		OperatorAddress: "operator-1",
+	}
+	scheduler := &SPExitScheduler{
+		manager: manager,
+		selfSP:  selfSP,
+	}
+
+	chain.EXPECT().ListGlobalVirtualGroupFamilies(gomock.Any()).Return([]*virtualgrouptypes.GlobalVirtualGroupFamily{
+		{Id: 7, PrimarySpId: 2},
+		{Id: 8, PrimarySpId: 1},
+		{Id: 9, PrimarySpId: 3},
+	}, nil)
+	chain.EXPECT().ListGlobalVirtualGroupsByFamilyID(gomock.Any(), uint32(7)).Return([]*virtualgrouptypes.GlobalVirtualGroup{
+		{Id: 18, FamilyId: 7, PrimarySpId: 2, SecondarySpIds: []uint32{1, 4}},
+	}, nil)
+	chain.EXPECT().ListGlobalVirtualGroupsByFamilyID(gomock.Any(), uint32(9)).Return([]*virtualgrouptypes.GlobalVirtualGroup{
+		{Id: 19, FamilyId: 9, PrimarySpId: 3, SecondarySpIds: []uint32{5, 6}},
+		{Id: 20, FamilyId: 9, PrimarySpId: 3, SecondarySpIds: []uint32{1, 7}},
+	}, nil)
+
+	gvgs, err := scheduler.listSecondaryGVGsFromChain()
+	require.NoError(t, err)
+	require.Len(t, gvgs, 2)
+	require.ElementsMatch(t, []uint32{18, 20}, []uint32{gvgs[0].GetId(), gvgs[1].GetId()})
 }
