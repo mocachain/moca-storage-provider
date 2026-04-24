@@ -9,8 +9,21 @@ ifdef GITHUB_TOKEN
   $(shell git config --global url."https://$(GITHUB_TOKEN):@github.com/".insteadOf "https://github.com/" 2>/dev/null)
 endif
 
-.PHONY: all build clean format install-tools generate lint mock-gen test tidy vet buf-gen proto-clean
+.PHONY: all build clean format hooks install-tools generate lint lint-fix mock-gen pre-commit test test-local tidy vet buf-gen proto-clean
 .PHONY: install-go-test-coverage check-coverage
+
+LEFTHOOK_VERSION ?= v1.11.3
+GO_TOOLCHAIN ?= $(shell awk '/^toolchain / { print $$2; exit }' go.mod)
+GOTOOLCHAIN ?= $(GO_TOOLCHAIN)
+export GOTOOLCHAIN
+GO_GOBIN := $(shell env GOTOOLCHAIN=local go env GOBIN)
+GO_GOPATH := $(shell env GOTOOLCHAIN=local go env GOPATH)
+
+ifeq ($(GO_GOBIN),)
+lefthook_cmd=$(GO_GOPATH)/bin/lefthook
+else
+lefthook_cmd=$(GO_GOBIN)/lefthook
+endif
 
 help:
 	@echo "Please use \`make <target>\` where <target> is one of"
@@ -18,10 +31,14 @@ help:
 	@echo "  clean                 to remove build directory"
 	@echo "  format                to format sp code"
 	@echo "  generate              to generate mock code"
+	@echo "  hooks                 to install git hooks via lefthook"
 	@echo "  install-tools         to install mockgen, buf and protoc-gen-gocosmos tools"
 	@echo "  lint                  to run golangci lint"
+	@echo "  lint-fix              to run golangci lint with auto-fixes"
 	@echo "  mock-gen              to generate mock files"
+	@echo "  pre-commit            to run the local pre-commit checks"
 	@echo "  test                  to run all sp unit tests"
+	@echo "  test-local            to run local unit tests without coverage output"
 	@echo "  tidy                  to run go mod tidy and verify"
 	@echo "  vet                   to do static check"
 	@echo "  buf-gen               to use buf to generate pb.go files"
@@ -45,6 +62,10 @@ format:
 generate:
 	go generate ./...
 
+hooks:
+	go install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION)
+	$(lefthook_cmd) install
+
 install-go-test-coverage:
 	go install github.com/vladopajic/go-test-coverage/v2@latest
 
@@ -54,7 +75,12 @@ install-tools:
 	go install github.com/cosmos/gogoproto/protoc-gen-gocosmos@latest
 
 lint:
+	golangci-lint run
+
+lint-fix:
 	golangci-lint run --fix
+
+pre-commit: lint test-local
 
 mock-gen:
 	mockgen -source=core/spdb/spdb.go -destination=core/spdb/spdb_mock.go -package=spdb
@@ -67,6 +93,11 @@ test:
 	# go test -cover ./...
 	# go test -coverprofile=coverage.out ./...
 	# go tool cover -html=coverage.out
+
+# Run the same local-only unit test set as `test` without writing coverage
+# artifacts, so pre-commit checks do not modify the worktree.
+test-local:
+	go test -failfast $$(go list ./... | grep -v e2e |grep -v modular/blocksyncer) -timeout 99999s
 
 tidy:
 	go mod tidy
