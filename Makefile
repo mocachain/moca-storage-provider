@@ -9,7 +9,7 @@ ifdef GITHUB_TOKEN
   $(shell git config --global url."https://$(GITHUB_TOKEN):@github.com/".insteadOf "https://github.com/" 2>/dev/null)
 endif
 
-.PHONY: all build clean check-go-env check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-fix lint-staged mock-gen pre-commit test test-local test-staged tidy vet buf-gen proto-clean
+.PHONY: all build clean check-go-env check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-changed lint-fix lint-staged mock-gen pre-commit pre-commit-staged test test-local test-changed test-staged tidy vet buf-gen proto-clean
 .PHONY: install-go-test-coverage check-coverage
 
 GO ?= $(shell for candidate in /opt/homebrew/bin/go /usr/local/go/bin/go "$$(command -v go 2>/dev/null)"; do \
@@ -54,11 +54,14 @@ help:
 	@echo "  install-lint          to install the pinned golangci-lint version"
 	@echo "  install-tools         to install mockgen, buf and protoc-gen-gocosmos tools"
 	@echo "  lint                  to run golangci lint"
+	@echo "  lint-changed          to run golangci-lint on local changed Go files"
 	@echo "  lint-fix              to run golangci lint with auto-fixes"
 	@echo "  lint-staged           to run golangci-lint only on staged Go files"
 	@echo "  mock-gen              to generate mock files"
-	@echo "  pre-commit            to run the local pre-commit checks"
+	@echo "  pre-commit            to run checks for local changed files"
+	@echo "  pre-commit-staged     to run checks for staged files (used by git hook)"
 	@echo "  test                  to run all sp unit tests"
+	@echo "  test-changed          to run unit tests for packages touched by local changed Go files"
 	@echo "  test-local            to run local unit tests without coverage output"
 	@echo "  test-staged           to run unit tests for packages touched by staged Go files"
 	@echo "  tidy                  to run go mod tidy and verify"
@@ -124,6 +127,18 @@ lint-fix: check-go-env check-lint
 	@echo "--> Running golangci-lint with fixes (first run may download modules and take a few minutes)..."
 	@$(GO_REPO_ENV) $(golangci_lint_cmd) run -v --fix
 
+lint-changed: check-go-env check-lint
+	@changed_files="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | sort -u || true )"; \
+	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
+		echo "--> go.mod/go.sum changed; running full golangci-lint..."; \
+		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v; \
+	elif [ -z "$$changed_files" ]; then \
+		echo "--> No local changed Go files to lint"; \
+	else \
+		echo "--> Running golangci-lint on local changed Go files..."; \
+		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$changed_files; \
+	fi
+
 lint-staged: check-go-env check-lint
 	@staged_files="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
@@ -136,7 +151,9 @@ lint-staged: check-go-env check-lint
 		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$staged_files; \
 	fi
 
-pre-commit: lint-staged test-staged
+pre-commit: lint-changed test-changed
+
+pre-commit-staged: lint-staged test-staged
 
 mock-gen:
 	mockgen -source=core/spdb/spdb.go -destination=core/spdb/spdb_mock.go -package=spdb
@@ -158,6 +175,24 @@ test-local: check-go-env
 	@echo "--> Running local unit tests..."
 	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s
+
+test-changed: check-go-env
+	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
+	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
+		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
+		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
+	elif [ -z "$$changed_dirs" ]; then \
+		echo "--> No local changed Go packages to test"; \
+	else \
+		echo "--> Running unit tests for local changed Go packages..."; \
+		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | grep -v modular/blocksyncer | sort -u)"; \
+		if [ -z "$$pkgs" ]; then \
+			echo "--> No testable Go packages matched the local changed files"; \
+		else \
+			$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
+		fi; \
+	fi
 
 test-staged: check-go-env
 	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
