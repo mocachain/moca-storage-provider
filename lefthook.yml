@@ -2,4 +2,4 @@ pre-commit:
   parallel: false
   commands:
     checks:
-      run: make pre-commit
+      run: make pre-commit-staged
