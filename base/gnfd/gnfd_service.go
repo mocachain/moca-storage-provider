@@ -300,12 +300,11 @@ func (g *Gnfd) ListBondedValidators(ctx context.Context) (validators []stakingty
 	return validators, nil
 }
 
-// ListVirtualGroupFamilies return the list of virtual group family.
-// TODO: improve it by metadata indexer.
-func (g *Gnfd) ListVirtualGroupFamilies(ctx context.Context, spID uint32) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error) {
+// ListGlobalVirtualGroupFamilies returns all virtual group families.
+func (g *Gnfd) ListGlobalVirtualGroupFamilies(ctx context.Context) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error) {
 	startTime := time.Now()
 	defer func() {
-		metrics.GnfdChainTime.WithLabelValues("list_virtual_group_family").Observe(time.Since(startTime).Seconds())
+		metrics.GnfdChainTime.WithLabelValues("list_global_virtual_group_families").Observe(time.Since(startTime).Seconds())
 	}()
 	client := g.getCurrentClient().GnfdClient()
 	var vgfs []*virtualgrouptypes.GlobalVirtualGroupFamily
@@ -318,19 +317,31 @@ func (g *Gnfd) ListVirtualGroupFamilies(ctx context.Context, spID uint32) ([]*vi
 			},
 		})
 		if err != nil {
-			log.Errorw("failed to list virtual group families", "error", err)
+			log.Errorw("failed to list global virtual group families", "error", err)
 			return vgfs, err
 		}
 		log.Infow("list families", "response", resp)
-		for i := 0; i < len(resp.GetGvgFamilies()); i++ {
-			f := resp.GetGvgFamilies()[i]
-			if f.PrimarySpId == spID {
-				vgfs = append(vgfs, resp.GetGvgFamilies()[i])
-			}
-		}
+		vgfs = append(vgfs, resp.GetGvgFamilies()...)
 		nextKey = resp.GetPagination().GetNextKey()
 		if nextKey == nil { // finish
 			break
+		}
+	}
+	return vgfs, nil
+}
+
+// ListVirtualGroupFamilies return the list of virtual group family.
+// TODO: improve it by metadata indexer.
+func (g *Gnfd) ListVirtualGroupFamilies(ctx context.Context, spID uint32) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error) {
+	allFamilies, err := g.ListGlobalVirtualGroupFamilies(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	vgfs := make([]*virtualgrouptypes.GlobalVirtualGroupFamily, 0)
+	for _, f := range allFamilies {
+		if f.PrimarySpId == spID {
+			vgfs = append(vgfs, f)
 		}
 	}
 	return vgfs, nil

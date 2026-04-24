@@ -508,35 +508,28 @@ func (s *SPExitScheduler) produceSwapOutPlan(buildMetaByDB bool) (*SrcSPSwapOutP
 func (s *SPExitScheduler) listSecondaryGVGsFromChain() ([]*virtualgrouptypes.GlobalVirtualGroup, error) {
 	var (
 		err               error
-		sps               []*sptypes.StorageProvider
 		secondaryGVGMap   = make(map[uint32]*virtualgrouptypes.GlobalVirtualGroup)
 		secondaryGVGList  = make([]*virtualgrouptypes.GlobalVirtualGroup, 0)
 		primaryFamilyList []*virtualgrouptypes.GlobalVirtualGroupFamily
 	)
 
-	if sps, err = s.manager.baseApp.Consensus().ListSPs(context.Background()); err != nil {
+	if primaryFamilyList, err = s.manager.baseApp.Consensus().ListGlobalVirtualGroupFamilies(context.Background()); err != nil {
 		return nil, err
 	}
 
-	for _, sp := range sps {
-		if sp == nil || sp.GetId() == s.selfSP.GetId() {
+	for _, family := range primaryFamilyList {
+		if family == nil || family.GetPrimarySpId() == s.selfSP.GetId() {
 			continue
 		}
 
-		if primaryFamilyList, err = s.manager.baseApp.Consensus().ListVirtualGroupFamilies(context.Background(), sp.GetId()); err != nil {
-			return nil, err
+		familyGVGs, listErr := s.manager.baseApp.Consensus().ListGlobalVirtualGroupsByFamilyID(context.Background(), family.GetId())
+		if listErr != nil {
+			return nil, listErr
 		}
 
-		for _, family := range primaryFamilyList {
-			familyGVGs, listErr := s.manager.baseApp.Consensus().ListGlobalVirtualGroupsByFamilyID(context.Background(), family.GetId())
-			if listErr != nil {
-				return nil, listErr
-			}
-
-			for _, gvg := range familyGVGs {
-				if _, getIndexErr := util.GetSecondarySPIndexFromGVG(gvg, s.selfSP.GetId()); getIndexErr == nil {
-					secondaryGVGMap[gvg.GetId()] = gvg
-				}
+		for _, gvg := range familyGVGs {
+			if _, getIndexErr := util.GetSecondarySPIndexFromGVG(gvg, s.selfSP.GetId()); getIndexErr == nil {
+				secondaryGVGMap[gvg.GetId()] = gvg
 			}
 		}
 	}
