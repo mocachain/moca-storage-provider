@@ -73,13 +73,12 @@ function reset_db() {
 
 function test_bs() {
   cd "${workspace}"/modular/blocksyncer/ || exit 1
-  go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...
-
-  exit_status_command=$?
-  if [ $exit_status_command -eq 0 ]; then
+  if go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...; then
     echo "bs_e2e_test runs successful."
   else
-    exit $exit_status_command
+    echo "blocksyncer go test failed, dumping recent logs if available..."
+    test -f bs-logs/blocksyncer.log && tail -n 300 bs-logs/blocksyncer.log
+    exit 1
   fi
 
   go tool cover -func coverage.txt
@@ -88,7 +87,7 @@ function test_bs() {
   echo "Threshold             : ${TESTCOVERAGE_THRESHOLD} %"
   totalCoverage=$(go tool cover -func=coverage.txt | grep total | grep -Eo '[0-9]+\.[0-9]+')
   echo "Current test coverage : $totalCoverage %"
-  if (($(echo "$totalCoverage ${TESTCOVERAGE_THRESHOLD}" | awk '{print ($1 > $2)}'))); then
+  if (($(echo "$totalCoverage ${TESTCOVERAGE_THRESHOLD}" | awk '{print ($1 >= $2)}'))); then
     echo "OK"
   else
     echo "Current test coverage is below threshold. Please add more unit tests or adjust threshold to a lower value."
