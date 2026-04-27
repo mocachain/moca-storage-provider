@@ -1,4 +1,5 @@
-commit-msg:
+pre-commit:
+  parallel: false
   commands:
-    commitlint:
-      run: npx --no-install commitlint --edit {1}
+    checks:
+      run: make pre-commit-staged
