@@ -188,8 +188,12 @@ function build_cmd() {
   touch config.toml
   {
     echo rpcAddr = \"http://localhost:26657\"
+    echo evmRpcAddr = \"http://localhost:8545\"
     echo chainId = \"moca_5151-1\"
   } >config.toml
+  cat config.toml
+  retry_cmd 12 10 "validate moca-cmd config with sp ls" \
+    ./moca-cmd -c ./config.toml --home ./ sp ls
 }
 
 ############################################

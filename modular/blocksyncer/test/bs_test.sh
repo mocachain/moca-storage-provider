@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 export CGO_CFLAGS="-O -D__BLST_PORTABLE__"
 export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 
@@ -14,10 +16,18 @@ TESTCOVERAGE_THRESHOLD="${TESTCOVERAGE_THRESHOLD:-60}"
 workspace=${GITHUB_WORKSPACE}
 
 function make_config() {
-  cd ${workspace} || exit
+  cd "${workspace}" || exit 1
   make install-tools
   make build
+  if [ ! -x ./build/moca-sp ]; then
+    echo "failed to build ./build/moca-sp"
+    exit 1
+  fi
   ./build/moca-sp config.dump
+  if [ ! -f config.toml ]; then
+    echo "config.dump did not generate config.toml"
+    exit 1
+  fi
   cp config.toml "${workspace}"/modular/blocksyncer/config.toml
   cd "${workspace}"/modular/blocksyncer/ || exit 1
 
