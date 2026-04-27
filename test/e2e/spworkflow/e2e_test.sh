@@ -20,6 +20,7 @@ echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
+SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
 
 function dump_sp_logs() {
   if [ ! -d "${workspace}/deployment/localup/local_env" ]; then
@@ -190,6 +191,7 @@ function build_cmd() {
     echo rpcAddr = \"http://localhost:26657\"
     echo evmRpcAddr = \"http://localhost:8545\"
     echo chainId = \"moca_5151-1\"
+    echo host = \"${SP_REQUEST_HOST}\"
   } >config.toml
   cat config.toml
   retry_cmd 12 10 "validate moca-cmd config with sp ls" \
@@ -206,6 +208,21 @@ function build_moca-go-sdk() {
   git clone https://github.com/mocachain/moca-go-sdk.git
   cd moca-go-sdk/
   git checkout ${MOCA_GO_SDK_TAG}
+  python3 - <<PY
+from pathlib import Path
+
+path = Path("e2e/basesuite/suite.go")
+text = path.read_text()
+text = text.replace(
+    "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t})",
+    "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t\tHost:           \"" + "${SP_REQUEST_HOST}" + "\",\n\t})",
+)
+text = text.replace(
+    "client.Option{\n\t\tDefaultAccount: account,\n\t})",
+    "client.Option{\n\t\tDefaultAccount: account,\n\t\tHost:           \"" + "${SP_REQUEST_HOST}" + "\",\n\t})",
+)
+path.write_text(text)
+PY
 }
 
 ######################
