@@ -6,10 +6,10 @@ export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 workspace=${GITHUB_WORKSPACE}
 
 # some constants
-# Allow callers to override these refs while keeping the CI defaults live.
-MOCA_TAG="${MOCA_TAG:-main}"
-MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
-MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
+# Keep refs override-friendly, but default to a version-aligned stack.
+MOCA_TAG="${MOCA_TAG:-v12.2.0-rc1}"
+MOCA_CMD_TAG="${MOCA_CMD_TAG:-v1.2.0-rc1}"
+MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-v1.2.0-rc1}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
@@ -19,6 +19,63 @@ echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
+
+function dump_sp_logs() {
+  if [ ! -d "${workspace}/deployment/localup/local_env" ]; then
+    return
+  fi
+
+  for sp_dir in "${workspace}"/deployment/localup/local_env/sp*; do
+    if [ ! -d "${sp_dir}" ] || [ ! -f "${sp_dir}/log.txt" ]; then
+      continue
+    fi
+
+    echo "===== $(basename "${sp_dir}") log tail ====="
+    tail -n 200 "${sp_dir}/log.txt"
+  done
+}
+
+function start_sp_stack() {
+  local max_attempts=3
+  local attempt
+
+  for attempt in $(seq 1 ${max_attempts}); do
+    echo "start storage providers attempt ${attempt}/${max_attempts}"
+    if bash ./deployment/localup/localup.sh start; then
+      return 0
+    fi
+
+    echo "storage providers failed to start on attempt ${attempt}"
+    dump_sp_logs
+    bash ./deployment/localup/localup.sh stop || true
+    sleep 5
+  done
+
+  echo "storage providers failed to start after ${max_attempts} attempts"
+  return 1
+}
+
+function update_sp_quota() {
+  local sp_name=$1
+  local sp_bin=$2
+  local sp_config=$3
+  local max_attempts=12
+  local attempt
+
+  for attempt in $(seq 1 ${max_attempts}); do
+    if "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"; then
+      echo "updated quota for ${sp_name}"
+      return 0
+    fi
+
+    echo "quota update for ${sp_name} failed on attempt ${attempt}/${max_attempts}"
+    sleep 10
+  done
+
+  echo "quota update for ${sp_name} failed after ${max_attempts} attempts"
+  test -f "${sp_config%/*}/log.txt" && tail -n 200 "${sp_config%/*}/log.txt"
+  return 1
+}
 
 #########################################
 # build and start Moca blockchain #
@@ -64,8 +121,8 @@ function moca_sp() {
   make build
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
-  bash ./deployment/localup/localup.sh start
-  sleep 60
+  start_sp_stack
+  sleep 30
   for sp_dir in ./deployment/localup/local_env/sp*; do
     if [ ! -d "${sp_dir}" ]; then
       continue
@@ -75,10 +132,10 @@ function moca_sp() {
     sp_bin="${sp_dir}/moca-${sp_name}"
     sp_config="${sp_dir}/config.toml"
     if [ -x "${sp_bin}" ] && [ -f "${sp_config}" ]; then
-      "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"
+      update_sp_quota "${sp_name}" "${sp_bin}" "${sp_config}"
     fi
   done
-  tail -n 1000 deployment/localup/local_env/sp0/log.txt
+  dump_sp_logs
   ps -ef | grep moca-sp | wc -l
 }
 
