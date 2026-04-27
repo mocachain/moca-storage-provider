@@ -78,6 +78,30 @@ function update_sp_quota() {
   return 1
 }
 
+function retry_cmd() {
+  local max_attempts=$1
+  local sleep_seconds=$2
+  local description=$3
+  shift 3
+  local attempt
+
+  for attempt in $(seq 1 "${max_attempts}"); do
+    if "$@"; then
+      echo "${description} succeeded"
+      return 0
+    fi
+
+    echo "${description} failed on attempt ${attempt}/${max_attempts}"
+    if [ "${attempt}" -lt "${max_attempts}" ]; then
+      sleep "${sleep_seconds}"
+    fi
+  done
+
+  echo "${description} failed after ${max_attempts} attempts"
+  dump_sp_logs
+  return 1
+}
+
 #########################################
 # build and start Moca blockchain #
 #########################################
@@ -186,11 +210,12 @@ function build_moca-go-sdk() {
 function test_create_bucket() {
   set -e
   cd "${workspace}"/moca-cmd/build/
-  ./moca-cmd -c ./config.toml --home ./ sp ls
-  sleep 5
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create moca://${BUCKET_NAME}
-  ./moca-cmd -c ./config.toml --home ./ bucket head moca://${BUCKET_NAME}
-  sleep 10
+  retry_cmd 12 10 "list storage providers" \
+    ./moca-cmd -c ./config.toml --home ./ sp ls
+  retry_cmd 6 10 "create bucket ${BUCKET_NAME}" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create moca://${BUCKET_NAME}
+  retry_cmd 12 10 "head bucket ${BUCKET_NAME}" \
+    ./moca-cmd -c ./config.toml --home ./ bucket head moca://${BUCKET_NAME}
 }
 
 ###########################################################
@@ -199,9 +224,12 @@ function test_create_bucket() {
 function test_file_size_less_than_16_mb() {
   set -e
   cd "${workspace}"/moca-cmd/build/
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://${BUCKET_NAME}
-  sleep 32
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/example.json ./test_data.json
+  retry_cmd 6 10 "put example.json" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://${BUCKET_NAME}
+  retry_cmd 12 10 "head example.json" \
+    ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/example.json
+  retry_cmd 12 10 "get example.json" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/example.json ./test_data.json
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./test_data.json
   cat test_data.json
 }
@@ -213,10 +241,12 @@ function test_file_size_greater_than_16_mb() {
   set -e
   cd "${workspace}"/moca-cmd/build/
   dd if=/dev/urandom of=./random_file bs=17M count=1
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://${BUCKET_NAME}/random_file
-  sleep 32
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/random_file ./new_random_file
-  sleep 10
+  retry_cmd 6 10 "put random_file" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://${BUCKET_NAME}/random_file
+  retry_cmd 12 10 "head random_file" \
+    ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/random_file
+  retry_cmd 12 10 "get random_file" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/random_file ./new_random_file
   check_md5 ./random_file ./new_random_file
 }
 
@@ -232,17 +262,23 @@ function test_sp_exit() {
   cd "${workspace}"/moca-cmd/build/
   ls
   dd if=/dev/urandom of=./random_file bs=17M count=1
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create --primarySP "${operator_address}" moca://spexit
-  ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://spexit/random_file
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://spexit/example.json
-  sleep 16
-  ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/random_file
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file
-  ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new.json
+  retry_cmd 6 10 "create spexit bucket" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create --primarySP "${operator_address}" moca://spexit
+  retry_cmd 12 10 "head spexit bucket" \
+    ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
+  retry_cmd 6 10 "put spexit random_file" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://spexit/random_file
+  retry_cmd 6 10 "put spexit example.json" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://spexit/example.json
+  retry_cmd 12 10 "head spexit random_file" \
+    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/random_file
+  retry_cmd 12 10 "get spexit random_file" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file
+  retry_cmd 12 10 "head spexit example.json" \
+    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
+  retry_cmd 12 10 "get spexit example.json" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new.json
 
-  sleep 10
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new.json
   check_md5 ./random_file ./new_random_file
 
@@ -250,14 +286,16 @@ function test_sp_exit() {
   cd "${workspace}"/deployment/localup/local_env/sp5
   ./moca-sp5 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
-  ./moca-cmd -c ./config.toml --home ./ sp ls
-  sleep 180
-  ./moca-cmd -c ./config.toml --home ./ sp ls
-  ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
-  ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new1.json
-  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file1
-  sleep 10
+  retry_cmd 12 10 "list storage providers before exit settle" \
+    ./moca-cmd -c ./config.toml --home ./ sp ls
+  retry_cmd 24 10 "head spexit bucket after exit" \
+    ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
+  retry_cmd 24 10 "head spexit example.json after exit" \
+    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
+  retry_cmd 24 10 "get spexit example.json after exit" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new1.json
+  retry_cmd 24 10 "get spexit random_file after exit" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file1
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new1.json
   check_md5 ./random_file ./new_random_file1
 }
@@ -316,7 +354,11 @@ function run_go_sdk_e2e() {
   set +e
   cd "${workspace}"/moca-go-sdk/
   echo 'run moca go sdk e2e test'
-  go test -v e2e/e2e_migrate_bucket_test.go
+  export MOCA_E2E_ENDPOINT="http://localhost:26657"
+  export MOCA_E2E_EVM_ENDPOINT="http://localhost:8545"
+  export MOCA_E2E_CHAIN_ID="moca_5151-1"
+  export MOCA_E2E_LOCALUP_DIR="${workspace}/moca/deployment/localup/.local"
+  go test -v ./e2e -run TestBucketMigrateTestSuiteTestSuite
   exit_status_command=$?
   if [ $exit_status_command -eq 0 ]; then
     echo "make e2e_test successful."

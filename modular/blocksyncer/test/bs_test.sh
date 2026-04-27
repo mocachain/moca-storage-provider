@@ -3,10 +3,13 @@
 export CGO_CFLAGS="-O -D__BLST_PORTABLE__"
 export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 
-MYSQL_USER="root"
-MYSQL_PASSWORD="root"
-MYSQL_ADDRESS="127.0.0.1:3306"
-TESTCOVERAGE_THRESHOLD=60
+MYSQL_USER="${MYSQL_USER:-root}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-root}"
+MYSQL_ADDRESS="${MYSQL_ADDRESS:-127.0.0.1:3306}"
+BLOCKSYNCER_TEST_DB_NAME="${BLOCKSYNCER_TEST_DB_NAME:-block_syncer}"
+BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS="${BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS:-120}"
+BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS="${BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS:-500}"
+TESTCOVERAGE_THRESHOLD="${TESTCOVERAGE_THRESHOLD:-60}"
 # GITHUB_WORKSPACE=. # for local testing
 workspace=${GITHUB_WORKSPACE}
 
@@ -22,7 +25,7 @@ function make_config() {
   sed -i -e "s/User = '.*'/User = '${MYSQL_USER}'/g" config.toml
   sed -i -e "s/Passwd = '.*'/Passwd = '${MYSQL_PASSWORD}'/g" config.toml
   sed -i -e "s/^Address = '.*'/Address = '${MYSQL_ADDRESS}'/g" config.toml
-  sed -i -e "s/Database = '.*'/Database = 'block_syncer'/g" config.toml
+  sed -i -e "s/Database = '.*'/Database = '${BLOCKSYNCER_TEST_DB_NAME}'/g" config.toml
 
   # chain
   sed -i -e "s/ChainID = '.*'/ChainID = 'moca_5151-1'/g" config.toml
@@ -64,15 +67,27 @@ PY
 }
 
 function reset_db() {
-  hostname="localhost"
-  port="3306"
-  DATABASE="block_syncer"
+  hostname="${MYSQL_ADDRESS%:*}"
+  port="${MYSQL_ADDRESS##*:}"
+  if [ "${MYSQL_ADDRESS}" = "${hostname}" ]; then
+    hostname="localhost"
+  fi
+  if [ "${MYSQL_ADDRESS}" = "${port}" ]; then
+    port="3306"
+  fi
+  DATABASE="${BLOCKSYNCER_TEST_DB_NAME}"
   mysql -u ${MYSQL_USER} -h ${hostname} -P ${port} -p${MYSQL_PASSWORD} -e "drop database if exists ${DATABASE}"
   mysql -u ${MYSQL_USER} -h ${hostname} -P ${port} -p${MYSQL_PASSWORD} -e "create database ${DATABASE}"
 }
 
 function test_bs() {
   cd "${workspace}"/modular/blocksyncer/ || exit 1
+  export BLOCKSYNCER_TEST_DB_USER="${MYSQL_USER}"
+  export BLOCKSYNCER_TEST_DB_PASSWORD="${MYSQL_PASSWORD}"
+  export BLOCKSYNCER_TEST_DB_ADDRESS="${MYSQL_ADDRESS}"
+  export BLOCKSYNCER_TEST_DB_NAME="${BLOCKSYNCER_TEST_DB_NAME}"
+  export BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS
+  export BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS
   if go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...; then
     echo "bs_e2e_test runs successful."
   else

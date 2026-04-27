@@ -33,12 +33,29 @@ jobs:
       # Build SP and Make Config.toml
       - name: Build and Make Config
         run: |
-          bash ./modular/blocksyncer/test/bs_test.sh --makecfg
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./modular/blocksyncer/test/bs_test.sh --makecfg 2>&1 | tee .github/action-logs/blocksyncer-makecfg.log
       # Reset env
       - name: Reset env
         run: |
-          bash ./modular/blocksyncer/test/bs_test.sh --reset
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./modular/blocksyncer/test/bs_test.sh --reset 2>&1 | tee .github/action-logs/blocksyncer-reset.log
       # Run Test
       - name: Run Test
         run: |
-          bash ./modular/blocksyncer/test/bs_test.sh --start_test
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./modular/blocksyncer/test/bs_test.sh --start_test 2>&1 | tee .github/action-logs/blocksyncer-run-test.log
+      - name: Upload BlockSyncer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blocksyncer-e2e-diagnostics
+          if-no-files-found: ignore
+          path: |
+            .github/action-logs/
+            modular/blocksyncer/bs-logs/
+            modular/blocksyncer/coverage.txt
+            modular/blocksyncer/config.toml
