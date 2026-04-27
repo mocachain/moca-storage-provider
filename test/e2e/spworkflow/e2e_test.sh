@@ -6,8 +6,9 @@ export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 workspace=${GITHUB_WORKSPACE}
 
 # some constants
-# Keep refs override-friendly, but default to a version-aligned stack.
-MOCA_TAG="${MOCA_TAG:-v12.2.0-rc1}"
+# Keep refs override-friendly. The chain itself stays on main because older
+# tagged localup stacks are not stable in CI, while cmd/sdk stay version-pinned.
+MOCA_TAG="${MOCA_TAG:-main}"
 MOCA_CMD_TAG="${MOCA_CMD_TAG:-v1.2.0-rc1}"
 MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-v1.2.0-rc1}"
 MYSQL_USER="root"
