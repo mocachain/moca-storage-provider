@@ -144,6 +144,8 @@ if account_new not in suite_text:
     )
 suite.write_text(suite_text)
 PY
+
+  cd "${workspace}"
 }
 
 #########################################
@@ -219,7 +221,7 @@ function build_cmd() {
   git clone https://github.com/mocachain/moca-cmd.git
   cd moca-cmd/
   git checkout ${MOCA_CMD_TAG}
-  go mod edit -replace github.com/mocachain/moca-go-sdk=../moca-go-sdk
+  go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
   make build
   cd build/
 
