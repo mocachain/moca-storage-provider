@@ -20,6 +20,7 @@ jobs:
     env:
       BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS: "300"
       BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS: "1000"
+      BLOCKSYNCER_GO_TEST_TIMEOUT: "30m"
 
     steps:
       - name: Install Go

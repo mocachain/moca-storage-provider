@@ -11,6 +11,7 @@ MYSQL_ADDRESS="${MYSQL_ADDRESS:-127.0.0.1:3306}"
 BLOCKSYNCER_TEST_DB_NAME="${BLOCKSYNCER_TEST_DB_NAME:-block_syncer}"
 BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS="${BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS:-120}"
 BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS="${BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS:-500}"
+BLOCKSYNCER_GO_TEST_TIMEOUT="${BLOCKSYNCER_GO_TEST_TIMEOUT:-30m}"
 TESTCOVERAGE_THRESHOLD="${TESTCOVERAGE_THRESHOLD:-60}"
 # GITHUB_WORKSPACE=. # for local testing
 workspace=${GITHUB_WORKSPACE}
@@ -98,7 +99,7 @@ function test_bs() {
   export BLOCKSYNCER_TEST_DB_NAME="${BLOCKSYNCER_TEST_DB_NAME}"
   export BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS
   export BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS
-  if go test -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...; then
+  if go test -count=1 -timeout "${BLOCKSYNCER_GO_TEST_TIMEOUT}" -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...; then
     echo "bs_e2e_test runs successful."
   else
     echo "blocksyncer go test failed, dumping recent logs if available..."

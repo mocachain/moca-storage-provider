@@ -103,6 +103,49 @@ function retry_cmd() {
   return 1
 }
 
+function prepare_moca_go_sdk() {
+  set -e
+  cd "${workspace}"
+
+  if [ ! -d "${workspace}/moca-go-sdk/.git" ]; then
+    git clone https://github.com/mocachain/moca-go-sdk.git
+  fi
+
+  cd "${workspace}"/moca-go-sdk/
+  git checkout "${MOCA_GO_SDK_TAG}"
+
+  SP_REQUEST_HOST="${SP_REQUEST_HOST}" python3 - <<'PY'
+import os
+from pathlib import Path
+
+api_client = Path("client/api_client.go")
+api_client_text = api_client.read_text()
+old = """\tif adminAPIInfo.isAdminAPI {\n\t\tif meta.txnMsg != \"\" {\n\t\t\treq.Header.Set(types.HTTPHeaderUnsignedMsg, meta.txnMsg)\n\t\t}\n\t} else {\n\t\t// set request host\n\t\tif c.host != \"\" {\n\t\t\treq.Host = c.host\n\t\t} else if req.URL.Host != \"\" {\n\t\t\treq.Host = req.URL.Host\n\t\t}\n\t}\n"""
+new = """\tif adminAPIInfo.isAdminAPI {\n\t\tif meta.txnMsg != \"\" {\n\t\t\treq.Header.Set(types.HTTPHeaderUnsignedMsg, meta.txnMsg)\n\t\t}\n\t}\n\n\t// set request host for both admin and non-admin APIs so local e2e can reach\n\t// SP endpoints by localhost while still sending the configured virtual host.\n\tif c.host != \"\" {\n\t\treq.Host = c.host\n\t} else if req.URL.Host != \"\" {\n\t\treq.Host = req.URL.Host\n\t}\n"""
+if old in api_client_text:
+    api_client.write_text(api_client_text.replace(old, new, 1))
+elif new not in api_client_text:
+    raise SystemExit("failed to patch client/api_client.go host handling")
+
+suite = Path("e2e/basesuite/suite.go")
+suite_text = suite.read_text()
+sp_request_host = os.environ["SP_REQUEST_HOST"]
+challenge_new = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+account_new = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+if challenge_new not in suite_text:
+    suite_text = suite_text.replace(
+        "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t})",
+        challenge_new,
+    )
+if account_new not in suite_text:
+    suite_text = suite_text.replace(
+        "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t})",
+        account_new,
+    )
+suite.write_text(suite_text)
+PY
+}
+
 #########################################
 # build and start Moca blockchain #
 #########################################
@@ -171,10 +214,12 @@ function moca_sp() {
 function build_cmd() {
   set -e
   cd "${workspace}"
+  prepare_moca_go_sdk
   # build sp
   git clone https://github.com/mocachain/moca-cmd.git
   cd moca-cmd/
   git checkout ${MOCA_CMD_TAG}
+  go mod edit -replace github.com/mocachain/moca-go-sdk=../moca-go-sdk
   make build
   cd build/
 
@@ -203,26 +248,7 @@ function build_cmd() {
 ############################################
 function build_moca-go-sdk() {
   set -e
-  cd "${workspace}"
-  # build moca-go-sdk
-  git clone https://github.com/mocachain/moca-go-sdk.git
-  cd moca-go-sdk/
-  git checkout ${MOCA_GO_SDK_TAG}
-  python3 - <<PY
-from pathlib import Path
-
-path = Path("e2e/basesuite/suite.go")
-text = path.read_text()
-text = text.replace(
-    "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t})",
-    "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t\tHost:           \"" + "${SP_REQUEST_HOST}" + "\",\n\t})",
-)
-text = text.replace(
-    "client.Option{\n\t\tDefaultAccount: account,\n\t})",
-    "client.Option{\n\t\tDefaultAccount: account,\n\t\tHost:           \"" + "${SP_REQUEST_HOST}" + "\",\n\t})",
-)
-path.write_text(text)
-PY
+  prepare_moca_go_sdk
 }
 
 ######################
@@ -379,7 +405,7 @@ function run_go_sdk_e2e() {
   export MOCA_E2E_EVM_ENDPOINT="http://localhost:8545"
   export MOCA_E2E_CHAIN_ID="moca_5151-1"
   export MOCA_E2E_LOCALUP_DIR="${workspace}/moca/deployment/localup/.local"
-  go test -v ./e2e -run TestBucketMigrateTestSuiteTestSuite
+  go test -count=1 -timeout 30m -v ./e2e -run TestBucketMigrateTestSuiteTestSuite
   exit_status_command=$?
   if [ $exit_status_command -eq 0 ]; then
     echo "make e2e_test successful."
