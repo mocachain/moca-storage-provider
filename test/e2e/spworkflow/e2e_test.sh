@@ -103,6 +103,27 @@ function retry_cmd() {
   return 1
 }
 
+function select_exit_sp_dir() {
+  local sp_dir
+
+  for sp_dir in "${workspace}"/deployment/localup/local_env/sp*; do
+    if [ ! -d "${sp_dir}" ]; then
+      continue
+    fi
+
+    if [ "$(basename "${sp_dir}")" = "sp0" ]; then
+      continue
+    fi
+
+    echo "${sp_dir}"
+    return 0
+  done
+
+  echo "no non-primary storage provider directory found under ${workspace}/deployment/localup/local_env" >&2
+  ls -la "${workspace}"/deployment/localup/local_env || true
+  return 1
+}
+
 function prepare_moca_go_sdk() {
   set -e
   cd "${workspace}"
@@ -304,8 +325,15 @@ function test_file_size_greater_than_16_mb() {
 ################
 function test_sp_exit() {
   set -xe
-  # choose sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
+  local exit_sp_dir
+  local exit_sp_name
+  local exit_sp_bin
+
+  exit_sp_dir=$(select_exit_sp_dir)
+  exit_sp_name=$(basename "${exit_sp_dir}")
+  exit_sp_bin="./moca-${exit_sp_name}"
+
+  cd "${exit_sp_dir}"
   operator_address=$(echo "$(grep "SpOperatorAddress" ./config.toml)" | grep -o "0x[0-9a-zA-Z]*")
   echo "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
@@ -331,9 +359,9 @@ function test_sp_exit() {
   check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new.json
   check_md5 ./random_file ./new_random_file
 
-  # start exiting sp5
-  cd "${workspace}"/deployment/localup/local_env/sp5
-  ./moca-sp5 -c ./config.toml sp.exit -operatorAddress "${operator_address}"
+  # start exiting the selected non-primary SP
+  cd "${exit_sp_dir}"
+  "${exit_sp_bin}" -c ./config.toml sp.exit -operatorAddress "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
   retry_cmd 12 10 "list storage providers before exit settle" \
     ./moca-cmd -c ./config.toml --home ./ sp ls
@@ -412,14 +440,7 @@ function run_go_sdk_e2e() {
   if [ $exit_status_command -eq 0 ]; then
     echo "make e2e_test successful."
   else
-    cat "${workspace}"/deployment/localup/local_env/sp0/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp1/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp2/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp3/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp4/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp5/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp6/log.txt
-    cat "${workspace}"/deployment/localup/local_env/sp7/log.txt
+    dump_sp_logs
     exit $exit_status_command
   fi
 }
