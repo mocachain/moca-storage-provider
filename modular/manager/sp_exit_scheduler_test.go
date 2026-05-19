@@ -11,8 +11,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 func TestSPExitSchedulerProduceSwapOutPlanLoadsSecondaryGVGsFromChain(t *testing.T) {

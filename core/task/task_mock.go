@@ -13,9 +13,9 @@ import (
 	reflect "reflect"
 
 	rcmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
-	types "github.com/evmos/evmos/v12/x/sp/types"
-	types0 "github.com/evmos/evmos/v12/x/storage/types"
-	types1 "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	types "github.com/mocachain/moca/v2/x/sp/types"
+	types0 "github.com/mocachain/moca/v2/x/storage/types"
+	types1 "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	gomock "go.uber.org/mock/gomock"
 )
 

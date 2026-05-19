@@ -20,9 +20,9 @@ require (
 	github.com/cosmos/cosmos-sdk v0.50.13
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/ethereum/go-ethereum v1.15.5
-	github.com/evmos/evmos/v12 v12.1.6
+	github.com/mocachain/moca/v2 v2.0.0
 	github.com/felixge/fgprof v0.9.3
-	github.com/forbole/juno/v4 v4.0.0-00010101000000-000000000000
+	github.com/forbole/juno/v4 v4.2.0-rc0.0.20260320043135-b1f1e6fd4e65
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gorilla/mux v1.8.1
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/openmetrics/v2 v2.0.0-rc.3
@@ -355,7 +355,6 @@ replace (
 	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc0.0.20260320043125-89f62f919f39
 	// use Evmos geth fork
 	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2.0.20260318105122-e849a5b4edee
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc4.0.20260320060615-9f8f08384ec3
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
@@ -363,8 +362,10 @@ replace (
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260320043135-b1f1e6fd4e65
+replace github.com/forbole/juno/v4 => ../moca-juno
 
 replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260320043142-d578d73e2599
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260320043131-de7b6add70a3
+replace github.com/mocachain/moca-common/go => ../moca-common/go
+
+replace github.com/mocachain/moca/v2 => ../moca

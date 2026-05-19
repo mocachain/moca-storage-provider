@@ -9,11 +9,11 @@ import (
 
 	chttp "github.com/cometbft/cometbft/rpc/client/http"
 
-	chainClient "github.com/evmos/evmos/v12/sdk/client"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	jsonclient "github.com/mocachain/moca-storage-provider/util/rpc/jsonrpc/client"
+	chainClient "github.com/mocachain/moca/v2/sdk/client"
 )
 
 const (

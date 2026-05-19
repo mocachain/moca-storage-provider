@@ -19,11 +19,6 @@ import (
 	"google.golang.org/grpc"
 	"gorm.io/gorm"
 
-	paymenttypes "github.com/evmos/evmos/v12/x/payment/types"
-	permissiontypes "github.com/evmos/evmos/v12/x/permission/types"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -31,6 +26,11 @@ import (
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/rcmgr"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
+	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 var (

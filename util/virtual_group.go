@@ -8,10 +8,10 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/0xPolygon/polygon-edge/bls"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // ErrNotInSecondarySPs define the specified sp does not exist error.

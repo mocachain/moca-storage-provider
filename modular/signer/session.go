@@ -8,9 +8,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/evmos/evmos/v12/x/evm/precompiles/storage"
-	"github.com/evmos/evmos/v12/x/evm/precompiles/storageprovider"
-	"github.com/evmos/evmos/v12/x/evm/precompiles/virtualgroup"
+	"github.com/mocachain/moca/v2/x/evm/precompiles/storage"
+	"github.com/mocachain/moca/v2/x/evm/precompiles/storageprovider"
+	"github.com/mocachain/moca/v2/x/evm/precompiles/virtualgroup"
 )
 
 func CreateTxOpts(ctx context.Context, client *ethclient.Client, hexPrivateKey string, chain *big.Int, gasLimit uint64, nonce uint64) (*bind.TransactOpts, error) {

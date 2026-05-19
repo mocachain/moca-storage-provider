@@ -9,18 +9,18 @@ import (
 
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
 
-	permissiontypes "github.com/evmos/evmos/v12/x/permission/types"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
 
-	"github.com/evmos/evmos/v12/types/common"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca/v2/types/common"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // dest sp receive migrate gvg notify from src sp.

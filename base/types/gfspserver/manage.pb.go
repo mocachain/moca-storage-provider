@@ -11,7 +11,7 @@ import (
 	gfsptask "github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	grpc1 "github.com/cosmos/gogoproto/grpc"
 	proto "github.com/cosmos/gogoproto/proto"
-	types "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

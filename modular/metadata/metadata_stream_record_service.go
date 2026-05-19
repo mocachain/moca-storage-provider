@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
-	paymenttypes "github.com/evmos/evmos/v12/x/payment/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
 )
 
 func (r *MetadataModular) GfSpPrimarySpIncomeDetails(ctx context.Context, req *types.GfSpPrimarySpIncomeDetailsRequest) (resp *types.GfSpPrimarySpIncomeDetailsResponse, err error) {

@@ -6,8 +6,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	"github.com/mocachain/moca-storage-provider/cmd/utils"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 var freeQuotaFlag = &cli.Uint64Flag{

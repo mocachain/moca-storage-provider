@@ -12,8 +12,8 @@ import (
 	"github.com/forbole/juno/v4/log"
 	"github.com/forbole/juno/v4/models"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	blockcommon "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (

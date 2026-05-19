@@ -15,9 +15,6 @@ import (
 	"github.com/cometbft/cometbft/votepool"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspvgmgr"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
@@ -30,6 +27,9 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	storetypes "github.com/mocachain/moca-storage-provider/store/types"
 	"github.com/mocachain/moca-storage-provider/util"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func Test_GetTagString(t *testing.T) {

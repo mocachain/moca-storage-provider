@@ -22,16 +22,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	metadatatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 
-	permissiontypes "github.com/evmos/evmos/v12/x/permission/types"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func mockPutObjectHandlerRoute(t *testing.T, g *GateModular) *mux.Router {

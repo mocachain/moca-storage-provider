@@ -3,8 +3,8 @@ package spdb
 import (
 	"time"
 
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	storetypes "github.com/mocachain/moca-storage-provider/store/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // SpAddressType identify address type of SP.

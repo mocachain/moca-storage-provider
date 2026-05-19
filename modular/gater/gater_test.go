@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
 	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 func TestGateModular_Name(t *testing.T) {

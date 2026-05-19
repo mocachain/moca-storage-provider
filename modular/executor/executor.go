@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"

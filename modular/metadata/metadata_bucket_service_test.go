@@ -13,7 +13,6 @@ import (
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -21,6 +20,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestErrGfSpDBWithDetail(t *testing.T) {

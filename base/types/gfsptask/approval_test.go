@@ -6,9 +6,9 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/evmos/evmos/v12/types/common"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	"github.com/mocachain/moca/v2/types/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (

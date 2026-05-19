@@ -7,9 +7,9 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"go.uber.org/mock/gomock"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/core/module"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const (

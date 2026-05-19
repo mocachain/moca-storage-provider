@@ -6,11 +6,11 @@ import (
 	"cosmossdk.io/math"
 	"github.com/forbole/juno/v4/common"
 
-	paymenttypes "github.com/evmos/evmos/v12/x/payment/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	model "github.com/mocachain/moca-storage-provider/store/bsdb"
+	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // GfSpGetPaymentByBucketName get bucket payment info by a bucket name

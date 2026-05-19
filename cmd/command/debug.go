@@ -9,14 +9,14 @@ import (
 	"cosmossdk.io/math"
 	"github.com/urfave/cli/v2"
 
-	"github.com/evmos/evmos/v12/types/common"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/cmd/utils"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/mocachain/moca/v2/types/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const (

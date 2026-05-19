@@ -4,9 +4,9 @@ import (
 	"errors"
 	"time"
 
-	gnfdresource "github.com/evmos/evmos/v12/types/resource"
-	permtypes "github.com/evmos/evmos/v12/x/permission/types"
 	"github.com/forbole/juno/v4/common"
+	gnfdresource "github.com/mocachain/moca/v2/types/resource"
+	permtypes "github.com/mocachain/moca/v2/x/permission/types"
 	"gorm.io/gorm"
 )
 

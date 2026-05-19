@@ -6,8 +6,8 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/stretchr/testify/assert"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var mockBucketInfo = &storagetypes.BucketInfo{

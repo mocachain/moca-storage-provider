@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/evmos/evmos/v12/types/common"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca/v2/types/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestGfSpTQueue_Len(t *testing.T) {

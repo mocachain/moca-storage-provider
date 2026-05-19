@@ -7,10 +7,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsplimit"
 	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (
