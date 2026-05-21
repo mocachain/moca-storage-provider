@@ -11,16 +11,16 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/gorm"
 
-	chaintypes "github.com/evmos/evmos/v12/types"
-	"github.com/evmos/evmos/v12/types/resource"
-	gnfdresource "github.com/evmos/evmos/v12/types/resource"
-	"github.com/evmos/evmos/v12/types/s3util"
-	permtypes "github.com/evmos/evmos/v12/x/permission/types"
-	"github.com/evmos/evmos/v12/x/storage/keeper"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	chaintypes "github.com/mocachain/moca/v2/types"
+	"github.com/mocachain/moca/v2/types/resource"
+	gnfdresource "github.com/mocachain/moca/v2/types/resource"
+	"github.com/mocachain/moca/v2/types/s3util"
+	permtypes "github.com/mocachain/moca/v2/x/permission/types"
+	"github.com/mocachain/moca/v2/x/storage/keeper"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // GfSpVerifyPermission Verify the input account’s permission to input items

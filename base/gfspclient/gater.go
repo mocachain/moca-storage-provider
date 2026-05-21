@@ -10,11 +10,11 @@ import (
 	"net/http"
 
 	"github.com/cosmos/gogoproto/proto"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // spilt server and client const definition avoids circular references

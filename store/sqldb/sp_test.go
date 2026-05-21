@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 func TestSpDBImpl_UpdateAllSpSuccess1(t *testing.T) {

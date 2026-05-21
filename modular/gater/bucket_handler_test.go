@@ -8,21 +8,21 @@ import (
 	"testing"
 	"time"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	metadatatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	storetypes "github.com/mocachain/moca-storage-provider/store/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func mockGetBucketReadQuotaRoute(t *testing.T, g *GateModular) *mux.Router {

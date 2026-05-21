@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	permtypes "github.com/evmos/evmos/v12/x/permission/types"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	permtypes "github.com/mocachain/moca/v2/x/permission/types"
 )
 
 // ListObjectsResult represents the result of a List Objects operation.

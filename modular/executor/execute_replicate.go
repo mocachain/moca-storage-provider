@@ -12,15 +12,15 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/cometbft/cometbft/votepool"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-common/go/redundancy"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 var (

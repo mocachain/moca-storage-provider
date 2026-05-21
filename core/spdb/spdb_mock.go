@@ -15,7 +15,7 @@ import (
 
 	task "github.com/mocachain/moca-storage-provider/core/task"
 	types "github.com/mocachain/moca-storage-provider/store/types"
-	types0 "github.com/evmos/evmos/v12/x/sp/types"
+	types0 "github.com/mocachain/moca/v2/x/sp/types"
 	gomock "go.uber.org/mock/gomock"
 )
 

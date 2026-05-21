@@ -3,7 +3,7 @@ package bsdb
 import (
 	"testing"
 
-	permtypes "github.com/evmos/evmos/v12/x/permission/types"
+	permtypes "github.com/mocachain/moca/v2/x/permission/types"
 )
 
 func TestStatement_Eval(t *testing.T) {

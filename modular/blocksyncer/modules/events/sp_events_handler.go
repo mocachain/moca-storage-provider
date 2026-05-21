@@ -11,9 +11,9 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/log"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	vgtypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	vgtypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 var (

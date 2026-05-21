@@ -14,9 +14,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/evmos/evmos/v12/types/s3util"
-	permissiontypes "github.com/evmos/evmos/v12/x/permission/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -30,6 +27,9 @@ import (
 	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	servicetypes "github.com/mocachain/moca-storage-provider/store/types"
 	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/mocachain/moca/v2/types/s3util"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const ContentDefault = "application/octet-stream"

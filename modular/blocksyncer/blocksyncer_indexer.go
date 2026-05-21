@@ -55,6 +55,10 @@ type Impl struct {
 	ServiceName string
 }
 
+type ctxClearer interface {
+	ClearCtx()
+}
+
 func (i *Impl) ExportEpoch(block *coretypes.ResultBlock) error {
 	return nil
 }
@@ -236,7 +240,7 @@ func (i *Impl) Process(height uint64) error {
 
 	// after each block height ends, clear the corresponding key value in ctx
 	for _, module := range i.Modules {
-		if eventModule, ok := module.(modules.EventModule); ok {
+		if eventModule, ok := module.(ctxClearer); ok {
 			eventModule.ClearCtx()
 		}
 	}

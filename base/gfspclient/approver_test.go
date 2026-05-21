@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestGfSpClient_AskCreateBucketApproval(t *testing.T) {

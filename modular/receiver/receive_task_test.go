@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfsppieceop"
@@ -14,6 +13,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"

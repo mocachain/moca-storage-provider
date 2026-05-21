@@ -20,7 +20,6 @@ require (
 	github.com/cosmos/cosmos-sdk v0.50.13
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/ethereum/go-ethereum v1.15.5
-	github.com/evmos/evmos/v12 v12.1.6
 	github.com/felixge/fgprof v0.9.3
 	github.com/forbole/juno/v4 v4.0.0-00010101000000-000000000000
 	github.com/go-sql-driver/mysql v1.7.1
@@ -33,6 +32,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/libp2p/go-libp2p v0.33.0
 	github.com/mocachain/moca-common/go v1.2.0-rc1
+	github.com/mocachain/moca/v2 v2.0.0
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/pkg/sftp v1.13.6
@@ -47,9 +47,7 @@ require (
 	go.uber.org/mock v0.4.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.40.0
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
-	golang.org/x/time v0.9.0
 	google.golang.org/grpc v1.71.0
 	gorm.io/driver/mysql v1.4.7
 	gorm.io/gorm v1.24.7-0.20230306060331-85eaf9eeda11
@@ -80,7 +78,6 @@ require (
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/consensys/bavard v0.1.22 // indirect
 	github.com/cosmos/cosmos-db v1.1.3 // indirect
-	github.com/cosmos/ibc-go/v10 v10.1.1 // indirect
 	github.com/cosmos/ics23/go v0.11.0 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
 	github.com/desertbit/timer v1.0.1 // indirect
@@ -91,6 +88,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-metrics v0.5.3 // indirect
 	github.com/hashicorp/go-plugin v1.6.1 // indirect
+	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.5 // indirect
 	github.com/hashicorp/yamux v0.1.1 // indirect
 	github.com/iancoleman/strcase v0.3.0 // indirect
@@ -103,6 +101,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a // indirect
 	github.com/oklog/run v1.1.0 // indirect
+	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/prometheus/tsdb v0.10.0 // indirect
 	github.com/rjeczalik/notify v0.9.2 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
@@ -118,6 +117,8 @@ require (
 	github.com/umbracle/go-eth-bn256 v0.0.0-20230125114011-47cb310d9b0b // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.17.0 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/time v0.9.0 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
@@ -184,7 +185,6 @@ require (
 	github.com/gogo/protobuf v1.3.3 // indirect
 	github.com/golang-jwt/jwt/v4 v4.3.0 // indirect
 	github.com/golang/glog v1.2.4 // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -355,16 +355,16 @@ replace (
 	github.com/cosmos/ibc-go/v10 => github.com/mocachain/moca-ibc-go/v10 v10.2.0-rc0.0.20260320043125-89f62f919f39
 	// use Evmos geth fork
 	github.com/ethereum/go-ethereum => github.com/mocachain/go-ethereum v1.10.27-moca.2.0.20260318105122-e849a5b4edee
-	github.com/evmos/evmos/v12 => github.com/mocachain/moca/v12 v12.2.0-rc4.0.20260320060615-9f8f08384ec3
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/envoyproxy/protoc-gen-validate v0.1.0
+	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-20260508143057-5666254d3403
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260320043135-b1f1e6fd4e65
+replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260510180653-db4a94d4e090
 
 replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260320043142-d578d73e2599
 
-replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260320043131-de7b6add70a3
+replace github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260512110233-3d6a35f765ca

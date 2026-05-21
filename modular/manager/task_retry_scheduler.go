@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/bls"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
@@ -18,6 +17,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	"github.com/mocachain/moca-storage-provider/util"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const (

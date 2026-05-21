@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	"golang.org/x/exp/slices"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"

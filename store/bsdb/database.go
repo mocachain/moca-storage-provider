@@ -1,8 +1,8 @@
 package bsdb
 
 import (
-	"github.com/evmos/evmos/v12/x/permission/types"
 	"github.com/forbole/juno/v4/common"
+	"github.com/mocachain/moca/v2/x/permission/types"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )

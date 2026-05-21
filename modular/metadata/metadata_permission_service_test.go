@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	permission_types "github.com/evmos/evmos/v12/x/permission/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/forbole/juno/v4/common"
+	permission_types "github.com/mocachain/moca/v2/x/permission/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"

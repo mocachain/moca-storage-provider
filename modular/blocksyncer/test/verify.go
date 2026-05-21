@@ -16,9 +16,9 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	bucketmodules "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/bucket"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var verifyFuncs = []func(t *testing.T, db *gorm.DB) error{

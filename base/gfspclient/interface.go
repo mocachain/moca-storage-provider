@@ -7,12 +7,6 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/evmos/evmos/v12/types/resource"
-	payment_types "github.com/evmos/evmos/v12/x/payment/types"
-	permission_types "github.com/evmos/evmos/v12/x/permission/types"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -20,6 +14,12 @@ import (
 	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"github.com/mocachain/moca/v2/types/resource"
+	payment_types "github.com/mocachain/moca/v2/x/payment/types"
+	permission_types "github.com/mocachain/moca/v2/x/permission/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // GfSpClientAPI for mock use

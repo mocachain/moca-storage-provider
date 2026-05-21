@@ -3,7 +3,7 @@ package gfsptask
 import (
 	"testing"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	"github.com/stretchr/testify/assert"
 
 	coretask "github.com/mocachain/moca-storage-provider/core/task"

@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const (

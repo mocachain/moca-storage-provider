@@ -3,9 +3,9 @@ package spdb
 import (
 	"time"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	storetypes "github.com/mocachain/moca-storage-provider/store/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 // SPDB contains all sp db operations

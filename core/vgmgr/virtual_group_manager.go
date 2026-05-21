@@ -1,10 +1,10 @@
 package vgmgr
 
 import (
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // GlobalVirtualGroupMeta defines global virtual group meta which is used by sp.

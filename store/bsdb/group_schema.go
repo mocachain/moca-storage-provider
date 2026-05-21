@@ -6,8 +6,8 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/datatypes"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // Group is the structure for group information

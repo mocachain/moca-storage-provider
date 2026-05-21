@@ -8,8 +8,8 @@ import (
 	tmctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/gogoproto/proto"
-	vgtypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/forbole/juno/v4/log"
+	vgtypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 
 	"github.com/forbole/juno/v4/common"
 	"github.com/forbole/juno/v4/models"

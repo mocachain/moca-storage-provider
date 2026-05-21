@@ -11,7 +11,6 @@ import (
 
 	"github.com/avast/retry-go/v4"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/core/module"
@@ -22,6 +21,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/store/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (

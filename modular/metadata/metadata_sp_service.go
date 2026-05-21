@@ -8,10 +8,10 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/gorm"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 // GfSpGetEndpointBySpID get endpoint by sp id

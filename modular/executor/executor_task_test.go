@@ -12,9 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -24,6 +21,9 @@ import (
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	metadatatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const (

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestGfSpTQueueWithLimit_Len(t *testing.T) {

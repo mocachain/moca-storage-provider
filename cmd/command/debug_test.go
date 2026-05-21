@@ -9,12 +9,12 @@ import (
 	"github.com/urfave/cli/v2"
 	"go.uber.org/mock/gomock"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/util"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 func TestCreateBucketApproval(t *testing.T) {
