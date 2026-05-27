@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -19,6 +17,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/util"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const (

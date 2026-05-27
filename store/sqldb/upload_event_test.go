@@ -8,9 +8,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestSpDBImpl_InsertPutEventSuccess1(t *testing.T) {

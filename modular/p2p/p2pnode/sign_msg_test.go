@@ -6,10 +6,10 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/evmos/evmos/v12/sdk/keys"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
+	"github.com/mocachain/moca/v2/sdk/keys"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func setupKM() (keys.KeyManager, error) {

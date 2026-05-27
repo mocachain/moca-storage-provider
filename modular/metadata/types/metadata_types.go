@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 
-	storageTypes "github.com/evmos/evmos/v12/x/storage/types"
+	storageTypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func (m GfSpListObjectsByBucketNameResponse) MarshalXML(e *xml.Encoder, start xml.StartElement) error {

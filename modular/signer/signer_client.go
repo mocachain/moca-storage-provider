@@ -19,17 +19,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/evmos/evmos/v12/sdk/client"
-	"github.com/evmos/evmos/v12/sdk/keys"
-	ctypes "github.com/evmos/evmos/v12/sdk/types"
-	evmostypes "github.com/evmos/evmos/v12/types"
-	"github.com/evmos/evmos/v12/types/common"
-	"github.com/evmos/evmos/v12/x/evm/precompiles/storage"
-	"github.com/evmos/evmos/v12/x/evm/precompiles/virtualgroup"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca/v2/sdk/client"
+	"github.com/mocachain/moca/v2/sdk/keys"
+	ctypes "github.com/mocachain/moca/v2/sdk/types"
+	evmostypes "github.com/mocachain/moca/v2/types"
+	"github.com/mocachain/moca/v2/types/common"
+	"github.com/mocachain/moca/v2/x/evm/precompiles/storage"
+	"github.com/mocachain/moca/v2/x/evm/precompiles/virtualgroup"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // test seam: allow tests to stub WaitForEvmTx

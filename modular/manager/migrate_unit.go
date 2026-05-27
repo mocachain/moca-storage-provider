@@ -3,8 +3,8 @@ package manager
 import (
 	"fmt"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 type (

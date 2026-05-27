@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
-	types0 "github.com/evmos/evmos/v12/x/storage/types"
-	types1 "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	types0 "github.com/mocachain/moca/v2/x/storage/types"
+	types1 "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 

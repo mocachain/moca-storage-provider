@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/datatypes"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func GetTagJson(resourceTags *storagetypes.ResourceTags) datatypes.JSON {

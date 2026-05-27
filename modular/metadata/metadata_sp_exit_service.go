@@ -7,11 +7,11 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/gorm"
 
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	model "github.com/mocachain/moca-storage-provider/store/bsdb"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // GfSpListVirtualGroupFamiliesBySpID list virtual group families by sp id

@@ -15,20 +15,20 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
-	"github.com/evmos/evmos/v12/types/resource"
-	resource_types "github.com/evmos/evmos/v12/types/resource"
-	"github.com/evmos/evmos/v12/types/s3util"
-	payment_types "github.com/evmos/evmos/v12/x/payment/types"
-	permission_types "github.com/evmos/evmos/v12/x/permission/types"
-	sp_types "github.com/evmos/evmos/v12/x/sp/types"
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/util"
+	"github.com/mocachain/moca/v2/types/resource"
+	resource_types "github.com/mocachain/moca/v2/types/resource"
+	"github.com/mocachain/moca/v2/types/s3util"
+	payment_types "github.com/mocachain/moca/v2/x/payment/types"
+	permission_types "github.com/mocachain/moca/v2/x/permission/types"
+	sp_types "github.com/mocachain/moca/v2/x/sp/types"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const (

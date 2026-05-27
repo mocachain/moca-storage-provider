@@ -11,8 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"gorm.io/gorm"
 
-	payment_types "github.com/evmos/evmos/v12/x/payment/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
@@ -23,6 +21,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	"github.com/mocachain/moca-storage-provider/util"
+	payment_types "github.com/mocachain/moca/v2/x/payment/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (

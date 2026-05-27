@@ -9,12 +9,12 @@ import (
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/gorm"
 
-	"github.com/evmos/evmos/v12/types/s3util"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
-	virtualtypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	model "github.com/mocachain/moca-storage-provider/store/bsdb"
+	"github.com/mocachain/moca/v2/types/s3util"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualtypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // GfSpListObjectsByBucketName list objects info by a bucket name

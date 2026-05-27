@@ -10,9 +10,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	paymenttypes "github.com/evmos/evmos/v12/x/payment/types"
-	permissiontypes "github.com/evmos/evmos/v12/x/permission/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/core/module"
@@ -22,6 +19,9 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/util"
+	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (

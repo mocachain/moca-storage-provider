@@ -14,9 +14,9 @@ import (
 	io "io"
 	reflect "reflect"
 
-	types "github.com/evmos/evmos/v12/x/sp/types"
-	types0 "github.com/evmos/evmos/v12/x/storage/types"
-	types1 "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	types "github.com/mocachain/moca/v2/x/sp/types"
+	types0 "github.com/mocachain/moca/v2/x/storage/types"
+	types1 "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	gfspp2p "github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	gfspserver "github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	gfsptask "github.com/mocachain/moca-storage-provider/base/types/gfsptask"

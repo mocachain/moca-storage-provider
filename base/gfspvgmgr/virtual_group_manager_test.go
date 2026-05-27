@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 

@@ -5,5 +5,19 @@ plugins:
     opt:
       - Mgoogle/protobuf/timestamp.proto=github.com/cosmos/gogoproto/types
       - Mgoogle/protobuf/duration.proto=github.com/golang/protobuf/ptypes/duration
+      - Mmoca/payment/stream_record.proto=github.com/mocachain/moca/v2/x/payment/types
+      - Mmoca/permission/common.proto=github.com/mocachain/moca/v2/x/permission/types
+      - Mmoca/resource/types.proto=github.com/mocachain/moca/v2/types/resource
+      - Mmoca/sp/tx.proto=github.com/mocachain/moca/v2/x/sp/types
+      - Mmoca/sp/types.proto=github.com/mocachain/moca/v2/x/sp/types
+      - Mmoca/storage/common.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/storage/events.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/storage/params.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/storage/query.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/storage/tx.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/storage/types.proto=github.com/mocachain/moca/v2/x/storage/types
+      - Mmoca/virtualgroup/events.proto=github.com/mocachain/moca/v2/x/virtualgroup/types
+      - Mmoca/virtualgroup/tx.proto=github.com/mocachain/moca/v2/x/virtualgroup/types
+      - Mmoca/virtualgroup/types.proto=github.com/mocachain/moca/v2/x/virtualgroup/types
       - plugins=grpc
       - paths=source_relative

@@ -8,8 +8,8 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"gorm.io/gorm"
 
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 )
 
 // UpdateAllSp update(maybe overwrite) all sp info in db

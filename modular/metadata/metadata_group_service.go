@@ -6,10 +6,10 @@ import (
 	"cosmossdk.io/math"
 	"github.com/forbole/juno/v4/common"
 
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	model "github.com/mocachain/moca-storage-provider/store/bsdb"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // GfSpGetGroupList get group list by queryName/prefix/sourceType

@@ -1,6 +1,6 @@
 package common
 
-import storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+import storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 
 var destChainIDToSourceType = map[uint32]storagetypes.SourceType{
 	2:  storagetypes.SOURCE_TYPE_BSC_CROSS_CHAIN,

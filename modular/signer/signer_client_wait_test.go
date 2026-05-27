@@ -8,7 +8,7 @@ import (
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/evmos/evmos/v12/sdk/client"
+	"github.com/mocachain/moca/v2/sdk/client"
 )
 
 // Test that waitForTransactionReceipt calls the underlying WaitForEvmTx and returns its receipt.

@@ -3,12 +3,12 @@ package gfspclient
 import (
 	"context"
 
-	"github.com/evmos/evmos/v12/types/resource"
-	payment_types "github.com/evmos/evmos/v12/x/payment/types"
-	permission_types "github.com/evmos/evmos/v12/x/permission/types"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
+	"github.com/mocachain/moca/v2/types/resource"
+	payment_types "github.com/mocachain/moca/v2/x/payment/types"
+	permission_types "github.com/mocachain/moca/v2/x/permission/types"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	"google.golang.org/grpc"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"

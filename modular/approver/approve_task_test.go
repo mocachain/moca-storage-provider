@@ -16,10 +16,10 @@ import (
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
 
-	"github.com/evmos/evmos/v12/types/common"
-	sptypes "github.com/evmos/evmos/v12/x/sp/types"
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	metadatatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"github.com/mocachain/moca/v2/types/common"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 func TestErrSignerWithDetail(t *testing.T) {

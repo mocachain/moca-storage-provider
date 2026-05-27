@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/mux"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -20,6 +19,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/util"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // getBucketReadQuotaHandler handles the get bucket read quota request.

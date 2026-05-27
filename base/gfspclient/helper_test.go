@@ -14,10 +14,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
-	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/util"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 const migrateCommands = "MIGRATE COMMANDS"
