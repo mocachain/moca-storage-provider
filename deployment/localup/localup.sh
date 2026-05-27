@@ -189,6 +189,7 @@ function make_config() {
     sed -i -e "s/EnableGCExpiredOffChainAuthKeys = .*/EnableGCExpiredOffChainAuthKeys = true/g" config.toml
     sed -i -e "s/GCExpiredOffChainAuthKeysTimeInterval = .*/GCExpiredOffChainAuthKeysTimeInterval = 86400/g" config.toml
     sed -i -e "s/GasLimit = 0/GasLimit = 180000/g" config.toml
+    sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 600000/g" config.toml
     sed -i -e "s/FeeAmount = 0/FeeAmount = 12000000/g" config.toml
 
     echo "succeed to generate config.toml in ""${sp_dir}"
