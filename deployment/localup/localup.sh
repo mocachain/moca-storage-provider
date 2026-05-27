@@ -175,7 +175,9 @@ function make_config() {
     sed -i -e "s/SubscribeSPExitEventIntervalMillisecond = .*/SubscribeSPExitEventIntervalMillisecond = 100/g" config.toml
     sed -i -e "s/SubscribeSwapOutExitEventIntervalMillisecond = .*/SubscribeSwapOutExitEventIntervalMillisecond = 100/g" config.toml
     sed -i -e "s/SubscribeBucketMigrateEventIntervalMillisecond = .*/SubscribeBucketMigrateEventIntervalMillisecond = 20/g" config.toml
-    sed -i -e "s/GVGPreferSPList = \[\]/GVGPreferSPList = \[1,2,3,4,5,6,7,8\]/g" config.toml
+    local gvg_prefer_sp_list
+    gvg_prefer_sp_list=$(seq -s, 1 "${SP_NUM}")
+    sed -i -e "s/GVGPreferSPList = \[\]/GVGPreferSPList = \[${gvg_prefer_sp_list}\]/g" config.toml
     sed -i -e "s/EnableGCZombie = .*/EnableGCZombie = true/g" config.toml
     sed -i -e "s/EnableGCMeta = .*/EnableGCMeta = true/g" config.toml
     sed -i -e "s/GCMetaTimeInterval = .*/GCMetaTimeInterval = 3/g" config.toml
@@ -189,7 +191,7 @@ function make_config() {
     sed -i -e "s/EnableGCExpiredOffChainAuthKeys = .*/EnableGCExpiredOffChainAuthKeys = true/g" config.toml
     sed -i -e "s/GCExpiredOffChainAuthKeysTimeInterval = .*/GCExpiredOffChainAuthKeysTimeInterval = 86400/g" config.toml
     sed -i -e "s/GasLimit = 0/GasLimit = 180000/g" config.toml
-    sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 600000/g" config.toml
+    sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 2000000/g" config.toml
     sed -i -e "s/FeeAmount = 0/FeeAmount = 12000000/g" config.toml
 
     echo "succeed to generate config.toml in ""${sp_dir}"
