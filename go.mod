@@ -362,7 +362,7 @@ replace (
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
 
-replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260510180653-db4a94d4e090
+replace github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a
 
 replace github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260320043142-d578d73e2599
 

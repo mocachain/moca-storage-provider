@@ -953,6 +953,8 @@ github.com/mocachain/moca-iavl v1.2.0-rc0.0.20260318093905-7d754d41e8e9 h1:p6kkt
 github.com/mocachain/moca-iavl v1.2.0-rc0.0.20260318093905-7d754d41e8e9/go.mod h1:llfcEJML+85FDrd1XlU6YRa7tFnyPYK/T04iOSXe+1I=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260510180653-db4a94d4e090 h1:4LNedfbDvLMtVVg7kxNC1XEKSz0NM1yRHqUSsqk3RRA=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260510180653-db4a94d4e090/go.mod h1:PeUz8meTESmj1c2gRGjr5H9B+1xA6MqE6WJEJKnXUFA=
+github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a h1:d4Wr0USZCOCZYt9O35otBKKE6KK4kY/tphaKNG8h8q0=
+github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a/go.mod h1:PeUz8meTESmj1c2gRGjr5H9B+1xA6MqE6WJEJKnXUFA=
 github.com/mocachain/moca/v2 v2.0.0-20260526102800-3eef848c1434 h1:/g+FXsMqYgzF0BK5JVCqQI1Qgp0gMNhP6sVgKkB9fNQ=
 github.com/mocachain/moca/v2 v2.0.0-20260526102800-3eef848c1434/go.mod h1:/4bF/PV5gFRbvh6wzcYmgdZeM2fZlsYYBtJPJiSCOLg=
 github.com/mocachain/polygon-edge v1.3.3-moca.1 h1:YtHnpIxMOUkCFp6Z+BHt8wCb+35+HpCVMZ/dFUylzBs=
