@@ -20,6 +20,7 @@ echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
+E2E_SP_NUM=8
 
 #########################################
 # build and start Moca blockchain #
@@ -36,8 +37,8 @@ function moca_chain() {
   make build
 
   # start Moca chain
-  bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8
+  bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
+  bash ./deployment/localup/localup.sh export_sps 1 "${E2E_SP_NUM}"
   cp ./deployment/localup/.local/sp_export.json ./sp.json
 
   # transfer some amoca tokens
@@ -63,6 +64,7 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
+  sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
   bash ./deployment/localup/localup.sh start
