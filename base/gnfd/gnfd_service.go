@@ -15,11 +15,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	chainclient "github.com/mocachain/moca/v2/sdk/client"
 	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
 	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
@@ -883,14 +881,9 @@ func (g *Gnfd) ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxRe
 	}()
 	client := g.getCurrentClient().GnfdClient()
 	for i := 0; i < ConfirmBlockNumber; i++ {
-		queryHash := strings.TrimPrefix(txHash, "0x")
-		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: queryHash})
+		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				receipt, evmErr := chainclient.WaitForEvmTx(ctx, g.evmClient, client, common.HexToHash(txHash))
-				if evmErr == nil {
-					return &sdk.TxResponse{TxHash: txHash, Height: receipt.BlockNumber.Int64()}, nil
-				}
 				// Tx not found, wait for next block and try again
 				if err = g.WaitForNextBlock(ctx); err != nil {
 					log.Warnf("failed to wait for next block err:%v", err)

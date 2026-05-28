@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/forbole/juno/v4/database"
 	"github.com/forbole/juno/v4/database/mysql"
 	"github.com/forbole/juno/v4/database/sqlclient"
 	"github.com/forbole/juno/v4/log"
-	driver_mysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 
@@ -56,15 +54,6 @@ func errIsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, gorm.ErrRecordNotFound)
 }
 
-func ignoreMissingIndexDrop(err error) error {
-	var mysqlErr *driver_mysql.MySQLError
-	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1091 && strings.Contains(mysqlErr.Message, "Can't DROP") {
-		log.Warnw("ignore missing index during schema migration", "error", err)
-		return nil
-	}
-	return err
-}
-
 func (db *DB) AutoMigrate(ctx context.Context, tables []schema.Tabler) error {
 	q := db.Db.WithContext(ctx)
 	m := db.Db.Migrator()
@@ -72,13 +61,13 @@ func (db *DB) AutoMigrate(ctx context.Context, tables []schema.Tabler) error {
 		if t.TableName() == bsdb.PrefixTreeTableName || t.TableName() == bsdb.ObjectTableName {
 			for i := 0; i < bsdb.ObjectsNumberOfShards; i++ {
 				shardTableName := fmt.Sprintf(t.TableName()+"_%02d", i)
-				if err := ignoreMissingIndexDrop(q.Table(shardTableName).AutoMigrate(t)); err != nil {
+				if err := q.Table(shardTableName).AutoMigrate(t); err != nil {
 					log.Errorw("migrate table failed", "table", t.TableName(), "err", err)
 					return err
 				}
 			}
 		} else {
-			if err := ignoreMissingIndexDrop(m.AutoMigrate(t)); err != nil {
+			if err := m.AutoMigrate(t); err != nil {
 				log.Errorw("migrate table failed", "table", t.TableName(), "err", err)
 				return err
 			}
