@@ -617,8 +617,8 @@ func TestGfSpBaseApp_GfSpPickVirtualGroupFamilyFailure(t *testing.T) {
 		CreateBucketInfo: mockCreateBucketInfo,
 	}}
 	result, err := g.GfSpPickVirtualGroupFamily(context.TODO(), req)
-	assert.Equal(t, mockErr, err)
-	assert.Nil(t, result)
+	assert.Nil(t, err)
+	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
 }
 
 func TestGfSpBaseApp_GfSpNotifyMigrateSwapOutSuccess(t *testing.T) {

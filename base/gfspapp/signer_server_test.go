@@ -292,7 +292,7 @@ func TestGfSpBaseApp_GfSpSignSuccess16(t *testing.T) {
 	m.EXPECT().SignSecondarySPMigrationBucket(gomock.Any(), gomock.Any()).Return(mockSig, nil).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SignSecondarySpMigrationBucket{
 		SignSecondarySpMigrationBucket: &storagetypes.SecondarySpMigrationBucketSignDoc{
-			BucketId: sdk.NewUint(1),
+			BucketId: sdkmath.NewUint(1),
 		},
 	}}
 	result, err := g.GfSpSign(context.TODO(), req)
@@ -679,7 +679,7 @@ func TestGfSpBaseApp_GfSpSignFailure17(t *testing.T) {
 	m.EXPECT().SignSecondarySPMigrationBucket(gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
 	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SignSecondarySpMigrationBucket{
 		SignSecondarySpMigrationBucket: &storagetypes.SecondarySpMigrationBucketSignDoc{
-			BucketId: sdk.NewUint(1),
+			BucketId: sdkmath.NewUint(1),
 		},
 	}}
 	result, err := g.GfSpSign(context.TODO(), req)

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/mocachain/moca-storage-provider/store/config"
 )
@@ -44,10 +45,33 @@ func setupDB(t *testing.T) (*SpDBImpl, sqlmock.Sqlmock) {
 		Conn:                      mockDB,
 		SkipInitializeWithVersion: true,
 	})
-	db, err := gorm.Open(dia, &gorm.Config{})
+	db, err := gorm.Open(dia, &gorm.Config{
+		ClauseBuilders: map[string]clause.ClauseBuilder{
+			"LIMIT": buildLiteralLimit,
+		},
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, db)
 	return &SpDBImpl{db: db}, mock
+}
+
+func buildLiteralLimit(c clause.Clause, builder clause.Builder) {
+	limit, ok := c.Expression.(clause.Limit)
+	if !ok {
+		c.Build(builder)
+		return
+	}
+	if limit.Limit != nil && *limit.Limit >= 0 {
+		builder.WriteString("LIMIT ")
+		builder.WriteString(fmt.Sprint(*limit.Limit))
+	}
+	if limit.Offset > 0 {
+		if limit.Limit != nil && *limit.Limit >= 0 {
+			builder.WriteByte(' ')
+		}
+		builder.WriteString("OFFSET ")
+		builder.WriteString(fmt.Sprint(limit.Offset))
+	}
 }
 
 func TestNewSpDBFailure(t *testing.T) {

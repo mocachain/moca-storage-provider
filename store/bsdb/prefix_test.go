@@ -24,8 +24,8 @@ func TestBsDBImpl_ListObjectsSuccess(t *testing.T) {
 	s, mock := setupDB(t)
 
 	// Expectation for GetPrefixesTableName
-	mock.ExpectQuery(fmt.Sprintf("SELECT * FROM `%s` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT 3", GetPrefixesTableName(bucketName))).
-		WithArgs(bucketName, prefix).
+	mock.ExpectQuery(fmt.Sprintf("SELECT * FROM `%s` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT ?", GetPrefixesTableName(bucketName))).
+		WithArgs(bucketName, prefix, maxKeys+1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}).
 				AddRow("testPath1/", "testPath1/obj1", "obj1", true, false, bucketName, common.HexToHash("1"), "obj1").
@@ -59,8 +59,8 @@ func TestBsDBImpl_ListObjectsWithContinuationToken(t *testing.T) {
 	s, mock := setupDB(t)
 
 	// Expectation for GetPrefixesTableName
-	mock.ExpectQuery(fmt.Sprintf("SELECT * FROM `%s` WHERE bucket_name = ? AND path_name = ? AND full_name >= ? ORDER BY full_name LIMIT 3", GetPrefixesTableName(bucketName))).
-		WithArgs(bucketName, prefix, continuationToken).
+	mock.ExpectQuery(fmt.Sprintf("SELECT * FROM `%s` WHERE bucket_name = ? AND path_name = ? AND full_name >= ? ORDER BY full_name LIMIT ?", GetPrefixesTableName(bucketName))).
+		WithArgs(bucketName, prefix, continuationToken, maxKeys+1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}).
 				AddRow("testPath2/", "testPath2/obj2", "obj2", true, false, bucketName, common.HexToHash("2"), "obj2"))
@@ -88,9 +88,9 @@ func TestBsDBImpl_ListObjectsWithEmptyResult(t *testing.T) {
 	s, mock := setupDB(t)
 
 	// Expect the first query on slash_prefix_tree_nodes_31
-	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT 3"
+	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT ?"
 	mock.ExpectQuery(expectedSQL1).
-		WithArgs(bucketName, prefix).
+		WithArgs(bucketName, prefix, maxKeys+1).
 		WillReturnRows(sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}))
 
 	mock.ExpectQuery(fmt.Sprintf("SELECT * FROM `%s` WHERE object_id in (?)", GetObjectsTableName(bucketName))).
@@ -109,9 +109,9 @@ func TestBsDBImpl_ListObjectsWithError(t *testing.T) {
 
 	s, mock := setupDB(t)
 
-	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT 3"
+	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT ?"
 	mock.ExpectQuery(expectedSQL1).
-		WithArgs(bucketName, prefix).
+		WithArgs(bucketName, prefix, maxKeys+1).
 		WillReturnError(errors.New("test error"))
 
 	_, err := s.ListObjects(bucketName, "", prefix, maxKeys)
@@ -129,9 +129,9 @@ func TestBsDBImpl_ListObjectsWithPathName(t *testing.T) {
 	s, mock := setupDB(t)
 
 	// Expect the first query on slash_prefix_tree_nodes_31
-	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT 3"
+	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? ORDER BY full_name LIMIT ?"
 	mock.ExpectQuery(expectedSQL1).
-		WithArgs(bucketName, prefix).
+		WithArgs(bucketName, prefix, maxKeys+1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}).
 				AddRow("testPath2/", "testPath2/obj2", "obj2", true, false, bucketName, common.HexToHash("2"), "obj2"))
@@ -162,9 +162,9 @@ func TestBsDBImpl_ListObjectsWithPrefixQuery(t *testing.T) {
 	nameQuery := prefix[splitIdx+1:] + "%"
 
 	// Modify the expected SQL to include the name LIKE clause
-	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? AND name like ? ORDER BY full_name LIMIT 3"
+	expectedSQL1 := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? AND name like ? ORDER BY full_name LIMIT ?"
 	mock.ExpectQuery(expectedSQL1).
-		WithArgs(bucketName, pathName, nameQuery).
+		WithArgs(bucketName, pathName, nameQuery, maxKeys+1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}).
 				AddRow("testPath2", "testPath2/obj2", "obj2", true, false, bucketName, common.HexToHash("2"), "obj2"))
@@ -196,9 +196,9 @@ func TestBsDBImpl_ListObjectsWithAllConditions(t *testing.T) {
 	pathName := prefix[:splitIdx+1]
 	nameQuery := prefix[splitIdx+1:] + "%"
 
-	expectedSQL := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? AND name like ? AND full_name >= ? ORDER BY full_name LIMIT 3"
+	expectedSQL := "SELECT * FROM `slash_prefix_tree_nodes_31` WHERE bucket_name = ? AND path_name = ? AND name like ? AND full_name >= ? ORDER BY full_name LIMIT ?"
 	mock.ExpectQuery(expectedSQL).
-		WithArgs(bucketName, pathName, nameQuery, continuationToken).
+		WithArgs(bucketName, pathName, nameQuery, continuationToken, maxKeys+1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"path_name", "full_name", "name", "is_object", "is_folder", "bucket_name", "object_id", "object_name"}).
 				AddRow("testPath2", "testPath2/obj2", "obj2", true, false, bucketName, common.HexToHash("2"), "obj2"))

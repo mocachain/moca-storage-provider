@@ -550,7 +550,7 @@ func verify47(t *testing.T, db *gorm.DB) error {
 	if err := db.Table(bsdb.GroupTableName).Where("group_id = ? and account_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000016"), common.HexToAddress("0x5870Af236E63beaEbbFa364f78FC7c8e70F0811f")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 1356998399 {
+	if g.ExpirationTime != 253402300799 {
 		return fmt.Errorf("member expiration time is error :%d", g.ExpirationTime)
 	}
 	return nil

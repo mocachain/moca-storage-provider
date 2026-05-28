@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	mockSelectSPByAddressSQL = "SELECT * FROM `storage_providers` WHERE operator_address = ? and removed = false LIMIT 1"
+	mockSelectSPByAddressSQL = "SELECT * FROM `storage_providers` WHERE operator_address = ? and removed = false LIMIT ?"
 )
 
 func TestBsDBImpl_GetSPByAddressSuccess(t *testing.T) {
@@ -23,7 +23,7 @@ func TestBsDBImpl_GetSPByAddressSuccess(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockSelectSPByAddressSQL).
-		WithArgs(mockOperatorAddress.Bytes()).
+		WithArgs(mockOperatorAddress.Bytes(), 1).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"sp_id", "operator_address",
 		}).
@@ -40,7 +40,7 @@ func TestBsDBImpl_GetSPByAddressNotFound(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockSelectSPByAddressSQL).
-		WithArgs(mockOperatorAddress.Bytes()).
+		WithArgs(mockOperatorAddress.Bytes(), 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 
 	sp, err := s.GetSPByAddress(mockOperatorAddress)
@@ -56,7 +56,7 @@ func TestBsDBImpl_GetSPByAddressDBError(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockSelectSPByAddressSQL).
-		WithArgs(mockOperatorAddress.Bytes()).
+		WithArgs(mockOperatorAddress.Bytes(), 1).
 		WillReturnError(mockDBInternalError)
 
 	sp, err := s.GetSPByAddress(mockOperatorAddress)

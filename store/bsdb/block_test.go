@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	mockBlockHeightQuerySQL = "SELECT block_height FROM `epoch` LIMIT 1"
+	mockBlockHeightQuerySQL = "SELECT block_height FROM `epoch` LIMIT ?"
 )
 
 func TestBsDBImpl_GetLatestBlockNumberSuccess(t *testing.T) {
@@ -18,6 +18,7 @@ func TestBsDBImpl_GetLatestBlockNumberSuccess(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockBlockHeightQuerySQL).
+		WithArgs(1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"block_height"}).
 				AddRow(expectedBlockHeight))
@@ -29,7 +30,7 @@ func TestBsDBImpl_GetLatestBlockNumberSuccess(t *testing.T) {
 
 func TestBsDBImpl_GetLatestBlockNumberNoRecords(t *testing.T) {
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockBlockHeightQuerySQL).WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(mockBlockHeightQuerySQL).WithArgs(1).WillReturnError(gorm.ErrRecordNotFound)
 
 	blockNum, err := s.GetLatestBlockNumber()
 	assert.Error(t, err)
@@ -39,7 +40,7 @@ func TestBsDBImpl_GetLatestBlockNumberNoRecords(t *testing.T) {
 
 func TestBsDBImpl_GetLatestBlockNumberDBError(t *testing.T) {
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockBlockHeightQuerySQL).WillReturnError(mockDBInternalError)
+	mock.ExpectQuery(mockBlockHeightQuerySQL).WithArgs(1).WillReturnError(mockDBInternalError)
 
 	blockNum, err := s.GetLatestBlockNumber()
 	assert.Error(t, err)
@@ -49,7 +50,7 @@ func TestBsDBImpl_GetLatestBlockNumberDBError(t *testing.T) {
 
 func TestBsDBImpl_GetLatestBlockNumberMultipleRecords(t *testing.T) {
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockBlockHeightQuerySQL).WillReturnRows(
+	mock.ExpectQuery(mockBlockHeightQuerySQL).WithArgs(1).WillReturnRows(
 		sqlmock.NewRows([]string{"block_height"}).AddRow(int64(12345)).AddRow(int64(54321)),
 	)
 

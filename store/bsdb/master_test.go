@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	mockGetSwitchDBSignalSQL       = "SELECT * FROM `master_db` LIMIT 1"
+	mockGetSwitchDBSignalSQL       = "SELECT * FROM `master_db` LIMIT ?"
 	mockGetMysqlVersionSQL         = "SELECT VERSION();"
 	mockGetDefaultCharacterSetSQL  = "SELECT DEFAULT_CHARACTER_SET_NAME FROM INFORMATION_SCHEMA.SCHEMATA where SCHEMA_NAME in ('block_syncer');"
 	mockGetDefaultCollationNameSQL = "SELECT DEFAULT_COLLATION_NAME FROM INFORMATION_SCHEMA.SCHEMATA where SCHEMA_NAME in ('block_syncer');"
@@ -18,7 +18,7 @@ func TestBsDBImpl_GetSwitchDBSignalSuccess(t *testing.T) {
 	expectedSignal := &MasterDB{OneRowId: true, IsMaster: true}
 
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockGetSwitchDBSignalSQL).WillReturnRows(
+	mock.ExpectQuery(mockGetSwitchDBSignalSQL).WithArgs(1).WillReturnRows(
 		sqlmock.NewRows([]string{"one_row_id", "is_master"}).
 			AddRow(expectedSignal.OneRowId, expectedSignal.IsMaster))
 
