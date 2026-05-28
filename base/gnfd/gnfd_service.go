@@ -879,6 +879,8 @@ func (g *Gnfd) ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxRe
 	defer func() {
 		metrics.GnfdChainTime.WithLabelValues("confirm_transaction").Observe(time.Since(startTime).Seconds())
 	}()
+	txHash = strings.TrimPrefix(txHash, "0x")
+	txHash = strings.TrimPrefix(txHash, "0X")
 	client := g.getCurrentClient().GnfdClient()
 	for i := 0; i < ConfirmBlockNumber; i++ {
 		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})

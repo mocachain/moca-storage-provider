@@ -1240,12 +1240,17 @@ func (m *ManageModular) QueryRecoverProcess(ctx context.Context, vgfID, gvgID ui
 
 func (m *ManageModular) syncAvailableVGF(ctx context.Context) {
 	var (
-		err error
-		sp  *sptypes.StorageProvider
+		err  error
+		sp   *sptypes.StorageProvider
+		spID uint32
 	)
 
 	// query meta
-	if sp, err = m.baseApp.Consensus().QuerySPByID(context.Background(), m.spID); err != nil {
+	if spID, err = m.getSPID(); err != nil {
+		log.CtxErrorw(ctx, "failed to get self sp id", "error", err)
+		return
+	}
+	if sp, err = m.baseApp.Consensus().QuerySPByID(context.Background(), spID); err != nil {
 		log.CtxErrorw(ctx, "failed to list sps", "error", err)
 		return
 	}
