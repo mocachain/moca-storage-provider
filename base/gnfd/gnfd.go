@@ -8,6 +8,7 @@ import (
 	"time"
 
 	chttp "github.com/cometbft/cometbft/rpc/client/http"
+	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -56,6 +57,7 @@ type Gnfd struct {
 	backUpClients   []*MocaClient
 	wsClient        *chttp.HTTP
 	backUpWsClients []*chttp.HTTP
+	evmClient       *ethclient.Client
 	stopCh          chan struct{}
 	mutex           sync.RWMutex
 }
@@ -71,6 +73,10 @@ func NewGnfd(cfg *GnfdChainConfig) (*Gnfd, error) {
 
 	var clients []*MocaClient
 	var wsClients []*chttp.HTTP
+	evmClient, err := ethclient.Dial(cfg.RpcAddress[0])
+	if err != nil {
+		return nil, err
+	}
 	for _, address := range cfg.ChainAddress {
 		cc, err := chainClient.NewCustomMocaClient(address, cfg.RpcAddress[0], cfg.ChainID, jsonclient.DefaultHTTPClient)
 		if err != nil {
@@ -93,6 +99,7 @@ func NewGnfd(cfg *GnfdChainConfig) (*Gnfd, error) {
 		backUpClients:   clients,
 		wsClient:        wsClients[0],
 		backUpWsClients: wsClients,
+		evmClient:       evmClient,
 		stopCh:          make(chan struct{}),
 	}
 

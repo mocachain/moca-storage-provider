@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.23.11}"
+export GOWORK="${GOWORK:-off}"
+
 REPO=github.com/mocachain/moca-storage-provider
 Version=$(git describe --abbrev=0 --tags --always)
 BranchName=$(git rev-parse --abbrev-ref HEAD)

@@ -213,6 +213,9 @@ function start_sp() {
       ((failed_count++))
       continue
     fi
+    if [ -f "${sp_bin}" ]; then
+      cp -f "${sp_bin}" "${sp_dir}/${sp_bin_name}${index}"
+    fi
     cd "${sp_dir}" || exit 1
 
     # Check if binary file exists
@@ -231,15 +234,41 @@ function start_sp() {
       continue
     fi
 
-    # Start process
-    nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
-    local start_pid=$!
+    # Start process in a detached session so it survives after this script returns.
+    perl -MPOSIX=setsid -e '
+      my ($pidfile, @cmd) = @ARGV;
+      defined(my $pid = fork) or die "fork failed: $!";
+      if ($pid) {
+        open my $fh, ">", $pidfile or die "open pidfile failed: $!";
+        print $fh $pid;
+        close $fh;
+        exit 0;
+      }
+      setsid() or die "setsid failed: $!";
+      open STDIN, "<", "/dev/null" or die "redirect stdin failed: $!";
+      open STDOUT, ">", "log.txt" or die "redirect stdout failed: $!";
+      open STDERR, ">&STDOUT" or die "redirect stderr failed: $!";
+      exec @cmd or die "exec failed: $!";
+    ' sp.pid "./${sp_bin_name}${index}" --config config.toml
+    local start_pid
+    start_pid=$(cat sp.pid)
+    local gateway_address
+    gateway_address=$(awk -F"'" '/HTTPAddress/ { print $2; exit }' config.toml)
 
-    # Wait for process initialization
-    sleep 2
+    # Wait for HTTP gateway readiness, not just process existence.
+    local ready=false
+    for ((attempt = 1; attempt <= 60; attempt++)); do
+      if ! ps -p ${start_pid} >/dev/null 2>&1; then
+        break
+      fi
+      if curl -fsS --max-time 2 "http://${gateway_address}/status" >/dev/null 2>&1; then
+        ready=true
+        break
+      fi
+      sleep 1
+    done
 
-    # Verify if process is actually running
-    if ps -p ${start_pid} > /dev/null 2>&1; then
+    if [ "${ready}" = true ]; then
       echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid})"
       ((success_count++))
     else
@@ -288,12 +317,6 @@ function stop_sp() {
 # drop databases and recreate new databases #
 #############################################
 function reset_sql_db() {
-  # Check if mysql client is available
-  if ! command -v mysql >/dev/null 2>&1; then
-    echo "Error: mysql client not found. Please install mysql client."
-    exit 1
-  fi
-
   for ((i = 0; i < ${SP_NUM}; i++)); do
     sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${i}"
     if [ ! -d "${sp_dir}" ]; then
@@ -304,8 +327,15 @@ function reset_sql_db() {
     source db.info
     hostname=$(echo "${ADDRESS}" | cut -d : -f 1)
     port=$(echo "${ADDRESS}" | cut -d : -f 2)
-    mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "drop database if exists ${DATABASE}"
-    mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "create database ${DATABASE}"
+    if command -v mysql >/dev/null 2>&1; then
+      mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "drop database if exists ${DATABASE}"
+      mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "create database ${DATABASE}"
+    elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx 'moca-e2e-mysql'; then
+      docker exec moca-e2e-mysql mysql -u "${USER}" -p"${PWD}" -e "drop database if exists ${DATABASE}; create database ${DATABASE};"
+    else
+      echo "Error: mysql client not found and Docker container moca-e2e-mysql is not running."
+      exit 1
+    fi
     echo "succeed to reset sql db in ""${sp_dir}"
     cd - >/dev/null || exit
   done
