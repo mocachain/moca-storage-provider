@@ -199,6 +199,28 @@ function make_config() {
   done
 }
 
+function wait_for_grpc_port() {
+  local pid=$1
+  local port=$2
+  local timeout_sec=${3:-30}
+  local elapsed=0
+
+  while [ ${elapsed} -lt ${timeout_sec} ]; do
+    if ! ps -p "${pid}" > /dev/null 2>&1; then
+      return 1
+    fi
+
+    if (echo >"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1; then
+      return 0
+    fi
+
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  return 1
+}
+
 #############
 # start sps #
 #############
@@ -234,18 +256,15 @@ function start_sp() {
     # Start process
     nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
     local start_pid=$!
+    local grpc_port=$((SP_START_PORT + 1000 * index))
 
-    # Wait for process initialization
-    sleep 2
-
-    # Verify if process is actually running
-    if ps -p ${start_pid} > /dev/null 2>&1; then
-      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid})"
+    if wait_for_grpc_port "${start_pid}" "${grpc_port}" 30; then
+      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid}, gRPC: 127.0.0.1:${grpc_port})"
       ((success_count++))
     else
-      echo "ERROR: Failed to start sp in ""${sp_dir}"" - check log.txt for details"
+      echo "ERROR: Failed to start sp in ""${sp_dir}"" - gRPC 127.0.0.1:${grpc_port} not ready"
       echo "Last few lines of log:"
-      tail -5 log.txt 2>/dev/null || echo "No log available"
+      tail -20 log.txt 2>/dev/null || echo "No log available"
       ((failed_count++))
     fi
 

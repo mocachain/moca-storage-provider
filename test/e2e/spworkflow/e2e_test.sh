@@ -79,7 +79,11 @@ function moca_sp() {
     sp_bin="${sp_dir}/moca-${sp_name}"
     sp_config="${sp_dir}/config.toml"
     if [ -x "${sp_bin}" ] && [ -f "${sp_config}" ]; then
-      "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"
+      if ! "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"; then
+        echo "failed to update quota for ${sp_name}"
+        tail -n 200 "${sp_dir}/log.txt" || true
+        exit 1
+      fi
     fi
   done
   tail -n 1000 deployment/localup/local_env/sp0/log.txt
