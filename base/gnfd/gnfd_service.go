@@ -879,8 +879,7 @@ func (g *Gnfd) ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxRe
 	defer func() {
 		metrics.GnfdChainTime.WithLabelValues("confirm_transaction").Observe(time.Since(startTime).Seconds())
 	}()
-	txHash = strings.TrimPrefix(txHash, "0x")
-	txHash = strings.TrimPrefix(txHash, "0X")
+	txHash = trimHexPrefix(txHash)
 	client := g.getCurrentClient().GnfdClient()
 	for i := 0; i < ConfirmBlockNumber; i++ {
 		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})
@@ -898,6 +897,13 @@ func (g *Gnfd) ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxRe
 		return txResponse.TxResponse, nil
 	}
 	return nil, fmt.Errorf("failed to confirm transaction, tx_hash=%s", txHash)
+}
+
+func trimHexPrefix(s string) string {
+	if len(s) >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') {
+		return s[2:]
+	}
+	return s
 }
 
 // WaitForNextBlock is used to chain generate a new block.
