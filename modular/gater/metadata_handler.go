@@ -1,7 +1,6 @@
 package gater
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cosmos/gogoproto/jsonpb"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
@@ -2156,51 +2154,6 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
 		log.Errorw("failed to write status response", "error", err)
 	}
-}
-
-// getDebugStatusHandler gets debug status info for the current SP.
-func (g *GateModular) getDebugStatusHandler(w http.ResponseWriter, r *http.Request) {
-	var (
-		err    error
-		b      bytes.Buffer
-		reqCtx *RequestContext
-		status *types.Status
-	)
-	startTime := time.Now()
-	defer func() {
-		reqCtx.Cancel()
-		handlerName := mux.CurrentRoute(r).GetName()
-		if err != nil {
-			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
-			modelgateway.MakeErrorResponse(w, err)
-			MetadataHandlerFailureMetrics(err, startTime, handlerName)
-		} else {
-			MetadataHandlerSuccessMetrics(startTime, handlerName)
-		}
-		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
-	}()
-
-	reqCtx, err = NewRequestContext(r, g)
-	if err != nil {
-		return
-	}
-
-	status, err = g.baseApp.GfSpClient().GetStatus(reqCtx.Context())
-	if err != nil {
-		log.CtxErrorw(reqCtx.Context(), "failed to get status", "error", err)
-		return
-	}
-
-	grpcResponse := &types.GfSpGetStatusResponse{Status: status}
-
-	m := jsonpb.Marshaler{EmitDefaults: true, OrigName: true, EnumsAsInts: true}
-	if err = m.Marshal(&b, grpcResponse); err != nil {
-		log.CtxErrorw(reqCtx.Context(), "failed to get status", "error", err)
-		return
-	}
-
-	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
-	w.Write(b.Bytes())
 }
 
 // getUserGroupsHandler get groups info by a user address

@@ -76,7 +76,6 @@ const (
 	verifyPermissionByIDRouterName                 = "VerifyPermissionByID"
 	getSPInfoRouterName                            = "GetSPInfo"
 	getStatusRouterName                            = "GetStatus"
-	getDebugStatusRouterName                       = "GetDebugStatus"
 	getUserGroupsRouterName                        = "GetUserGroups"
 	getGroupMembersRouterName                      = "GetGroupMembers"
 	getUserOwnedGroupsRouterName                   = "GetUserOwnedGroups"
@@ -165,7 +164,6 @@ func (g *GateModular) RegisterHandler(router *mux.Router) {
 		Queries(UniversalEndpointSpecialSuffixQuery, "{bucket:[^/]*}/{object:.+}").HandlerFunc(g.viewObjectByUniversalEndpointHandler)
 
 	router.Path(StatusPath).Name(getStatusRouterName).Methods(http.MethodGet).HandlerFunc(g.getStatusHandler)
-	router.Path("/moca/admin/v1/status").Name(getDebugStatusRouterName).Methods(http.MethodGet).HandlerFunc(g.getDebugStatusHandler)
 
 	var routers []*mux.Router
 	routers = append(routers, router.Host("{bucket:.+}."+g.domain).Subrouter())
