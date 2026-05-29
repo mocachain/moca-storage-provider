@@ -119,7 +119,7 @@ function build_cmd() {
 
   ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt --keystore ./dev-account.json bank transfer --toAddress "${TEST_ACCOUNT_ADDRESS}" --amount 500000000000000000000
   sleep 2
-  ./moca-cmd -c ./config.toml --home ./ account balance --address "${TEST_ACCOUNT_ADDRESS}"
+  ./moca-cmd -c ./config.toml --home ./ bank balance --address "${TEST_ACCOUNT_ADDRESS}"
 }
 
 ############################################
