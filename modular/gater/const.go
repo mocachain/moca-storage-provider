@@ -36,6 +36,8 @@ const (
 	GetApprovalPath = "/moca/admin/v1/get-approval"
 	// GetRecommendedVirtualGroupFamilyPath defines get-recommended-vgf path style suffix
 	GetRecommendedVirtualGroupFamilyPath = "/moca/admin/v1/get-recommended-vgf"
+	// DebugStatusPath defines the authenticated status path with debug details.
+	DebugStatusPath = "/moca/admin/v1/status"
 	// ActionQuery defines get-approval's type, currently include create bucket and create object
 	ActionQuery = "action"
 	// UploadProgressQuery defines upload progress query, which is used to route request

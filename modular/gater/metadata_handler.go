@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -2149,8 +2150,16 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-// getStatusHandler get status info for the current SP
 func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Errorw("failed to write status response", "error", err)
+	}
+}
+
+// getDebugStatusHandler gets debug status info for the current SP.
+func (g *GateModular) getDebugStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
 		b      bytes.Buffer
