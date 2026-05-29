@@ -29,6 +29,17 @@ function normalize_secp_private_key() {
   echo "${normalized_key}"
 }
 
+function validate_secp_private_key() {
+  local key_name=$1
+  local raw_key=$2
+
+  if [[ ! ${raw_key} =~ ^[0-9A-Fa-f]{64}$ ]]; then
+    echo "ERROR: ${key_name} must be exactly 64 hex chars, got length ${#raw_key}"
+    echo "ERROR: ${key_name} value: ${raw_key}"
+    exit 1
+  fi
+}
+
 #########################
 # the command line help #
 #########################
@@ -213,6 +224,12 @@ function make_config() {
     sed -i -e "s/GasLimit = 0/GasLimit = 180000/g" config.toml
     sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 2000000/g" config.toml
     sed -i -e "s/FeeAmount = 0/FeeAmount = 12000000/g" config.toml
+
+    validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.FundingPrivateKey" "$(sed -n "s/^FundingPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.SealPrivateKey" "$(sed -n "s/^SealPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.ApprovalPrivateKey" "$(sed -n "s/^ApprovalPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.GcPrivateKey" "$(sed -n "s/^GcPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
 
     echo "succeed to generate config.toml in ""${sp_dir}"
     cd - >/dev/null || exit
