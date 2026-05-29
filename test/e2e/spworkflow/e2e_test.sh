@@ -16,10 +16,12 @@ MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
 TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
 TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
+DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
+E2E_SP_NUM=8
 
 #########################################
 # build and start Moca blockchain #
@@ -36,8 +38,8 @@ function moca_chain() {
   make build
 
   # start Moca chain
-  bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8
+  bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
+  bash ./deployment/localup/localup.sh export_sps 1 "${E2E_SP_NUM}"
   cp ./deployment/localup/.local/sp_export.json ./sp.json
 
   # transfer some amoca tokens
@@ -63,6 +65,7 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
+  sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
   bash ./deployment/localup/localup.sh start
@@ -99,16 +102,24 @@ function build_cmd() {
   # generate a keystore file to manage private key information
   touch key.txt &
   echo "${TEST_ACCOUNT_PRIVATE_KEY}" >key.txt
+  touch dev-key.txt &
+  echo "${DEV_ACCOUNT_PRIVATE_KEY}" >dev-key.txt
   touch password.txt &
   echo "test_sp_function" >password.txt
   ./moca-cmd --home ./ --passwordfile password.txt account import key.txt
+  ./moca-cmd --home ./ --passwordfile password.txt --keystore ./dev-account.json account import dev-key.txt
 
   # construct config.toml
   touch config.toml
   {
     echo rpcAddr = \"http://localhost:26657\"
     echo chainId = \"moca_5151-1\"
+    echo evmRpcAddr = \"http://localhost:8545\"
   } >config.toml
+
+  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt --keystore ./dev-account.json bank transfer --toAddress "${TEST_ACCOUNT_ADDRESS}" --amount 500000000000000000000
+  sleep 2
+  ./moca-cmd -c ./config.toml --home ./ bank balance --address "${TEST_ACCOUNT_ADDRESS}"
 }
 
 ############################################

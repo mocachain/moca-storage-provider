@@ -21,6 +21,13 @@ import (
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
+const (
+	// maxGroupMemberExpirationUnix is storage types MaxTimeStamp (9999-12-31T23:59:59Z) as Unix seconds.
+	maxGroupMemberExpirationUnix = int64(253402300799)
+	expirationEndOfYear2023Unix  = int64(1704067199)
+	expirationEndOfYear3023Unix  = int64(33260975999)
+)
+
 var verifyFuncs = []func(t *testing.T, db *gorm.DB) error{
 	verify1, verify2, verify3, verify4, verify5, verify6, verify7, verify8, verify9, verify10,
 	verify11, verify12, verify13, verify14, verify15, verify16, verify17, verify18, verify19, verify20,
@@ -163,7 +170,7 @@ func verify8(t *testing.T, db *gorm.DB) error {
 	if err := db.Table(bsdb.GroupTableName).Where("group_id = ? and account_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002"), common.HexToAddress("0x92b7976702C064C7e2e791854497Ec73C853CEB5")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 253402300799 {
+	if g.ExpirationTime != maxGroupMemberExpirationUnix {
 		return errors.New("member ExpirationTime error")
 	}
 	return nil
@@ -174,7 +181,7 @@ func verify9(t *testing.T, db *gorm.DB) error {
 	if err := db.Table(bsdb.GroupTableName).Where("group_id = ? and account_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002"), common.HexToAddress("0x4d57d300AfaF9f407e26552965ce355786206cF4")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 1704067199 {
+	if g.ExpirationTime != expirationEndOfYear2023Unix {
 		return fmt.Errorf("member ExpirationTime error ExpirationTime:%d account id:%v", g.ExpirationTime, g.AccountID)
 	}
 	return nil
@@ -516,7 +523,7 @@ func verify43(t *testing.T, db *gorm.DB) error {
 	if err := db.Table((&models.Group{}).TableName()).Where("account_id = ? and group_id = ?", common.HexToAddress("0x4d57d300AfaF9f407e26552965ce355786206cF4"), common.HexToHash("2")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 33260975999 {
+	if g.ExpirationTime != expirationEndOfYear3023Unix {
 		return errors.New("ExpirationTime err")
 	}
 	return nil
@@ -550,7 +557,7 @@ func verify47(t *testing.T, db *gorm.DB) error {
 	if err := db.Table(bsdb.GroupTableName).Where("group_id = ? and account_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000016"), common.HexToAddress("0x5870Af236E63beaEbbFa364f78FC7c8e70F0811f")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 1356998399 {
+	if g.ExpirationTime != maxGroupMemberExpirationUnix {
 		return fmt.Errorf("member expiration time is error :%d", g.ExpirationTime)
 	}
 	return nil

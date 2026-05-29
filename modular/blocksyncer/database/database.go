@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/forbole/juno/v4/database"
 	"github.com/forbole/juno/v4/database/mysql"
 	"github.com/forbole/juno/v4/database/sqlclient"
 	"github.com/forbole/juno/v4/log"
+	driver_mysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 
@@ -54,6 +56,38 @@ func errIsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, gorm.ErrRecordNotFound)
 }
 
+func (db *DB) ignoreMissingIndexDrop(err error, tableName string, model schema.Tabler) error {
+	var mysqlErr *driver_mysql.MySQLError
+	if !errors.As(err, &mysqlErr) || mysqlErr.Number != 1091 || !strings.Contains(mysqlErr.Message, "Can't DROP") {
+		return err
+	}
+	if verifyErr := db.verifyMigratedColumns(tableName, model); verifyErr != nil {
+		return errors.Join(err, verifyErr)
+	}
+	log.Warnw("ignore missing index during schema migration after column verification", "table", tableName, "error", err)
+	return nil
+}
+
+func (db *DB) verifyMigratedColumns(tableName string, model schema.Tabler) error {
+	stmt := &gorm.Statement{DB: db.Db}
+	if err := stmt.Parse(model); err != nil {
+		return fmt.Errorf("parse model schema for %s: %w", tableName, err)
+	}
+	m := db.Db.Table(tableName).Migrator()
+	if !m.HasTable(tableName) {
+		return fmt.Errorf("table %s does not exist after schema migration", tableName)
+	}
+	for _, field := range stmt.Schema.Fields {
+		if field.DBName == "" || field.IgnoreMigration || field.DataType == "" {
+			continue
+		}
+		if !m.HasColumn(tableName, field.DBName) {
+			return fmt.Errorf("column %s.%s does not exist after schema migration", tableName, field.DBName)
+		}
+	}
+	return nil
+}
+
 func (db *DB) AutoMigrate(ctx context.Context, tables []schema.Tabler) error {
 	q := db.Db.WithContext(ctx)
 	m := db.Db.Migrator()
@@ -61,13 +95,13 @@ func (db *DB) AutoMigrate(ctx context.Context, tables []schema.Tabler) error {
 		if t.TableName() == bsdb.PrefixTreeTableName || t.TableName() == bsdb.ObjectTableName {
 			for i := 0; i < bsdb.ObjectsNumberOfShards; i++ {
 				shardTableName := fmt.Sprintf(t.TableName()+"_%02d", i)
-				if err := q.Table(shardTableName).AutoMigrate(t); err != nil {
+				if err := db.ignoreMissingIndexDrop(q.Table(shardTableName).AutoMigrate(t), shardTableName, t); err != nil {
 					log.Errorw("migrate table failed", "table", t.TableName(), "err", err)
 					return err
 				}
 			}
 		} else {
-			if err := m.AutoMigrate(t); err != nil {
+			if err := db.ignoreMissingIndexDrop(m.AutoMigrate(t), t.TableName(), t); err != nil {
 				log.Errorw("migrate table failed", "table", t.TableName(), "err", err)
 				return err
 			}

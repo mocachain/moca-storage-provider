@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	mockQueryDataMigrationRecordByProcessKey = "SELECT * FROM `data_migration_record` WHERE process_key = ? LIMIT 1"
+	mockQueryDataMigrationRecordByProcessKey = "SELECT * FROM `data_migration_record` WHERE process_key = ? LIMIT ?"
 )
 
 func TestBsDBImpl_GetDataMigrationRecordByProcessKey(t *testing.T) {
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockQueryDataMigrationRecordByProcessKey).
-		WithArgs(ProcessKeyUpdateBucketSize).
+		WithArgs(ProcessKeyUpdateBucketSize, 1).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"process_key", "is_completed",
 		}).AddRow(ProcessKeyUpdateBucketSize, true))

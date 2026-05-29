@@ -2149,7 +2149,6 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-// getStatusHandler get status info for the current SP
 func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
