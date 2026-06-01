@@ -3,6 +3,7 @@ package gater
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -392,4 +393,15 @@ func Test_parseSignatureFromRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_parseAccAddressFromHexUnsafe(t *testing.T) {
+	address := "0x03De8A6784d2C2881cC4A2c3eF5E105651538F9C"
+
+	withPrefix, err := parseAccAddressFromHexUnsafe(address)
+	assert.NoError(t, err)
+
+	withoutPrefix, err := parseAccAddressFromHexUnsafe(strings.TrimPrefix(address, "0x"))
+	assert.NoError(t, err)
+	assert.Equal(t, withoutPrefix.String(), withPrefix.String())
 }
