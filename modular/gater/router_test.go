@@ -609,6 +609,14 @@ func TestRouters(t *testing.T) {
 			wantedRouterName: getSPInfoRouterName,
 		},
 		{
+			name:             "Get public health check",
+			router:           gwRouter,
+			method:           http.MethodGet,
+			url:              fmt.Sprintf("%s%s%s", scheme, testDomain, HealthCheckPath),
+			shouldMatch:      true,
+			wantedRouterName: healthCheckRouterName,
+		},
+		{
 			name:             "Get sp status",
 			router:           gwRouter,
 			method:           http.MethodGet,

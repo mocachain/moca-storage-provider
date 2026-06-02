@@ -2193,6 +2193,12 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(b.Bytes())
 }
 
+func (g *GateModular) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
 // getUserGroupsHandler get groups info by a user address
 func (g *GateModular) getUserGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	var (
