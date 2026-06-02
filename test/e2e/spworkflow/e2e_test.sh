@@ -23,6 +23,34 @@ echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 BUCKET_NAME="spbucket"
 E2E_SP_NUM=8
 
+function normalize_sp_private_keys() {
+  local sp_json_file=$1
+  local tmp_file
+
+  tmp_file=$(mktemp)
+  jq '
+    def pad64:
+      if (test("^[0-9A-Fa-f]+$") | not) then
+        error("non-hex private key")
+      elif length > 64 then
+        error("private key longer than 64 hex chars")
+      else
+        (reduce range(0; 64 - length) as $i (""; . + "0")) + .
+      end;
+    with_entries(
+      .value |= (
+        .OperatorPrivateKey |= pad64 |
+        .FundingPrivateKey |= pad64 |
+        .SealPrivateKey |= pad64 |
+        .ApprovalPrivateKey |= pad64 |
+        .GcPrivateKey |= pad64 |
+        .MaintenancePrivateKey |= pad64
+      )
+    )
+  ' "${sp_json_file}" > "${tmp_file}"
+  mv "${tmp_file}" "${sp_json_file}"
+}
+
 #########################################
 # build and start Moca blockchain #
 #########################################
@@ -41,6 +69,7 @@ function moca_chain() {
   bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
   bash ./deployment/localup/localup.sh export_sps 1 "${E2E_SP_NUM}"
   cp ./deployment/localup/.local/sp_export.json ./sp.json
+  normalize_sp_private_keys ./sp.json
 
   # transfer some amoca tokens
   transfer_account
@@ -79,7 +108,11 @@ function moca_sp() {
     sp_bin="${sp_dir}/moca-${sp_name}"
     sp_config="${sp_dir}/config.toml"
     if [ -x "${sp_bin}" ] && [ -f "${sp_config}" ]; then
-      "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"
+      if ! "${sp_bin}" update.quota --quota 5000000000 -c "${sp_config}"; then
+        echo "failed to update quota for ${sp_name}"
+        tail -n 200 "${sp_dir}/log.txt" || true
+        exit 1
+      fi
     fi
   done
   tail -n 1000 deployment/localup/local_env/sp0/log.txt
