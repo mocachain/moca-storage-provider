@@ -492,6 +492,7 @@ PathPattern = [
     {Key = "/moca/migrate/v1/get-swap-out-approval", Method = "GET", Names = ["SwapOutApproval"]},
     {Key = "/download/[^/]*/.+", Method = "GET", Names = ["DownloadObjectByUniversalEndpoint"]},{Key = "/download", Method = "GET", Names = ["DownloadObjectByUniversalEndpoint"]},
     {Key = "/view/[^/]*/.+", Method = "GET", Names = ["ViewObjectByUniversalEndpoint"]},{Key = "/view", Method = "GET", Names = ["ViewObjectByUniversalEndpoint"]},
+    {Key = "/health_check", Method = "GET", Names = ["HealthCheck"]},
     {Key = "/status", Method = "GET", Names = ["GetStatus"]},
     {Key = "/.+/.+[?]offset.*", Method = "POST", Names = ["ResumablePutObject"]},
     {Key = "/.+/.+[?]upload-context.*", Method = "GET", Names = ["QueryResumeOffset"]},

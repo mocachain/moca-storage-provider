@@ -157,6 +157,24 @@ func TestNewRequestContext_StatusRequiresSignature(t *testing.T) {
 	assert.Equal(t, getStatusRouterName, reqCtx.routerName)
 }
 
+func TestNewRequestContext_HealthCheckSkipsSignature(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	var (
+		reqCtx *RequestContext
+		err    error
+	)
+	router.Path(HealthCheckPath).Name(healthCheckRouterName).Methods(http.MethodGet).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCtx, err = NewRequestContext(r, g)
+	})
+	req := httptest.NewRequest(http.MethodGet, scheme+testDomain+HealthCheckPath, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, healthCheckRouterName, reqCtx.routerName)
+}
+
 func TestRequestContext_verifySignatureForGNFD1Ecdsa(t *testing.T) {
 	cases := []struct {
 		name             string

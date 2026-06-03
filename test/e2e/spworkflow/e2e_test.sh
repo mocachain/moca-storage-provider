@@ -44,7 +44,8 @@ function normalize_sp_private_keys() {
         .SealPrivateKey |= pad64 |
         .ApprovalPrivateKey |= pad64 |
         .GcPrivateKey |= pad64 |
-        .MaintenancePrivateKey |= pad64
+        .MaintenancePrivateKey |= pad64 |
+        .BlsPrivateKey |= pad64
       )
     )
   ' "${sp_json_file}" > "${tmp_file}"

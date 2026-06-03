@@ -2227,6 +2227,20 @@ func TestGateModular_GetUserBucketsHandler(t *testing.T) {
 	}
 }
 
+func TestGateModular_healthCheckHandler(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	router.Path(HealthCheckPath).Name(healthCheckRouterName).Methods(http.MethodGet).HandlerFunc(g.healthCheckHandler)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, scheme+testDomain+HealthCheckPath, nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, ContentTypeJSONHeaderValue, w.Header().Get(ContentTypeHeader))
+	assert.JSONEq(t, `{"status":"ok"}`, w.Body.String())
+}
+
 func mockListObjectPoliciesRoute(t *testing.T, g *GateModular) *mux.Router {
 	t.Helper()
 	router := mux.NewRouter().SkipClean(true)
