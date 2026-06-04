@@ -21,7 +21,6 @@ import (
 	databaseconfig "github.com/forbole/juno/v4/database/config"
 	loggingconfig "github.com/forbole/juno/v4/log/config"
 	"github.com/forbole/juno/v4/models"
-	"github.com/forbole/juno/v4/modules"
 	"github.com/forbole/juno/v4/modules/messages"
 	"github.com/forbole/juno/v4/node/remote"
 	"github.com/forbole/juno/v4/parser"
@@ -40,6 +39,11 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
 )
+
+type prepareTablesModule interface {
+	PrepareTables() error
+	AutoMigrate() error
+}
 
 func NewBlockSyncerModular(app *gfspapp.GfSpBaseApp, cfg *gfspconfig.GfSpConfig) (coremodule.Modular, error) {
 	junoCfg := makeBlockSyncerConfig(cfg)
@@ -152,7 +156,7 @@ func (b *BlockSyncerModular) initClient(cfg *gfspconfig.GfSpConfig) error {
 func (b *BlockSyncerModular) initDB(useMigrate bool) error {
 	var err error
 	for _, module := range b.parserCtx.Modules {
-		if module, ok := module.(modules.PrepareTablesModule); ok {
+		if module, ok := module.(prepareTablesModule); ok {
 			if useMigrate {
 				err = module.AutoMigrate()
 			} else {
