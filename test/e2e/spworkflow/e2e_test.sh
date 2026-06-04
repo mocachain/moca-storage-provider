@@ -126,16 +126,24 @@ function select_exit_sp_dir() {
   return 1
 }
 
-function prepare_moca_go_sdk() {
-  set -e
-  cd "${workspace}"
+function sync_repo_ref() {
+  local repo_url=$1
+  local repo_dir=$2
+  local repo_ref=$3
 
-  if [ ! -d "${workspace}/moca-go-sdk/.git" ]; then
-    git clone https://github.com/mocachain/moca-go-sdk.git
+  cd "${workspace}"
+  if [ ! -d "${repo_dir}/.git" ]; then
+    git clone "${repo_url}" "${repo_dir}"
   fi
 
-  cd "${workspace}"/moca-go-sdk/
-  git checkout "${MOCA_GO_SDK_TAG}"
+  cd "${repo_dir}"
+  git fetch --tags --prune origin "${repo_ref}"
+  git checkout -B codex-ci-ref FETCH_HEAD
+}
+
+function prepare_moca_go_sdk() {
+  set -e
+  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}"
 
   SP_REQUEST_HOST="${SP_REQUEST_HOST}" python3 - <<'PY'
 import os
@@ -153,19 +161,25 @@ elif new not in api_client_text:
 suite = Path("e2e/basesuite/suite.go")
 suite_text = suite.read_text()
 sp_request_host = os.environ["SP_REQUEST_HOST"]
-challenge_new = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
-account_new = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
-if challenge_new not in suite_text:
-    suite_text = suite_text.replace(
-        "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t})",
-        challenge_new,
-    )
-if account_new not in suite_text:
-    suite_text = suite_text.replace(
-        "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t})",
-        account_new,
-    )
-suite.write_text(suite_text)
+legacy_challenge = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t})"
+legacy_challenge_new = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+legacy_account = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t})"
+legacy_account_new = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+local_option_old = """func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {\n\treturn client.Option{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t}\n}\n"""
+local_option_new = f"""func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {{\n\treturn client.Option{{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t\tHost:           \"{sp_request_host}\",\n\t}}\n}}\n"""
+
+updated_suite = suite_text
+if legacy_challenge in updated_suite:
+    updated_suite = updated_suite.replace(legacy_challenge, legacy_challenge_new)
+if legacy_account in updated_suite:
+    updated_suite = updated_suite.replace(legacy_account, legacy_account_new)
+if local_option_old in updated_suite:
+    updated_suite = updated_suite.replace(local_option_old, local_option_new)
+
+if updated_suite == suite_text and "Host:           \\\"" + sp_request_host + "\\\"" not in suite_text:
+    raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
+
+suite.write_text(updated_suite)
 PY
 
   cd "${workspace}"
@@ -207,10 +221,8 @@ function moca_chain() {
   set -e
   # build Moca chain
   echo "${workspace}"
-  cd "${workspace}"
-  git clone https://github.com/mocachain/moca.git
-  cd moca/
-  git checkout ${MOCA_TAG}
+  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
+  cd "${workspace}"/moca/
   make proto-gen &
   make build
 
@@ -272,9 +284,8 @@ function build_cmd() {
   cd "${workspace}"
   prepare_moca_go_sdk
   # build sp
-  git clone https://github.com/mocachain/moca-cmd.git
-  cd moca-cmd/
-  git checkout ${MOCA_CMD_TAG}
+  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
+  cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
   make build
   cd build/
