@@ -287,6 +287,7 @@ function build_cmd() {
   sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
   cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
+  go mod tidy
   make build
   cd build/
 
