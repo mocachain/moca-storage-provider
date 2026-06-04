@@ -128,27 +128,27 @@ lint-fix: check-go-env check-lint
 	@$(GO_REPO_ENV) $(golangci_lint_cmd) run -v --fix
 
 lint-changed: check-go-env check-lint
-	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
+	@changed_files="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | sort -u || true )"; \
 	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full golangci-lint..."; \
 		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v; \
-	elif [ -z "$$changed_dirs" ]; then \
+	elif [ -z "$$changed_files" ]; then \
 		echo "--> No local changed Go files to lint"; \
 	else \
-		echo "--> Running golangci-lint on local changed Go packages..."; \
-		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$changed_dirs; \
+		echo "--> Running golangci-lint on local changed Go files..."; \
+		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$changed_files; \
 	fi
 
 lint-staged: check-go-env check-lint
-	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
+	@staged_files="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full golangci-lint..."; \
 		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v; \
-	elif [ -z "$$staged_dirs" ]; then \
+	elif [ -z "$$staged_files" ]; then \
 		echo "--> No staged Go files to lint"; \
 	else \
-		echo "--> Running golangci-lint on staged Go packages..."; \
-		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$staged_dirs; \
+		echo "--> Running golangci-lint on staged Go files..."; \
+		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$staged_files; \
 	fi
 
 pre-commit: lint-changed test-changed

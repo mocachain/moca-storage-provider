@@ -43,7 +43,3 @@ sp.json
 
 dist
 .env
-config.toml
-modular/blocksyncer/config.toml
-modular/blocksyncer/config.toml-e
-modular/blocksyncer/coverage.txt
