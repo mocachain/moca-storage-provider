@@ -338,7 +338,8 @@ func (g *GfSpBaseApp) GfSpPickVirtualGroupFamily(ctx context.Context, req *gfsps
 ) {
 	vgfID, err := g.manager.PickVirtualGroupFamily(ctx, req.GetCreateBucketApprovalTask())
 	if err != nil {
-		return nil, err
+		log.CtxErrorw(ctx, "failed to pick virtual group family", "task", req.GetCreateBucketApprovalTask(), "error", err)
+		return &gfspserver.GfSpPickVirtualGroupFamilyResponse{Err: gfsperrors.MakeGfSpError(err)}, nil
 	}
 	return &gfspserver.GfSpPickVirtualGroupFamilyResponse{
 		VgfId: vgfID,

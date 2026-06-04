@@ -75,8 +75,13 @@ func NewBlockSyncerModular(app *gfspapp.GfSpBaseApp, cfg *gfspconfig.GfSpConfig)
 
 	// prepare master table
 	FlagDB = db.Cast(MainService.parserCtx.Database)
-	MainService.prepareMasterFlagTable()
-	mainServiceDB, _ := FlagDB.GetMasterDB(context.TODO())
+	if err := MainService.prepareMasterFlagTable(); err != nil {
+		return nil, err
+	}
+	mainServiceDB, err := FlagDB.GetMasterDB(context.TODO())
+	if err != nil {
+		return nil, err
+	}
 	mainDBIsMaster := mainServiceDB.IsMaster
 
 	// init main service db, if main service DB is not current master then recreate tables

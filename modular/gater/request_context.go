@@ -43,6 +43,7 @@ type RequestContext struct {
 var skipAuthRouterNames = []string{
 	requestNonceRouterName,
 	updateUserPublicKeyRouterName, // this will skip general auth algorithms first and use specific "personal sign" later
+	healthCheckRouterName,
 	downloadObjectByUniversalEndpointName,
 	viewObjectByUniversalEndpointName,
 	listObjectsByBucketRouterName,
@@ -265,7 +266,7 @@ func (r *RequestContext) verifySignatureForGNFD1Eddsa(requestSignature string) (
 		log.Errorw("failed to verify signature for GNFD1-Eddsa", "error", err)
 		return nil, err
 	} else {
-		userAddress, _ := sdk.AccAddressFromHexUnsafe(r.request.Header.Get(GnfdUserAddressHeader))
+		userAddress, _ := parseAccAddressFromHexUnsafe(r.request.Header.Get(GnfdUserAddressHeader))
 		return userAddress, nil
 	}
 }
@@ -285,7 +286,7 @@ func (r *RequestContext) verifyGNFD1EddsaSignatureFromPreSignedURL(authenticatio
 		log.Errorw("failed to verify off chain signature", "error", err)
 		return nil, err
 	} else {
-		userAddress, _ := sdk.AccAddressFromHexUnsafe(account)
+		userAddress, _ := parseAccAddressFromHexUnsafe(account)
 		return userAddress, nil
 	}
 }
@@ -305,7 +306,7 @@ func (r *RequestContext) verifyGNFD2EddsaSignatureFromPreSignedURL(authenticatio
 		log.Errorw("failed to verify off chain signature", "error", err)
 		return nil, err
 	} else {
-		userAddress, _ := sdk.AccAddressFromHexUnsafe(account)
+		userAddress, _ := parseAccAddressFromHexUnsafe(account)
 		return userAddress, nil
 	}
 }
@@ -329,9 +330,15 @@ func (r *RequestContext) verifySignatureForGNFD2Eddsa(requestSignature string) (
 		log.Errorw("failed to verify signature for GNFD2-Eddsa", "error", err)
 		return nil, err
 	} else {
-		userAddress, _ := sdk.AccAddressFromHexUnsafe(r.request.Header.Get(GnfdUserAddressHeader))
+		userAddress, _ := parseAccAddressFromHexUnsafe(r.request.Header.Get(GnfdUserAddressHeader))
 		return userAddress, nil
 	}
+}
+
+func parseAccAddressFromHexUnsafe(address string) (sdk.AccAddress, error) {
+	address = strings.TrimPrefix(address, "0x")
+	address = strings.TrimPrefix(address, "0X")
+	return sdk.AccAddressFromHexUnsafe(address)
 }
 
 // parseSignatureFromRequest get sig for both ECDSA and EDDSA auth, it expects the auth string should look like "Signature=xxxxx".

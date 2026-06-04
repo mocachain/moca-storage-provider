@@ -9,6 +9,37 @@ source "${workspace}"/env.info
 sp_bin_name=moca-sp
 sp_bin=${workspace}/../../build/${sp_bin_name}
 
+function normalize_secp_private_key() {
+  local key_name=$1
+  local raw_key=$2
+  local normalized_key
+
+  if [[ ! ${raw_key} =~ ^[0-9A-Fa-f]+$ ]]; then
+    echo "ERROR: ${key_name} contains non-hex characters"
+    exit 1
+  fi
+
+  if [ ${#raw_key} -gt 64 ]; then
+    echo "ERROR: ${key_name} is longer than 64 hex chars: ${#raw_key}"
+    exit 1
+  fi
+
+  printf -v normalized_key "%064s" "${raw_key}"
+  normalized_key=${normalized_key// /0}
+  echo "${normalized_key}"
+}
+
+function validate_secp_private_key() {
+  local key_name=$1
+  local raw_key=$2
+
+  if [[ ! ${raw_key} =~ ^[0-9A-Fa-f]{64}$ ]]; then
+    echo "ERROR: ${key_name} must be exactly 64 hex chars, got length ${#raw_key}"
+    echo "ERROR: ${key_name} value: ${raw_key}"
+    exit 1
+  fi
+}
+
 #########################
 # the command line help #
 #########################
@@ -69,17 +100,17 @@ function generate_sp_db_info() {
     } >sp.info
     op_address=$(jq -r ".sp${i}.OperatorAddress" "${sp_json_file}")
     echo "OPERATOR_ADDRESS=\"${op_address}\"" >>sp.info
-    opk=$(jq -r ".sp${i}.OperatorPrivateKey" "${sp_json_file}")
+    opk=$(normalize_secp_private_key "sp${i}.OperatorPrivateKey" "$(jq -r ".sp${i}.OperatorPrivateKey" "${sp_json_file}")")
     echo "OPERATOR_PRIVATE_KEY=\"${opk}\"" >>sp.info
-    fpk=$(jq -r ".sp${i}.FundingPrivateKey" "${sp_json_file}")
+    fpk=$(normalize_secp_private_key "sp${i}.FundingPrivateKey" "$(jq -r ".sp${i}.FundingPrivateKey" "${sp_json_file}")")
     echo "FUNDING_PRIVATE_KEY=\"${fpk}\"" >>sp.info
-    spk=$(jq -r ".sp${i}.SealPrivateKey" "${sp_json_file}")
+    spk=$(normalize_secp_private_key "sp${i}.SealPrivateKey" "$(jq -r ".sp${i}.SealPrivateKey" "${sp_json_file}")")
     echo "SEAL_PRIVATE_KEY=\"${spk}\"" >>sp.info
-    apk=$(jq -r ".sp${i}.ApprovalPrivateKey" "${sp_json_file}")
+    apk=$(normalize_secp_private_key "sp${i}.ApprovalPrivateKey" "$(jq -r ".sp${i}.ApprovalPrivateKey" "${sp_json_file}")")
     echo "APPROVAL_PRIVATE_KEY=\"${apk}\"" >>sp.info
-    gpk=$(jq -r ".sp${i}.GcPrivateKey" "${sp_json_file}")
+    gpk=$(normalize_secp_private_key "sp${i}.GcPrivateKey" "$(jq -r ".sp${i}.GcPrivateKey" "${sp_json_file}")")
     echo "GC_PRIVATE_KEY=\"${gpk}\"" >>sp.info
-    bpk=$(jq -r ".sp${i}.BlsPrivateKey" "${sp_json_file}")
+    bpk=$(normalize_secp_private_key "sp${i}.BlsPrivateKey" "$(jq -r ".sp${i}.BlsPrivateKey" "${sp_json_file}")")
     echo "BLS_PRIVATE_KEY=\"${bpk}\"" >>sp.info
 
     # generate db info
@@ -175,7 +206,9 @@ function make_config() {
     sed -i -e "s/SubscribeSPExitEventIntervalMillisecond = .*/SubscribeSPExitEventIntervalMillisecond = 100/g" config.toml
     sed -i -e "s/SubscribeSwapOutExitEventIntervalMillisecond = .*/SubscribeSwapOutExitEventIntervalMillisecond = 100/g" config.toml
     sed -i -e "s/SubscribeBucketMigrateEventIntervalMillisecond = .*/SubscribeBucketMigrateEventIntervalMillisecond = 20/g" config.toml
-    sed -i -e "s/GVGPreferSPList = \[\]/GVGPreferSPList = \[1,2,3,4,5,6,7,8\]/g" config.toml
+    local gvg_prefer_sp_list
+    gvg_prefer_sp_list=$(seq -s, 1 "${SP_NUM}")
+    sed -i -e "s/GVGPreferSPList = \[\]/GVGPreferSPList = \[${gvg_prefer_sp_list}\]/g" config.toml
     sed -i -e "s/EnableGCZombie = .*/EnableGCZombie = true/g" config.toml
     sed -i -e "s/EnableGCMeta = .*/EnableGCMeta = true/g" config.toml
     sed -i -e "s/GCMetaTimeInterval = .*/GCMetaTimeInterval = 3/g" config.toml
@@ -189,11 +222,41 @@ function make_config() {
     sed -i -e "s/EnableGCExpiredOffChainAuthKeys = .*/EnableGCExpiredOffChainAuthKeys = true/g" config.toml
     sed -i -e "s/GCExpiredOffChainAuthKeysTimeInterval = .*/GCExpiredOffChainAuthKeysTimeInterval = 86400/g" config.toml
     sed -i -e "s/GasLimit = 0/GasLimit = 180000/g" config.toml
+    sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 2000000/g" config.toml
     sed -i -e "s/FeeAmount = 0/FeeAmount = 12000000/g" config.toml
+
+    validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.FundingPrivateKey" "$(sed -n "s/^FundingPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.SealPrivateKey" "$(sed -n "s/^SealPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.ApprovalPrivateKey" "$(sed -n "s/^ApprovalPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.GcPrivateKey" "$(sed -n "s/^GcPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.BlsPrivateKey" "$(sed -n "s/^BlsPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
 
     echo "succeed to generate config.toml in ""${sp_dir}"
     cd - >/dev/null || exit
   done
+}
+
+function wait_for_grpc_port() {
+  local pid=$1
+  local port=$2
+  local timeout_sec=${3:-30}
+  local elapsed=0
+
+  while [ ${elapsed} -lt ${timeout_sec} ]; do
+    if ! ps -p "${pid}" > /dev/null 2>&1; then
+      return 1
+    fi
+
+    if (echo >"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1; then
+      return 0
+    fi
+
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  return 1
 }
 
 #############
@@ -231,18 +294,15 @@ function start_sp() {
     # Start process
     nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
     local start_pid=$!
+    local grpc_port=$((SP_START_PORT + 1000 * index))
 
-    # Wait for process initialization
-    sleep 2
-
-    # Verify if process is actually running
-    if ps -p ${start_pid} > /dev/null 2>&1; then
-      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid})"
+    if wait_for_grpc_port "${start_pid}" "${grpc_port}" 30; then
+      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid}, gRPC: 127.0.0.1:${grpc_port})"
       ((success_count++))
     else
-      echo "ERROR: Failed to start sp in ""${sp_dir}"" - check log.txt for details"
+      echo "ERROR: Failed to start sp in ""${sp_dir}"" - gRPC 127.0.0.1:${grpc_port} not ready"
       echo "Last few lines of log:"
-      tail -5 log.txt 2>/dev/null || echo "No log available"
+      tail -20 log.txt 2>/dev/null || echo "No log available"
       ((failed_count++))
     fi
 

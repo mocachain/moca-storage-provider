@@ -2149,7 +2149,6 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-// getStatusHandler get status info for the current SP
 func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -2192,6 +2191,12 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
 	w.Write(b.Bytes())
+}
+
+func (g *GateModular) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // getUserGroupsHandler get groups info by a user address

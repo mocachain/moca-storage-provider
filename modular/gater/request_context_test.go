@@ -2,12 +2,17 @@ package gater
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
+	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 )
 
@@ -130,6 +135,44 @@ func TestRequestContext_VerifySignature(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewRequestContext_StatusRequiresSignature(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	var (
+		reqCtx *RequestContext
+		err    error
+	)
+	router.Path(StatusPath).Name(getStatusRouterName).Methods(http.MethodGet).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCtx, err = NewRequestContext(r, g)
+	})
+	req := httptest.NewRequest(http.MethodGet, scheme+testDomain+StatusPath, nil)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Error(t, err)
+	assert.Equal(t, ErrUnsupportedSignType, err)
+	assert.Equal(t, getStatusRouterName, reqCtx.routerName)
+}
+
+func TestNewRequestContext_HealthCheckSkipsSignature(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	var (
+		reqCtx *RequestContext
+		err    error
+	)
+	router.Path(HealthCheckPath).Name(healthCheckRouterName).Methods(http.MethodGet).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCtx, err = NewRequestContext(r, g)
+	})
+	req := httptest.NewRequest(http.MethodGet, scheme+testDomain+HealthCheckPath, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, healthCheckRouterName, reqCtx.routerName)
 }
 
 func TestRequestContext_verifySignatureForGNFD1Ecdsa(t *testing.T) {
@@ -392,4 +435,15 @@ func Test_parseSignatureFromRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_parseAccAddressFromHexUnsafe(t *testing.T) {
+	address := "0x03De8A6784d2C2881cC4A2c3eF5E105651538F9C"
+
+	withPrefix, err := parseAccAddressFromHexUnsafe(address)
+	assert.NoError(t, err)
+
+	withoutPrefix, err := parseAccAddressFromHexUnsafe(strings.TrimPrefix(address, "0x"))
+	assert.NoError(t, err)
+	assert.Equal(t, withoutPrefix.String(), withPrefix.String())
 }

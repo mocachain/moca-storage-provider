@@ -16,11 +16,13 @@ MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
 TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
 TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
+DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
+E2E_SP_NUM=8
 
 function dump_sp_logs() {
   if [ ! -d "${workspace}/deployment/localup/local_env" ]; then
@@ -169,6 +171,35 @@ PY
   cd "${workspace}"
 }
 
+function normalize_sp_private_keys() {
+  local sp_json_file=$1
+  local tmp_file
+
+  tmp_file=$(mktemp)
+  jq '
+    def pad64:
+      if (test("^[0-9A-Fa-f]+$") | not) then
+        error("non-hex private key")
+      elif length > 64 then
+        error("private key longer than 64 hex chars")
+      else
+        (reduce range(0; 64 - length) as $i (""; . + "0")) + .
+      end;
+    with_entries(
+      .value |= (
+        .OperatorPrivateKey |= pad64 |
+        .FundingPrivateKey |= pad64 |
+        .SealPrivateKey |= pad64 |
+        .ApprovalPrivateKey |= pad64 |
+        .GcPrivateKey |= pad64 |
+        .MaintenancePrivateKey |= pad64 |
+        .BlsPrivateKey |= pad64
+      )
+    )
+  ' "${sp_json_file}" > "${tmp_file}"
+  mv "${tmp_file}" "${sp_json_file}"
+}
+
 #########################################
 # build and start Moca blockchain #
 #########################################
@@ -184,9 +215,10 @@ function moca_chain() {
   make build
 
   # start Moca chain
-  bash ./deployment/localup/localup.sh all 1 8
-  bash ./deployment/localup/localup.sh export_sps 1 8
+  bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
+  bash ./deployment/localup/localup.sh export_sps 1 "${E2E_SP_NUM}"
   cp ./deployment/localup/.local/sp_export.json ./sp.json
+  normalize_sp_private_keys ./sp.json
 
   # transfer some amoca tokens
   transfer_account
@@ -211,6 +243,7 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
+  sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
   start_sp_stack
@@ -249,21 +282,27 @@ function build_cmd() {
   # generate a keystore file to manage private key information
   touch key.txt &
   echo "${TEST_ACCOUNT_PRIVATE_KEY}" >key.txt
+  touch dev-key.txt &
+  echo "${DEV_ACCOUNT_PRIVATE_KEY}" >dev-key.txt
   touch password.txt &
   echo "test_sp_function" >password.txt
   ./moca-cmd --home ./ --passwordfile password.txt account import key.txt
+  ./moca-cmd --home ./ --passwordfile password.txt --keystore ./dev-account.json account import dev-key.txt
 
   # construct config.toml
   touch config.toml
   {
     echo rpcAddr = \"http://localhost:26657\"
-    echo evmRpcAddr = \"http://localhost:8545\"
     echo chainId = \"moca_5151-1\"
+    echo evmRpcAddr = \"http://localhost:8545\"
     echo host = \"${SP_REQUEST_HOST}\"
   } >config.toml
   cat config.toml
   retry_cmd 12 10 "validate moca-cmd config with sp ls" \
     ./moca-cmd -c ./config.toml --home ./ sp ls
+  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt --keystore ./dev-account.json bank transfer --toAddress "${TEST_ACCOUNT_ADDRESS}" --amount 500000000000000000000
+  sleep 2
+  ./moca-cmd -c ./config.toml --home ./ bank balance --address "${TEST_ACCOUNT_ADDRESS}"
 }
 
 ############################################

@@ -144,8 +144,8 @@ func TestWithLimit(t *testing.T) {
 
 	limit := 10
 
-	expectedSQL := "SELECT * FROM `objects` LIMIT 10"
-	mock.ExpectQuery(expectedSQL).WillReturnRows(sqlmock.NewRows([]string{}))
+	expectedSQL := "SELECT * FROM `objects` LIMIT ?"
+	mock.ExpectQuery(expectedSQL).WithArgs(limit).WillReturnRows(sqlmock.NewRows([]string{}))
 
 	db.db.Table(ObjectTableName).Scopes(WithLimit(limit)).Find(&[]struct{}{})
 	assert.NoError(t, mock.ExpectationsWereMet())

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	mockGetBucketInfoByBucketNameQuerySQL = "SELECT * FROM `buckets` WHERE bucket_name = ? LIMIT 1"
+	mockGetBucketInfoByBucketNameQuerySQL = "SELECT * FROM `buckets` WHERE bucket_name = ? LIMIT ?"
 )
 
 func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
@@ -18,6 +18,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).
+		WithArgs(expectedBucketName, 1).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"bucket_name"}).
 				AddRow(expectedBucketName))
@@ -30,7 +31,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 func TestBsDBImpl_GetBucketInfoByBucketNameNoRecords(t *testing.T) {
 	expectedBucketName := "test-bucket"
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WithArgs(expectedBucketName, 1).WillReturnError(gorm.ErrRecordNotFound)
 
 	_, err := s.GetBucketInfoByBucketName(expectedBucketName)
 	assert.Error(t, err)
@@ -40,7 +41,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameNoRecords(t *testing.T) {
 func TestBsDBImpl_GetBucketInfoByBucketNameDBError(t *testing.T) {
 	expectedBucketName := "test-bucket"
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WillReturnError(mockDBInternalError)
+	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WithArgs(expectedBucketName, 1).WillReturnError(mockDBInternalError)
 
 	_, err := s.GetBucketInfoByBucketName(expectedBucketName)
 	assert.Error(t, err)

@@ -1262,7 +1262,7 @@ func (g *GateModular) delegatePutObjectHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to ConfirmTransaction", "error", err)
@@ -1500,7 +1500,7 @@ func (g *GateModular) delegateResumablePutObjectHandler(w http.ResponseWriter, r
 			return
 		}
 	}
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to WaitForNextBlock", "error", err)
@@ -1720,7 +1720,7 @@ func (g *GateModular) delegateCreateFolderHandler(w http.ResponseWriter, r *http
 		}
 	}
 
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to ConfirmTransaction", "error", err)
@@ -1751,6 +1751,13 @@ func isPrivateObject(bucket *storagetypes.BucketInfo, object *storagetypes.Objec
 	return object.GetVisibility() == storagetypes.VISIBILITY_TYPE_PRIVATE ||
 		(object.GetVisibility() == storagetypes.VISIBILITY_TYPE_INHERIT &&
 			bucket.GetVisibility() == storagetypes.VISIBILITY_TYPE_PRIVATE)
+}
+
+func shouldConfirmCosmosTx(txHash string) bool {
+	if txHash == "" {
+		return false
+	}
+	return !strings.HasPrefix(txHash, "0x") && !strings.HasPrefix(txHash, "0X")
 }
 
 func checkIfRequestFromBrowser(userAgent string) bool {

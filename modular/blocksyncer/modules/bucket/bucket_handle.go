@@ -16,6 +16,7 @@ import (
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 
 	blockcommon "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var (
