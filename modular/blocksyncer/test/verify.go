@@ -5,6 +5,8 @@ import (
 	"fmt"
 	golog "log"
 	"math/big"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -38,30 +40,83 @@ var verifyFuncs = []func(t *testing.T, db *gorm.DB) error{
 	verify61, verify62, verify63, verify64, verify65, verify66, verify67, verify68, verify69, verify70,
 }
 
+func envOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func envIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
+func verifyDSN() string {
+	user := envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root")
+	password := envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root")
+	address := envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306")
+	database := envOrDefault("BLOCKSYNCER_TEST_DB_NAME", "block_syncer")
+	return fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true", user, password, address, database)
+}
+
+func retryVerify(description string, attempts int, interval time.Duration, fn func() error) error {
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := fn(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			golog.Printf("%s attempt %d/%d failed: %v", description, attempt, attempts, err)
+		}
+
+		if attempt < attempts {
+			time.Sleep(interval)
+		}
+	}
+
+	return fmt.Errorf("%s: %w", description, lastErr)
+}
+
 func Verify(t *testing.T) error {
-	dsn := "root:root@tcp(localhost:3306)/block_syncer?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true"
+	dsn := verifyDSN()
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to the database")
 	}
 
-	tick := time.NewTicker(time.Millisecond * 500)
-	defer tick.Stop()
+	retryTimeout := time.Duration(envIntOrDefault("BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS", 120)) * time.Second
+	retryInterval := time.Duration(envIntOrDefault("BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS", 500)) * time.Millisecond
+	retryAttempts := int(retryTimeout / retryInterval)
+	if retryAttempts < 1 {
+		retryAttempts = 1
+	}
+
 	for i := 1; i <= LatestHeight; i++ {
-		tryCount := 0
-		for tryCount < 10 {
-			<-tick.C
+		err = retryVerify(fmt.Sprintf("wait for epoch height %d", i), retryAttempts, retryInterval, func() error {
 			var epoch bsdb.Epoch
-			db.Table("epoch").First(&epoch)
-			tryCount++
-			if epoch.BlockHeight == int64(i) {
-				break
+			if err := db.Table("epoch").First(&epoch).Error; err != nil {
+				return err
 			}
+			if epoch.BlockHeight < int64(i) {
+				return fmt.Errorf("current epoch height %d", epoch.BlockHeight)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
-		// verify data
 		f := verifyFuncs[i-1]
-		if err := f(t, db); err != nil {
+		if err := retryVerify(fmt.Sprintf("verify case %d", i), retryAttempts, retryInterval, func() error {
+			return f(t, db)
+		}); err != nil {
 			return err
 		}
 
@@ -80,11 +135,17 @@ func Verify(t *testing.T) error {
 		return errors.New("height error")
 	}
 
-	time.Sleep(3 * time.Second)
 	var count int64
-	db.Table("block_result").Count(&count)
-	if count <= 0 {
-		return errors.New("block result count error")
+	if err := retryVerify("wait for block_result rows", retryAttempts, retryInterval, func() error {
+		if err := db.Table("block_result").Count(&count).Error; err != nil {
+			return err
+		}
+		if count <= 0 {
+			return errors.New("block result count error")
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	return nil
