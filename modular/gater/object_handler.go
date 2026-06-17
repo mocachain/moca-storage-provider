@@ -1262,7 +1262,7 @@ func (g *GateModular) delegatePutObjectHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to ConfirmTransaction", "error", err)
@@ -1500,7 +1500,7 @@ func (g *GateModular) delegateResumablePutObjectHandler(w http.ResponseWriter, r
 			return
 		}
 	}
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to WaitForNextBlock", "error", err)
@@ -1720,7 +1720,7 @@ func (g *GateModular) delegateCreateFolderHandler(w http.ResponseWriter, r *http
 		}
 	}
 
-	if txHash != "" {
+	if shouldConfirmCosmosTx(txHash) {
 		_, err = g.baseApp.Consensus().ConfirmTransaction(reqCtx.ctx, txHash)
 		if err != nil {
 			log.CtxErrorw(reqCtx.Context(), "failed to ConfirmTransaction", "error", err)
@@ -1751,6 +1751,19 @@ func isPrivateObject(bucket *storagetypes.BucketInfo, object *storagetypes.Objec
 	return object.GetVisibility() == storagetypes.VISIBILITY_TYPE_PRIVATE ||
 		(object.GetVisibility() == storagetypes.VISIBILITY_TYPE_INHERIT &&
 			bucket.GetVisibility() == storagetypes.VISIBILITY_TYPE_PRIVATE)
+}
+
+// shouldConfirmCosmosTx reports whether txHash needs a Cosmos-layer GetTx confirmation.
+// Delegate object txs are broadcast over the EVM (DelegateCreateObjectEvm/DelegateUpdateObjectContentEvm)
+// and are already confirmed by waiting on the EVM receipt inside the signer. Their hash is a
+// 0x-prefixed EVM tx hash, which is NOT a Cosmos tx hash, so Cosmos GetTx can never resolve it
+// (it fails hex-decoding the "0x", or returns "tx not found" once stripped). Only confirm txs
+// that were broadcast over the Cosmos layer (non-0x hashes).
+func shouldConfirmCosmosTx(txHash string) bool {
+	if txHash == "" {
+		return false
+	}
+	return !strings.HasPrefix(txHash, "0x") && !strings.HasPrefix(txHash, "0X")
 }
 
 func checkIfRequestFromBrowser(userAgent string) bool {
