@@ -18,6 +18,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 
 	sdkmath "cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -2869,4 +2870,131 @@ func Test_viewObjectByUniversalEndpointHandler(t *testing.T) {
 		nil)
 	w := httptest.NewRecorder()
 	g.viewObjectByUniversalEndpointHandler(w, r)
+}
+
+// evmTxHash is a 0x-prefixed EVM tx hash; cosmosTxHash is a bare (Cosmos-layer) tx hash.
+var (
+	evmTxHash    = "0x" + strings.Repeat("a", 64)
+	cosmosTxHash = strings.Repeat("a", 64)
+)
+
+// Test_shouldConfirmCosmosTx pins the predicate that gates the redundant Cosmos
+// confirmation. Delegated object txs are broadcast over the EVM and are already confirmed
+// by waiting on the EVM receipt in the signer; their hash is a 0x-prefixed EVM tx hash,
+// which Cosmos GetTx can never resolve (it fails hex-decoding "0x..."). Only Cosmos-layer
+// (non-0x) hashes should be confirmed via GetTx.
+func Test_shouldConfirmCosmosTx(t *testing.T) {
+	assert.False(t, shouldConfirmCosmosTx(""), "empty hash: nothing to confirm")
+	assert.False(t, shouldConfirmCosmosTx(evmTxHash), "0x EVM hash: must skip cosmos confirm")
+	assert.False(t, shouldConfirmCosmosTx("0X"+strings.Repeat("A", 64)), "0X EVM hash: must skip cosmos confirm")
+	assert.True(t, shouldConfirmCosmosTx(cosmosTxHash), "non-0x cosmos hash: must confirm")
+	assert.True(t, shouldConfirmCosmosTx("deadbeef"), "non-0x cosmos hash: must confirm")
+}
+
+func mockDelegatePutObjectHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	for _, r := range delegateSubrouters(router, g) {
+		r.NewRoute().Name(delegatePutObjectRouterName).Methods(http.MethodPut).Path("/{object:.+}").Queries(Delegate, "").HandlerFunc(g.delegatePutObjectHandler)
+	}
+	return router
+}
+
+func mockDelegateResumablePutObjectHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	for _, r := range delegateSubrouters(router, g) {
+		r.NewRoute().Name(delegateResumablePutObjectRouterName).Methods(http.MethodPost).Path("/{object:.+}").Queries(Delegate, "").HandlerFunc(g.delegateResumablePutObjectHandler)
+	}
+	return router
+}
+
+func mockDelegateCreateFolderHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	for _, r := range delegateSubrouters(router, g) {
+		r.NewRoute().Name(delegateCreateFolderRouterName).Methods(http.MethodPost).Path("/{object:.+}").Queries(CreateFolderQuery, "").HandlerFunc(g.delegateCreateFolderHandler)
+	}
+	return router
+}
+
+func delegateSubrouters(router *mux.Router, g *GateModular) []*mux.Router {
+	return []*mux.Router{
+		router.Host("{bucket:.+}." + g.domain).Subrouter(),
+		router.PathPrefix("/{bucket}").Subrouter(),
+	}
+}
+
+// delegateCreateMocks wires the happy-path mocks for a delegated object *create* up to the
+// ConfirmTransaction guard. Supporting calls are AnyTimes() (the three handlers reach the
+// guard via slightly different paths); the two assertions are precise: DelegateCreateObject
+// is called exactly once (so we know we reached the guard) and ConfirmTransaction is called
+// exactly wantConfirm times. QueryBucketInfoAndObjectInfo errors so the put/resumable
+// handlers exit cleanly right after the guard.
+func delegateCreateMocks(ctrl *gomock.Controller, txHash string, wantConfirm int) (*gfspclient.MockGfSpClientAPI, *consensus.MockConsensus) {
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	client.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+	client.EXPECT().VerifyAuthentication(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+	client.EXPECT().AskDelegateCreateObjectApproval(gomock.Any(), gomock.Any()).Return(true, nil, nil).AnyTimes()
+	client.EXPECT().DelegateCreateObject(gomock.Any(), gomock.Any()).Return(txHash, nil).Times(1)
+
+	cons := consensus.NewMockConsensus(ctrl)
+	params := &storagetypes.Params{MaxPayloadSize: 100}
+	cons.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), gomock.Any()).Return(params, nil).AnyTimes()
+	cons.EXPECT().QueryStorageParams(gomock.Any()).Return(params, nil).AnyTimes()
+	cons.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Status: sptypes.STATUS_IN_SERVICE}, nil).AnyTimes()
+	cons.EXPECT().QueryBucketInfo(gomock.Any(), gomock.Any()).Return(&storagetypes.BucketInfo{BucketStatus: storagetypes.BUCKET_STATUS_CREATED}, nil).AnyTimes()
+	cons.EXPECT().QueryObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("No such object")).AnyTimes()
+	cons.EXPECT().QueryBucketInfoAndObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, mockErr).AnyTimes()
+	// The behavior under regression test:
+	cons.EXPECT().ConfirmTransaction(gomock.Any(), txHash).Return(&sdk.TxResponse{}, nil).Times(wantConfirm)
+	return client, cons
+}
+
+// TestGateModular_delegateHandlers_confirmGuard is the regression test for the fix: across
+// all three delegated-create flows, the gater must NOT call Consensus().ConfirmTransaction
+// for an EVM (0x) tx hash (it's already confirmed via the EVM receipt; Cosmos GetTx 500s on
+// "0x..."), but must still call it for a Cosmos (non-0x) tx hash.
+func TestGateModular_delegateHandlers_confirmGuard(t *testing.T) {
+	makeReq := func(method, query string) *http.Request {
+		req := httptest.NewRequest(method,
+			fmt.Sprintf("%s%s.%s/%s?%s", scheme, mockBucketName, testDomain, mockObjectName, query),
+			strings.NewReader("data"))
+		req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+		req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+		return req
+	}
+	handlers := []struct {
+		name   string
+		route  func(*testing.T, *GateModular) *mux.Router
+		method string
+		query  string
+	}{
+		{"delegateCreate", mockDelegatePutObjectHandlerRoute, http.MethodPut, Delegate + "=&is_update=false&payload_size=10&visibility=2"},
+		{"delegateResumableCreate", mockDelegateResumablePutObjectHandlerRoute, http.MethodPost, Delegate + "=&is_update=false&payload_size=10&visibility=2"},
+		{"delegateCreateFolder", mockDelegateCreateFolderHandlerRoute, http.MethodPost, CreateFolderQuery + "=&visibility=2"},
+	}
+	hashes := []struct {
+		name        string
+		txHash      string
+		wantConfirm int
+	}{
+		{"EVM 0x hash skips cosmos ConfirmTransaction", evmTxHash, 0},
+		{"cosmos non-0x hash still calls ConfirmTransaction", cosmosTxHash, 1},
+	}
+	for _, h := range handlers {
+		for _, hc := range hashes {
+			t.Run(h.name+"/"+hc.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				g := setup(t)
+				client, cons := delegateCreateMocks(ctrl, hc.txHash, hc.wantConfirm)
+				g.baseApp.SetGfSpClient(client)
+				g.baseApp.SetConsensus(cons)
+
+				w := httptest.NewRecorder()
+				h.route(t, g).ServeHTTP(w, makeReq(h.method, h.query))
+				// gomock (go.uber.org/mock, NewController(t)) auto-verifies Times() on cleanup.
+			})
+		}
+	}
 }
