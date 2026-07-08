@@ -280,9 +280,11 @@ func (b *BsDBImpl) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*
 		filters = append(filters, RemovedFilter(includeRemoved))
 	}
 
+	// Restrict the batch lookup to publicly-readable buckets, matching the
+	// single-item GetBucketByID(includePrivate=false) path.
 	err = b.db.Table((&Bucket{}).TableName()).
 		Select("*").
-		Where("bucket_id in (?)", ids).
+		Where("bucket_id in (?) and visibility = ?", ids, types.VISIBILITY_TYPE_PUBLIC_READ.String()).
 		Scopes(filters...).
 		Find(&buckets).Error
 	return buckets, err
