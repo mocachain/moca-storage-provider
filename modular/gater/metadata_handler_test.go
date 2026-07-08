@@ -691,7 +691,7 @@ func TestGateModular_GetObjectMetaHandler(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
 				clientMock.EXPECT().GetObjectMeta(gomock.Any(), gomock.Any(), gomock.Any(),
-					gomock.Any()).Return(getOneTestObjectResponse(), nil).Times(1)
+					false).Return(getOneTestObjectResponse(), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -2090,7 +2090,7 @@ func TestGateModular_GetBucketMetaHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestVGFInfoBuckets(1)[0], getTestStreamRecord(), nil).Times(1)
+				clientMock.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), false).Return(getTestVGFInfoBuckets(1)[0], getTestStreamRecord(), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},

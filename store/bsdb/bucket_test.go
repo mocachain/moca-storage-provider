@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/forbole/juno/v4/common"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 )
@@ -12,6 +13,20 @@ import (
 const (
 	mockGetBucketInfoByBucketNameQuerySQL = "SELECT * FROM `buckets` WHERE bucket_name = ? LIMIT ?"
 )
+
+// ListBucketsByIDs backs an unauthenticated batch endpoint, so the generated
+// query must constrain results to publicly-readable buckets.
+func TestBsDBImpl_ListBucketsByIDs_FiltersToPublicRead(t *testing.T) {
+	s, mock := setupDBRegexp(t)
+	mock.ExpectQuery(`bucket_id in \(\?\) and visibility = \?`).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_name", "visibility"}).
+			AddRow("public-bucket", "VISIBILITY_TYPE_PUBLIC_READ"))
+
+	buckets, err := s.ListBucketsByIDs([]common.Hash{common.HexToHash("0x1")}, false)
+	assert.NoError(t, err)
+	assert.Len(t, buckets, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
 
 func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 	expectedBucketName := "test-bucket"
