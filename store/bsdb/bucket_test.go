@@ -28,6 +28,19 @@ func TestBsDBImpl_ListBucketsByIDs_FiltersToPublicRead(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// GetBucketMetaByName's public path must emit well-formed SQL. Regression guard
+// for a missing space that produced "removed = false andbuckets.visibility".
+func TestBsDBImpl_GetBucketMetaByName_PublicSQLWellFormed(t *testing.T) {
+	s, mock := setupDBRegexp(t)
+	mock.ExpectQuery(`removed = false and buckets.visibility=`).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_name"}).AddRow("public-bucket"))
+
+	meta, err := s.GetBucketMetaByName("public-bucket", false)
+	assert.NoError(t, err)
+	assert.NotNil(t, meta)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 	expectedBucketName := "test-bucket"
 
