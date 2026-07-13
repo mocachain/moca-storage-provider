@@ -339,15 +339,7 @@ func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.
 		}
 	}()
 
-	// Use the standard request context like the other gater handlers rather than
-	// a bare background context.
-	reqCtx, err := NewRequestContext(r, g)
-	if err != nil {
-		reqCtx.Cancel()
-		return
-	}
-	defer reqCtx.Cancel()
-	ctx := reqCtx.Context()
+	ctx := context.Background()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 	offsetStr := queryParams.Get("offset")
@@ -419,15 +411,7 @@ func (g *GateModular) getBucketReadQuotaCountHandler(w http.ResponseWriter, r *h
 		}
 	}()
 
-	// Use the standard request context like the other gater handlers rather than
-	// a bare background context.
-	reqCtx, err := NewRequestContext(r, g)
-	if err != nil {
-		reqCtx.Cancel()
-		return
-	}
-	defer reqCtx.Cancel()
-	ctx := reqCtx.Context()
+	ctx := context.Background()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 
