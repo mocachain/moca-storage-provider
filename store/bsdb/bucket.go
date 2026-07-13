@@ -250,7 +250,7 @@ func (b *BsDBImpl) GetBucketMetaByName(bucketName string, includePrivate bool) (
 		err = b.db.Table((&Bucket{}).TableName()).
 			Select("*").
 			Joins("left join stream_records on buckets.payment_address = stream_records.account").
-			Where("buckets.bucket_name = ? and buckets.removed = false and"+
+			Where("buckets.bucket_name = ? and buckets.removed = false and "+
 				"buckets.visibility='VISIBILITY_TYPE_PUBLIC_READ'", bucketName).
 			Take(&bucketFullMeta).Error
 	}

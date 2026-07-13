@@ -13,6 +13,33 @@ const (
 	mockGetBucketInfoByBucketNameQuerySQL = "SELECT * FROM `buckets` WHERE bucket_name = ? LIMIT 1"
 )
 
+// ListBucketsByIDs backs an unauthenticated batch endpoint, so the generated
+// query must constrain results to publicly-readable buckets.
+func TestBsDBImpl_ListBucketsByIDs_FiltersToPublicRead(t *testing.T) {
+	s, mock := setupDBRegexp(t)
+	mock.ExpectQuery(`bucket_id in \(\?\) and visibility = \?`).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_name", "visibility"}).
+			AddRow("public-bucket", "VISIBILITY_TYPE_PUBLIC_READ"))
+
+	buckets, err := s.ListBucketsByIDs([]common.Hash{common.HexToHash("0x1")}, false)
+	assert.NoError(t, err)
+	assert.Len(t, buckets, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// GetBucketMetaByName's public path must emit well-formed SQL. Regression guard
+// for a missing space that produced "removed = false andbuckets.visibility".
+func TestBsDBImpl_GetBucketMetaByName_PublicSQLWellFormed(t *testing.T) {
+	s, mock := setupDBRegexp(t)
+	mock.ExpectQuery(`removed = false and buckets.visibility=`).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_name"}).AddRow("public-bucket"))
+
+	meta, err := s.GetBucketMetaByName("public-bucket", false)
+	assert.NoError(t, err)
+	assert.NotNil(t, meta)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 	expectedBucketName := "test-bucket"
 
