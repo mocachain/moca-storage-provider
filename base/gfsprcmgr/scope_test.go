@@ -1193,6 +1193,42 @@ func TestResourceScope_ReserveResources(t *testing.T) {
 	}
 }
 
+func TestResourceScope_ReserveResourcesOwnerErrorLeavesOwnerIntact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	// Owner with a finite memory limit, pre-filled so a further reservation is rejected.
+	mOwner := corercmgr.NewMockLimit(ctrl)
+	mOwner.EXPECT().GetMemoryLimit().Return(int64(1000)).AnyTimes()
+	mOwner.EXPECT().GetConnTotalLimit().Return(10).AnyTimes()
+	mOwner.EXPECT().GetTaskTotalLimit().Return(10).AnyTimes()
+	mOwner.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityHigh).Return(10).AnyTimes()
+	mOwner.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityMedium).Return(10).AnyTimes()
+	mOwner.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityLow).Return(10).AnyTimes()
+	owner := newResourceScope(mOwner, nil, "owner")
+
+	// Child with a generous limit, owned by the owner.
+	mChild := corercmgr.NewMockLimit(ctrl)
+	mChild.EXPECT().GetMemoryLimit().Return(int64(math.MaxInt64)).AnyTimes()
+	mChild.EXPECT().GetConnTotalLimit().Return(10).AnyTimes()
+	mChild.EXPECT().GetTaskTotalLimit().Return(10).AnyTimes()
+	mChild.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityHigh).Return(10).AnyTimes()
+	mChild.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityMedium).Return(10).AnyTimes()
+	mChild.EXPECT().GetTaskLimit(corercmgr.ReserveTaskPriorityLow).Return(10).AnyTimes()
+	child := newResourceScope(mChild, nil, "child")
+	child.owner = owner
+
+	// Pre-fill the owner so the child's reservation is rejected at the owner.
+	assert.NoError(t, owner.ReserveResources(&corercmgr.ScopeStat{Memory: 800}))
+	ownerMemBefore := owner.rc.stat().Memory
+
+	// The child reservation fails at the owner. The child must release only its
+	// own reservation and leave the owner's counters untouched.
+	err := child.ReserveResources(&corercmgr.ScopeStat{Memory: 700})
+	assert.NotNil(t, err)
+	assert.Equal(t, ownerMemBefore, owner.rc.stat().Memory)
+	assert.Equal(t, int64(0), child.rc.stat().Memory)
+}
+
 func TestResourceScope_RemainingResource(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := corercmgr.NewMockLimit(ctrl)
