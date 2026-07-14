@@ -37,3 +37,22 @@ func setupDB(t *testing.T) (*BsDBImpl, sqlmock.Sqlmock) {
 	assert.NotNil(t, db)
 	return &BsDBImpl{db: db}, mock
 }
+
+// setupDBRegexp is like setupDB but matches expected queries as regular
+// expressions, so a test can assert on a fragment of the generated SQL.
+func setupDBRegexp(t *testing.T) (*BsDBImpl, sqlmock.Sqlmock) {
+	mockDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	assert.Nil(t, err)
+	assert.NotNil(t, mockDB)
+	dia := mysql.New(mysql.Config{
+		DriverName: "mysql",
+		DSN: fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", mockUser, mockPassword,
+			mockDBAddress, mockDatabase),
+		Conn:                      mockDB,
+		SkipInitializeWithVersion: true,
+	})
+	db, err := gorm.Open(dia, &gorm.Config{})
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+	return &BsDBImpl{db: db}, mock
+}

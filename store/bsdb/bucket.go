@@ -250,7 +250,7 @@ func (b *BsDBImpl) GetBucketMetaByName(bucketName string, includePrivate bool) (
 		err = b.db.Table((&Bucket{}).TableName()).
 			Select("*").
 			Joins("left join stream_records on buckets.payment_address = stream_records.account").
-			Where("buckets.bucket_name = ? and buckets.removed = false and"+
+			Where("buckets.bucket_name = ? and buckets.removed = false and "+
 				"buckets.visibility='VISIBILITY_TYPE_PUBLIC_READ'", bucketName).
 			Take(&bucketFullMeta).Error
 	}
@@ -280,9 +280,11 @@ func (b *BsDBImpl) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*
 		filters = append(filters, RemovedFilter(includeRemoved))
 	}
 
+	// Restrict the batch lookup to publicly-readable buckets, matching the
+	// single-item GetBucketByID(includePrivate=false) path.
 	err = b.db.Table((&Bucket{}).TableName()).
 		Select("*").
-		Where("bucket_id in (?)", ids).
+		Where("bucket_id in (?) and visibility = ?", ids, types.VISIBILITY_TYPE_PUBLIC_READ.String()).
 		Scopes(filters...).
 		Find(&buckets).Error
 	return buckets, err
