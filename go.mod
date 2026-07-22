@@ -361,7 +361,7 @@ replace (
 	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
-	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260520100353-ce6cad8b8dec
+	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.3.0-rc0
 	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260721044300-c9539ff96182
 	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-rc0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
