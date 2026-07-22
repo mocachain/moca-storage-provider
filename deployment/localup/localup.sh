@@ -221,8 +221,10 @@ function make_config() {
     sed -i -e "s/EnableGCStaleVersionObject = .*/EnableGCStaleVersionObject = true/g" config.toml
     sed -i -e "s/EnableGCExpiredOffChainAuthKeys = .*/EnableGCExpiredOffChainAuthKeys = true/g" config.toml
     sed -i -e "s/GCExpiredOffChainAuthKeysTimeInterval = .*/GCExpiredOffChainAuthKeysTimeInterval = 86400/g" config.toml
-    sed -i -e "s/GasLimit = 0/GasLimit = 180000/g" config.toml
-    sed -i -e "s/CreateGlobalVirtualGroupGasLimit = 180000/CreateGlobalVirtualGroupGasLimit = 2000000/g" config.toml
+    # moca #332 made EVM precompiles meter real KV-store gas on top of the flat
+    # RequiredGas, so 180000 now reverts state-heavy SP txs (seal, GVG create,
+    # etc). Unused gas is refunded, so the headroom is free.
+    sed -i -e "s/GasLimit = 0/GasLimit = 5000000/g" config.toml
     sed -i -e "s/FeeAmount = 0/FeeAmount = 12000000/g" config.toml
 
     validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"

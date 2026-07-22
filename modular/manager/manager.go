@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
-	"golang.org/x/exp/slices"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
