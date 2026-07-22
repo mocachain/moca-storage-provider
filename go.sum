@@ -919,8 +919,8 @@ github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0 h1:bzwvKcCSWjLnDwX9NikklG+B
 github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0/go.mod h1:br6Za5a0wln9liahVkSOwDrlPlrH8sAOw7O+YhQxRSk=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a h1:d4Wr0USZCOCZYt9O35otBKKE6KK4kY/tphaKNG8h8q0=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a/go.mod h1:PeUz8meTESmj1c2gRGjr5H9B+1xA6MqE6WJEJKnXUFA=
-github.com/mocachain/moca/v2 v2.0.0-20260722052901-9c0f8fe91cfe h1:H81TgrRM3bvj0AcdKB+OHUOp4PFh5vK08A7kSymyG3M=
-github.com/mocachain/moca/v2 v2.0.0-20260722052901-9c0f8fe91cfe/go.mod h1:LEJyJq+D+n+aA760FtZEIvAk1LcWl3EkT7ECcIt0Ihc=
+github.com/mocachain/moca/v2 v2.0.0-rc0 h1:Sh6240xrJqms1E/QC12PDjQyTjhCk0cqZYNvcUEwUGs=
+github.com/mocachain/moca/v2 v2.0.0-rc0/go.mod h1:f07curVdJeY675m4N/b4ayU4dyOjCU0zgFVD78MvB9M=
 github.com/mocachain/polygon-edge v1.3.3-moca.1 h1:YtHnpIxMOUkCFp6Z+BHt8wCb+35+HpCVMZ/dFUylzBs=
 github.com/mocachain/polygon-edge v1.3.3-moca.1/go.mod h1:bDvHrg7QQKSx31K588TEWgHICl5dCPkotffzK9CE6IE=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

@@ -363,7 +363,7 @@ replace (
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
 	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260520100353-ce6cad8b8dec
 	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260721044300-c9539ff96182
-	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-20260722052901-9c0f8fe91cfe
+	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-rc0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
