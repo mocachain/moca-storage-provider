@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
-	"golang.org/x/exp/slices"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspvgmgr"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
