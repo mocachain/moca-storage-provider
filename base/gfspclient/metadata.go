@@ -513,7 +513,7 @@ func (s *GfSpClient) GetGroupList(ctx context.Context, name string, prefix strin
 	return resp.Groups, resp.Count, nil
 }
 
-func (s *GfSpClient) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
+func (s *GfSpClient) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, includePrivate bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
 	conn, connErr := s.Connection(ctx, s.metadataEndpoint, opts...)
 	if connErr != nil {
 		log.CtxErrorw(ctx, "client failed to connect metadata", "error", connErr)
@@ -523,6 +523,7 @@ func (s *GfSpClient) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, i
 	req := &types.GfSpListBucketsByIDsRequest{
 		BucketIds:      bucketIDs,
 		IncludeRemoved: includeRemoved,
+		IncludePrivate: includePrivate,
 	}
 	resp, err := types.NewGfSpMetadataServiceClient(conn).GfSpListBucketsByIDs(ctx, req)
 	if err != nil {
@@ -532,7 +533,7 @@ func (s *GfSpClient) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, i
 	return resp.Buckets, nil
 }
 
-func (s *GfSpClient) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
+func (s *GfSpClient) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, includePrivate bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
 	conn, connErr := s.Connection(ctx, s.metadataEndpoint, opts...)
 	if connErr != nil {
 		log.CtxErrorw(ctx, "client failed to connect metadata", "error", connErr)
@@ -542,6 +543,7 @@ func (s *GfSpClient) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, i
 	req := &types.GfSpListObjectsByIDsRequest{
 		ObjectIds:      objectIDs,
 		IncludeRemoved: includeRemoved,
+		IncludePrivate: includePrivate,
 	}
 	resp, err := types.NewGfSpMetadataServiceClient(conn).GfSpListObjectsByIDs(ctx, req)
 	if err != nil {
@@ -801,6 +803,9 @@ func (s *GfSpClient) GetObjectByID(ctx context.Context, objectID uint64, opts ..
 	req := &types.GfSpListObjectsByIDsRequest{
 		ObjectIds:      []uint64{objectID},
 		IncludeRemoved: false,
+		// Internal object lookup (recovery, GC, CLI tooling) must resolve
+		// private objects; visibility scoping only applies at the gater.
+		IncludePrivate: true,
 	}
 	resp, err := types.NewGfSpMetadataServiceClient(conn).GfSpListObjectsByIDs(ctx, req)
 	if err != nil {
