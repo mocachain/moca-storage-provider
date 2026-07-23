@@ -56,6 +56,7 @@ func (p *P2PModular) ReserveResource(ctx context.Context, state *rcmgr.ScopeStat
 	}
 	err = span.ReserveResources(state)
 	if err != nil {
+		span.Done()
 		return nil, err
 	}
 	return span, nil

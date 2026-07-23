@@ -47,6 +47,7 @@ func TestP2PModularReserveResource(t *testing.T) {
 		span := rcmgr.NewMockResourceScopeSpan(ctrl)
 		scope.EXPECT().BeginSpan().Return(span, nil)
 		span.EXPECT().ReserveResources(state).Return(errors.New("limit reached"))
+		span.EXPECT().Done()
 
 		reservedSpan, err := (&P2PModular{scope: scope}).ReserveResource(context.Background(), state)
 		require.Error(t, err)
