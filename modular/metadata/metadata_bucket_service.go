@@ -625,7 +625,7 @@ func (r *MetadataModular) GfSpListBucketsByIDs(ctx context.Context, req *types.G
 	}
 
 	ctx = log.Context(ctx, req)
-	buckets, err = r.baseApp.GfBsDB().ListBucketsByIDs(ids, req.IncludeRemoved)
+	buckets, err = r.baseApp.GfBsDB().ListBucketsByIDs(ids, req.IncludeRemoved, req.IncludePrivate)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list buckets by bucket ids", "error", err)
 		return nil, err

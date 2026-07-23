@@ -746,7 +746,7 @@ func TestGateModular_ListObjectsByIDsHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
+				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -845,7 +845,7 @@ func TestGateModular_ListObjectsByIDsHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(testResponseData, nil).Times(1)
+				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(testResponseData, nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -871,7 +871,7 @@ func TestGateModular_ListObjectsByIDsHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestObjectsInIdMap(1), nil).Times(1)
+				clientMock.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestObjectsInIdMap(1), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -1456,7 +1456,7 @@ func TestGateModular_ListBucketsByIDsHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
+				clientMock.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -1523,7 +1523,7 @@ func TestGateModular_ListBucketsByIDsHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestBucketsInIdMap(1), nil).Times(1)
+				clientMock.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestBucketsInIdMap(1), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},

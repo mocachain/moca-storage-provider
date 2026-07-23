@@ -662,7 +662,7 @@ func (g *GateModular) listObjectsByIDsHandler(w http.ResponseWriter, r *http.Req
 		objectIDMap[id] = true
 	}
 
-	objects, err = g.baseApp.GfSpClient().ListObjectsByIDs(reqCtx.Context(), objectIDs, false)
+	objects, err = g.baseApp.GfSpClient().ListObjectsByIDs(reqCtx.Context(), objectIDs, false, false)
 	if err != nil {
 		log.Errorf("failed to list objects by ids", "error", err)
 		return
@@ -745,7 +745,7 @@ func (g *GateModular) listBucketsByIDsHandler(w http.ResponseWriter, r *http.Req
 		bucketIDMap[id] = true
 	}
 
-	buckets, err = g.baseApp.GfSpClient().ListBucketsByIDs(reqCtx.Context(), bucketIDs, false)
+	buckets, err = g.baseApp.GfSpClient().ListBucketsByIDs(reqCtx.Context(), bucketIDs, false, false)
 	if err != nil {
 		log.Errorf("failed to list buckets by ids", "error", err)
 		return

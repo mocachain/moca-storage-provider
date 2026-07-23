@@ -259,7 +259,7 @@ func (b *BsDBImpl) GetBucketMetaByName(bucketName string, includePrivate bool) (
 }
 
 // ListBucketsByIDs list buckets by bucket ids
-func (b *BsDBImpl) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*Bucket, error) {
+func (b *BsDBImpl) ListBucketsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Bucket, error) {
 	var (
 		buckets []*Bucket
 		err     error
@@ -280,11 +280,15 @@ func (b *BsDBImpl) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*
 		filters = append(filters, RemovedFilter(includeRemoved))
 	}
 
-	// Restrict the batch lookup to publicly-readable buckets, matching the
-	// single-item GetBucketByID(includePrivate=false) path.
-	err = b.db.Table((&Bucket{}).TableName()).
+	query := b.db.Table((&Bucket{}).TableName()).
 		Select("*").
-		Where("bucket_id in (?) and visibility = ?", ids, types.VISIBILITY_TYPE_PUBLIC_READ.String()).
+		Where("bucket_id in (?)", ids)
+	if !includePrivate {
+		// Restrict the batch lookup to publicly-readable buckets, matching the
+		// single-item GetBucketByID(includePrivate=false) path.
+		query = query.Where("visibility = ?", types.VISIBILITY_TYPE_PUBLIC_READ.String())
+	}
+	err = query.
 		Scopes(filters...).
 		Find(&buckets).Error
 	return buckets, err

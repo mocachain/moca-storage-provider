@@ -1300,9 +1300,9 @@ func (mr *MockGfSpClientAPIMockRecorder) ListBucketReadRecord(ctx, bucket, start
 }
 
 // ListBucketsByIDs mocks base method.
-func (m *MockGfSpClientAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
+func (m *MockGfSpClientAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, includePrivate bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, bucketIDs, includeRemoved}
+	varargs := []any{ctx, bucketIDs, includeRemoved, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
@@ -1313,9 +1313,9 @@ func (m *MockGfSpClientAPI) ListBucketsByIDs(ctx context.Context, bucketIDs []ui
 }
 
 // ListBucketsByIDs indicates an expected call of ListBucketsByIDs.
-func (mr *MockGfSpClientAPIMockRecorder) ListBucketsByIDs(ctx, bucketIDs, includeRemoved any, opts ...any) *gomock.Call {
+func (mr *MockGfSpClientAPIMockRecorder) ListBucketsByIDs(ctx, bucketIDs, includeRemoved, includePrivate any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, bucketIDs, includeRemoved}, opts...)
+	varargs := append([]any{ctx, bucketIDs, includeRemoved, includePrivate}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucketsByIDs", reflect.TypeOf((*MockGfSpClientAPI)(nil).ListBucketsByIDs), varargs...)
 }
 
@@ -1530,9 +1530,9 @@ func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByGVGAndBucketForGC(ctx, gvg
 }
 
 // ListObjectsByIDs mocks base method.
-func (m *MockGfSpClientAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
+func (m *MockGfSpClientAPI) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, includePrivate bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, objectIDs, includeRemoved}
+	varargs := []any{ctx, objectIDs, includeRemoved, includePrivate}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
@@ -1543,9 +1543,9 @@ func (m *MockGfSpClientAPI) ListObjectsByIDs(ctx context.Context, objectIDs []ui
 }
 
 // ListObjectsByIDs indicates an expected call of ListObjectsByIDs.
-func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByIDs(ctx, objectIDs, includeRemoved any, opts ...any) *gomock.Call {
+func (mr *MockGfSpClientAPIMockRecorder) ListObjectsByIDs(ctx, objectIDs, includeRemoved, includePrivate any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, objectIDs, includeRemoved}, opts...)
+	varargs := append([]any{ctx, objectIDs, includeRemoved, includePrivate}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByIDs", reflect.TypeOf((*MockGfSpClientAPI)(nil).ListObjectsByIDs), varargs...)
 }
 
