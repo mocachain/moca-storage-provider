@@ -358,7 +358,7 @@ replace (
 	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.4.0-rc0
 	// use Cosmos geth fork, matching mocachain/moca main
 	github.com/ethereum/go-ethereum => github.com/cosmos/go-ethereum v1.16.2-cosmos-1
-	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc0.0.20260527131654-0b190fcfb70a
+	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc1
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
 	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.3.0-rc0
