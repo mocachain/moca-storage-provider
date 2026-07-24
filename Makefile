@@ -133,12 +133,14 @@ lint-changed: check-go-env check-lint
 		echo "--> go.mod/go.sum changed; running full golangci-lint..."; \
 		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v; \
 	else \
-		pkgs="$$( { git diff --name-only -z --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard -z; } | xargs -0 -n1 bash -c 'path="$$1"; [[ "$$path" == *.go ]] || exit 0; dir="$${path%/*}"; [[ "$$dir" == "$$path" ]] && dir=.; [[ "$$dir" == . ]] && printf "./\\0" || printf "./%s\\0" "$$dir"' _ | xargs -0 -n1 bash -c '[[ "$$#" -eq 0 ]] || exec $(GO_REPO_ENV) $(GO) list -f "{{.Dir}}" "$$@"' _ | sort -u)" || exit $$?; \
-		if [ -z "$$pkgs" ]; then \
+		pkg_file="$$(mktemp)" || exit $$?; trap 'rm -f "$$pkg_file"' EXIT; \
+		{ git diff --name-only -z --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard -z; } | xargs -0 -n1 bash -c 'path="$$1"; [[ "$$path" == *.go ]] || exit 0; dir="$${path%/*}"; [[ "$$dir" == "$$path" ]] && dir=.; [[ "$$dir" == . ]] && printf "./\\0" || printf "./%s\\0" "$$dir"' _ | xargs -0 -n1 bash -c '[[ "$$#" -eq 0 ]] || exec $(GO_REPO_ENV) $(GO) list -f "{{.Dir}}" "$$@"' _ | sort -u > "$$pkg_file" || exit $$?; \
+		pkgs=(); while IFS= read -r pkg; do pkgs+=("$$pkg"); done < "$$pkg_file"; \
+		if [ "$${#pkgs[@]}" -eq 0 ]; then \
 		echo "--> No local changed Go files to lint"; \
 		else \
 			echo "--> Running golangci-lint on local changed Go packages..."; \
-			$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$pkgs; \
+			$(GO_REPO_ENV) $(golangci_lint_cmd) run -v "$${pkgs[@]}"; \
 		fi; \
 	fi
 
@@ -148,12 +150,14 @@ lint-staged: check-go-env check-lint
 		echo "--> go.mod/go.sum changed; running full golangci-lint..."; \
 		$(GO_REPO_ENV) $(golangci_lint_cmd) run -v; \
 	else \
-		pkgs="$$(git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 -n1 bash -c 'path="$$1"; [[ "$$path" == *.go ]] || exit 0; dir="$${path%/*}"; [[ "$$dir" == "$$path" ]] && dir=.; [[ "$$dir" == . ]] && printf "./\\0" || printf "./%s\\0" "$$dir"' _ | xargs -0 -n1 bash -c '[[ "$$#" -eq 0 ]] || exec $(GO_REPO_ENV) $(GO) list -f "{{.Dir}}" "$$@"' _ | sort -u)" || exit $$?; \
-		if [ -z "$$pkgs" ]; then \
+		pkg_file="$$(mktemp)" || exit $$?; trap 'rm -f "$$pkg_file"' EXIT; \
+		git diff --cached --name-only -z --diff-filter=ACMR | xargs -0 -n1 bash -c 'path="$$1"; [[ "$$path" == *.go ]] || exit 0; dir="$${path%/*}"; [[ "$$dir" == "$$path" ]] && dir=.; [[ "$$dir" == . ]] && printf "./\\0" || printf "./%s\\0" "$$dir"' _ | xargs -0 -n1 bash -c '[[ "$$#" -eq 0 ]] || exec $(GO_REPO_ENV) $(GO) list -f "{{.Dir}}" "$$@"' _ | sort -u > "$$pkg_file" || exit $$?; \
+		pkgs=(); while IFS= read -r pkg; do pkgs+=("$$pkg"); done < "$$pkg_file"; \
+		if [ "$${#pkgs[@]}" -eq 0 ]; then \
 		echo "--> No staged Go files to lint"; \
 		else \
 			echo "--> Running golangci-lint on staged Go packages..."; \
-			$(GO_REPO_ENV) $(golangci_lint_cmd) run -v $$pkgs; \
+			$(GO_REPO_ENV) $(golangci_lint_cmd) run -v "$${pkgs[@]}"; \
 		fi; \
 	fi
 
