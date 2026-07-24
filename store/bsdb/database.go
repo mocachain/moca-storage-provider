@@ -54,9 +54,9 @@ type Metadata interface {
 	// ListGroupsByNameAndSourceType get groups list by specific parameters
 	ListGroupsByNameAndSourceType(name, prefix, sourceType string, limit, offset int, includeRemoved bool) ([]*Group, int64, error)
 	// ListObjectsByIDs list objects by object ids
-	ListObjectsByIDs(ids []common.Hash, includeRemoved bool) ([]*Object, error)
+	ListObjectsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Object, error)
 	// ListBucketsByIDs list buckets by bucket ids
-	ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*Bucket, error)
+	ListBucketsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Bucket, error)
 	// GetGroupByID get group info by an object id
 	GetGroupByID(groupID int64, includeRemoved bool) (*Group, error)
 	// ListVirtualGroupFamiliesBySpID list virtual group families by sp id

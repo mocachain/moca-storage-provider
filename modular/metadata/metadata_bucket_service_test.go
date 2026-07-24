@@ -537,8 +537,8 @@ func TestMetadataModular_GfSpListBucketsByIDs_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Bucket, error) {
+	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Bucket, error) {
 			return []*bsdb.Bucket{&bsdb.Bucket{
 				ID:                         848,
 				Owner:                      common.HexToAddress("0x11E0A11A7A01E2E757447B52FBD7152004AC699D"),
@@ -580,8 +580,8 @@ func TestMetadataModular_GfSpListBucketsByIDs_Failed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Bucket, error) {
+	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Bucket, error) {
 			return nil, ErrExceedRequest
 		},
 	).Times(1)

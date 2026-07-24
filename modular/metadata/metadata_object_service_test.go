@@ -560,8 +560,8 @@ func TestMetadataModular_GfSpListObjectsByIDs_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Object, error) {
+	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Object, error) {
 			return []*bsdb.Object{
 				&bsdb.Object{
 					ID:                  1,
@@ -608,8 +608,8 @@ func TestMetadataModular_GfSpListObjectsByIDs_Failed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Object, error) {
+	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Object, error) {
 			return nil, ErrExceedRequest
 		},
 	).Times(1)
