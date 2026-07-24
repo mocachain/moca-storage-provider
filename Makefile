@@ -9,7 +9,7 @@ ifdef GITHUB_TOKEN
   $(shell git config --global url."https://$(GITHUB_TOKEN):@github.com/".insteadOf "https://github.com/" 2>/dev/null)
 endif
 
-.PHONY: all build clean check-go-env check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-changed lint-fix lint-staged mock-gen pre-commit pre-commit-staged test test-local test-changed test-staged tidy vet buf-gen proto-clean
+.PHONY: all build clean check-go-env check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-changed lint-fix lint-staged mock-gen pre-commit pre-commit-staged test test-local test-changed test-staged test-p2p check-p2p-coverage tidy vet buf-gen proto-clean
 .PHONY: install-go-test-coverage check-coverage
 
 GO ?= $(shell for candidate in /opt/homebrew/bin/go /usr/local/go/bin/go "$$(command -v go 2>/dev/null)"; do \
@@ -25,7 +25,7 @@ GO := go
 endif
 
 LEFTHOOK_VERSION ?= v1.11.3
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.12.2
 GO_TOOLCHAIN ?= $(shell awk '/^toolchain / { print $$2; exit }' go.mod)
 GOTOOLCHAIN ?= $(GO_TOOLCHAIN)
 export GOTOOLCHAIN
@@ -63,6 +63,8 @@ help:
 	@echo "  test                  to run all sp unit tests"
 	@echo "  test-changed          to run unit tests for packages touched by local changed Go files"
 	@echo "  test-local            to run local unit tests without coverage output"
+	@echo "  test-p2p              to run P2P unit tests with coverage output"
+	@echo "  check-p2p-coverage    to enforce the minimum P2P coverage threshold"
 	@echo "  test-staged           to run unit tests for packages touched by staged Go files"
 	@echo "  tidy                  to run go mod tidy and verify"
 	@echo "  vet                   to do static check"
@@ -112,7 +114,7 @@ install-go-test-coverage:
 	$(GO_LOCAL_ENV) $(GO) install github.com/vladopajic/go-test-coverage/v2@latest
 
 install-lint:
-	$(GO_LOCAL_ENV) $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	$(GO_LOCAL_ENV) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 install-tools:
 	$(GO_LOCAL_ENV) $(GO) install go.uber.org/mock/mockgen@v0.1.0
@@ -175,6 +177,16 @@ test-local: check-go-env
 	@echo "--> Running local unit tests..."
 	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s
+
+P2P_COVERAGE_MIN ?= 5
+
+test-p2p: check-go-env
+	@echo "--> Running P2P unit tests with coverage..."
+	@$(GO_REPO_ENV) $(GO) test ./modular/p2p/... -covermode=atomic -coverprofile=./p2p-coverage.out -timeout 99999s
+
+check-p2p-coverage: test-p2p
+	@coverage="$$($(GO_REPO_ENV) $(GO) tool cover -func=./p2p-coverage.out | awk '/^total:/ { gsub("%", "", $$3); print $$3 }')"; \
+	awk -v actual="$$coverage" -v minimum="$(P2P_COVERAGE_MIN)" 'BEGIN { if (actual + 0 < minimum + 0) { printf "P2P coverage %.1f%% is below the required %.1f%%\n", actual, minimum; exit 1 } printf "P2P coverage %.1f%% meets the required %.1f%%\n", actual, minimum }'
 
 test-changed: check-go-env
 	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \

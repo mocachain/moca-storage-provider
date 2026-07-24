@@ -7,6 +7,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
@@ -119,4 +120,45 @@ func TestSPExitSchedulerListSecondaryGVGsFromChainScansFamiliesOnce(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, gvgs, 2)
 	require.ElementsMatch(t, []uint32{18, 20}, []uint32{gvgs[0].GetId(), gvgs[1].GetId()})
+}
+
+func TestSPExitSchedulerUpdateMigrateProgressPersistsCompletedMigration(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := setup(t)
+	db := spdb.NewMockSPDB(ctrl)
+	manager.baseApp.SetGfSpDB(db)
+
+	gvg := &virtualgrouptypes.GlobalVirtualGroup{Id: 18, FamilyId: 7}
+	unit := &SPExitGVGExecuteUnit{
+		BasicGVGMigrateExecuteUnit: BasicGVGMigrateExecuteUnit{
+			SrcGVG:        gvg,
+			MigrateStatus: WaitForMigrate,
+		},
+		RedundancyIndex: 2,
+		SwapOutKey:      "swap-out-18",
+	}
+	runner := NewDestSPTaskRunner(manager, nil)
+	runner.gvgUnits = append(runner.gvgUnits, unit)
+	runner.keyIndexMap[unit.Key()] = 0
+	runner.swapOutUnitMap[unit.SwapOutKey] = &SwapOutUnit{
+		swapOut:      &virtualgrouptypes.MsgSwapOut{GlobalVirtualGroupIds: []uint32{18, 19}},
+		completedGVG: make(map[uint32]*SPExitGVGExecuteUnit),
+	}
+
+	migrateKey := unit.Key()
+	db.EXPECT().UpdateMigrateGVGUnitLastMigrateObjectID(migrateKey, uint64(99)).Return(nil)
+	db.EXPECT().UpdateSwapOutUnitCompletedGVGList(unit.SwapOutKey, []uint32{18}).Return(nil)
+	db.EXPECT().UpdateMigrateGVGUnitStatus(migrateKey, int(Migrated)).Return(nil)
+
+	task := &gfsptask.GfSpMigrateGVGTask{}
+	task.InitMigrateGVGTask(0, 0, gvg, 2, &sptypes.StorageProvider{}, 0, 0)
+	task.SetLastMigratedObjectID(99)
+	task.SetFinished(true)
+
+	scheduler := &SPExitScheduler{taskRunner: runner}
+	require.NoError(t, scheduler.UpdateMigrateProgress(task))
+	require.Equal(t, uint64(99), unit.LastMigratedObjectID)
+	require.Equal(t, Migrated, unit.MigrateStatus)
 }
