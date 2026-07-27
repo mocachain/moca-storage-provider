@@ -792,8 +792,6 @@ func TestGfSpBaseApp_GfSpSignFailure23(t *testing.T) {
 }
 
 func TestGfSpBaseApp_GfSpSignRejectsDepositWithoutAuthorization(t *testing.T) {
-	t.Skip("MOCA-924: awaiting an authoritative fund-operation authorization policy")
-
 	g := setup(t)
 	g.SetOperatorAddress(sdk.AccAddress(make([]byte, 20)).String())
 
