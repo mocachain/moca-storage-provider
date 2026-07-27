@@ -60,10 +60,16 @@ spec:
         volumeMounts:
         - mountPath: /config
           name: config
+        - mountPath: /var/run/moca-sp/grpc-tls
+          name: grpc-tls
+          readOnly: true
       volumes:
         - name: config
           configMap:
             name: config
+        - name: grpc-tls
+          secret:
+            secretName: p2p-grpc-tls
       securityContext:
         fsGroup: 1000 # uid=1000(sp) gid=1000(sp) groups=5(tty),1000(sp)
 ---
@@ -84,6 +90,7 @@ spec:
     name: pprof
   selector:
     app: p2p
+
 ---
 apiVersion: v1
 kind: Service
@@ -102,4 +109,3 @@ spec:
     name: p2p-external
   selector:
     app: p2p
-

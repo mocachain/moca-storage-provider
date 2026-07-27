@@ -33,7 +33,10 @@ func SpExitAction(ctx *cli.Context) error {
 		StorageProvider: cfg.SpAccount.SpOperatorAddress,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	tx, err := spClient.SpExit(ctx.Context, msg)
 	if err != nil {
 		println(err.Error())
@@ -66,7 +69,10 @@ func CompleteSpExitAction(ctx *cli.Context) error {
 		Operator:        cfg.SpAccount.SpOperatorAddress,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	tx, err := spClient.CompleteSpExit(ctx.Context, msg)
 	if err != nil {
 		println(err.Error())

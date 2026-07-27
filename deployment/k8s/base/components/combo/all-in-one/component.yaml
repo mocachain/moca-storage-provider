@@ -149,6 +149,9 @@ spec:
         volumeMounts:
         - mountPath: /config
           name: config
+        - mountPath: /var/run/moca-sp/grpc-tls
+          name: grpc-tls
+          readOnly: true
         - name: data
           mountPath: /app/data
       imagePullSecrets:
@@ -157,6 +160,9 @@ spec:
         - name: config
           configMap:
             name: config
+        - name: grpc-tls
+          secret:
+            secretName: sp-all-in-one-grpc-tls
         - name: data
           persistentVolumeClaim:
             claimName: p2p-data

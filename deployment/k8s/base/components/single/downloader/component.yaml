@@ -70,10 +70,16 @@ spec:
         volumeMounts:
         - mountPath: /config
           name: config
+        - mountPath: /var/run/moca-sp/grpc-tls
+          name: grpc-tls
+          readOnly: true
       volumes:
         - name: config
           configMap:
             name: config
+        - name: grpc-tls
+          secret:
+            secretName: downloader-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -92,4 +98,3 @@ spec:
     name: pprof
   selector:
     app: downloader
-
