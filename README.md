@@ -179,6 +179,10 @@ CertFile = ''
 # required
 KeyFile = ''
 
+[SignerAuth]
+# required for signer workloads; exact URI SAN values from authorized client certificates
+AllowedClientURIs = []
+
 [SpDB]
 # required
 User = ''
@@ -618,6 +622,8 @@ These private keys are generated during wallet setup.
 `[Endpoint]` specified the URL of different services.
 
 Internal gRPC always uses mutual TLS 1.3. `GRPCTLS.CACertFile`, `GRPCTLS.CertFile`, and `GRPCTLS.KeyFile` are required; startup fails if any file is absent or invalid. The certificate must be trusted by `CACertFile` and support both `serverAuth` and `clientAuth`. Client certificate identity is verified at the transport layer, while method-level authorization is configured separately.
+
+`SignerAuth.AllowedClientURIs` is required on workloads that run the signer module. Each entry is an exact URI SAN from a client certificate authorized to invoke `GfSpSign`; Common Name and DNS SAN values are not accepted as signer identities. Signer requests without a verified client certificate are unauthenticated, and verified certificates without an allowlisted URI SAN are denied.
 
 The TLS server name is derived from each endpoint's dial target. Every target hostname must therefore be present in the destination workload certificate's DNS SANs. `GRPCAddress` is a listen address and must not be used as an endpoint when it contains a wildcard address such as `0.0.0.0`; configure a resolvable DNS name or loopback name covered by the certificate instead.
 

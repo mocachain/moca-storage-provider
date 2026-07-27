@@ -40,6 +40,7 @@ type GfSpConfig struct {
 	Server         []string `comment:"optional"`
 	GRPCAddress    string   `comment:"optional"`
 	GRPCTLS        GRPCTLSConfig
+	SignerAuth     SignerAuthConfig
 	Customize      *Customize `comment:"optional"`
 	SpDB           storeconfig.SQLDBConfig
 	BsDB           storeconfig.SQLDBConfig
@@ -69,6 +70,11 @@ type GRPCTLSConfig struct {
 	CACertFile string `comment:"required"`
 	CertFile   string `comment:"required"`
 	KeyFile    string `comment:"required"`
+}
+
+// SignerAuthConfig defines the mTLS client identities allowed to invoke the signer service.
+type SignerAuthConfig struct {
+	AllowedClientURIs []string `comment:"required for signer"`
 }
 
 // Apply sets the customized implement to the GfSp configuration, it will be called
