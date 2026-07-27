@@ -32,6 +32,14 @@ function make_config() {
   cp config.toml "${workspace}"/modular/blocksyncer/config.toml
   cd "${workspace}"/modular/blocksyncer/ || exit 1
 
+  # internal gRPC mTLS
+  grpc_tls_dir="${workspace}/modular/blocksyncer/grpc-tls"
+  grpc_tls_identity="blocksyncer"
+  bash "${workspace}/deployment/localup/generate_grpc_tls.sh" "${grpc_tls_dir}" "${grpc_tls_identity}"
+  sed -i -e "s|^CACertFile = '.*'|CACertFile = '${grpc_tls_dir}/ca.crt'|g" config.toml
+  sed -i -e "s|^CertFile = '.*'|CertFile = '${grpc_tls_dir}/${grpc_tls_identity}.crt'|g" config.toml
+  sed -i -e "s|^KeyFile = '.*'|KeyFile = '${grpc_tls_dir}/${grpc_tls_identity}.key'|g" config.toml
+
   # db
   sed -i -e "s/User = '.*'/User = '${MYSQL_USER}'/g" config.toml
   sed -i -e "s/Passwd = '.*'/Passwd = '${MYSQL_PASSWORD}'/g" config.toml
