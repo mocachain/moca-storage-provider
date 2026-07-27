@@ -2,50 +2,80 @@ package gfspapp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"net"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/mocachain/moca-storage-provider/util"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
-
-	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 )
 
-func TestGfSpBaseApp_GfSpSignRejectsUnauthenticatedRequest(t *testing.T) {
-	g := &GfSpBaseApp{}
-	g.newRPCServer()
+func TestSignerAuthUnaryInterceptor(t *testing.T) {
+	const (
+		signerMethod = "/base.types.gfspserver.GfSpSignService/GfSpSign"
+		allowedURI   = "spiffe://mocachain/sp/manager"
+	)
+	interceptor := signerAuthUnaryInterceptor([]string{allowedURI})
+	info := &grpc.UnaryServerInfo{FullMethod: signerMethod}
+	handlerCalled := false
+	handler := func(context.Context, interface{}) (interface{}, error) {
+		handlerCalled = true
+		return "ok", nil
+	}
 
-	lis := bufconn.Listen(1024 * 1024)
-	go func() {
-		_ = g.server.Serve(lis)
-	}()
-	t.Cleanup(func() {
-		g.server.Stop()
-		_ = lis.Close()
+	t.Run("missing client certificate", func(t *testing.T) {
+		handlerCalled = false
+		_, err := interceptor(context.Background(), nil, info, handler)
+		assert.Equal(t, codes.Unauthenticated, status.Code(err))
+		assert.False(t, handlerCalled)
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	conn, err := grpc.DialContext(ctx, "bufnet",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return lis.Dial()
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
-	assert.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Run("verified but unauthorized URI SAN", func(t *testing.T) {
+		handlerCalled = false
+		ctx := verifiedClientContext(t, "spiffe://mocachain/sp/untrusted")
+		_, err := interceptor(ctx, nil, info, handler)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+		assert.False(t, handlerCalled)
+	})
 
-	_, err = gfspserver.NewGfSpSignServiceClient(conn).GfSpSign(ctx, &gfspserver.GfSpSignRequest{})
-	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	t.Run("allowlisted URI SAN", func(t *testing.T) {
+		handlerCalled = false
+		ctx := verifiedClientContext(t, allowedURI)
+		response, err := interceptor(ctx, nil, info, handler)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", response)
+		assert.True(t, handlerCalled)
+	})
+
+	t.Run("other service method", func(t *testing.T) {
+		handlerCalled = false
+		response, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/other.Service/Call"}, handler)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", response)
+		assert.True(t, handlerCalled)
+	})
+}
+
+func verifiedClientContext(t *testing.T, uri string) context.Context {
+	t.Helper()
+	parsedURI, err := url.Parse(uri)
+	require.NoError(t, err)
+	certificate := &x509.Certificate{URIs: []*url.URL{parsedURI}}
+	tlsInfo := credentials.TLSInfo{State: tls.ConnectionState{
+		PeerCertificates: []*x509.Certificate{certificate},
+		VerifiedChains:   [][]*x509.Certificate{{certificate}},
+	}}
+	return peer.NewContext(context.Background(), &peer.Peer{AuthInfo: tlsInfo})
 }
 
 func TestGfSpBaseApp_StartRPCServerSuccess(t *testing.T) {

@@ -1,10 +1,13 @@
 package gfspapp
 
 import (
+	"errors"
 	"math"
 	"os"
 	"strings"
 	"sync"
+
+	"google.golang.org/grpc"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
@@ -227,8 +230,22 @@ func DefaultStaticOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error {
 	if err != nil {
 		return err
 	}
+	if err = validateSignerAuthConfig(cfg.Server, cfg.SignerAuth); err != nil {
+		return err
+	}
 	app.grpcClientCredentials = clientCredentials
-	app.newRPCServer(serverCredentials)
+	app.newRPCServer(serverCredentials, grpc.ChainUnaryInterceptor(
+		signerAuthUnaryInterceptor(cfg.SignerAuth.AllowedClientURIs),
+	))
+	return nil
+}
+
+func validateSignerAuthConfig(servers []string, cfg gfspconfig.SignerAuthConfig) error {
+	for _, server := range servers {
+		if strings.EqualFold(server, coremodule.SignModularName) && len(cfg.AllowedClientURIs) == 0 {
+			return errors.New("SignerAuth.AllowedClientURIs is required for signer")
+		}
+	}
 	return nil
 }
 
