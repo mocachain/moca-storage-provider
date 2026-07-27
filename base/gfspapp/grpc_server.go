@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
@@ -24,7 +25,8 @@ func DefaultGrpcServerOptions() []grpc.ServerOption {
 	return options
 }
 
-func (g *GfSpBaseApp) newRPCServer(options ...grpc.ServerOption) {
+func (g *GfSpBaseApp) newRPCServer(transportCredentials credentials.TransportCredentials, options ...grpc.ServerOption) {
+	options = append(options, grpc.Creds(transportCredentials))
 	options = append(options, DefaultGrpcServerOptions()...)
 	if g.EnableMetrics() {
 		options = append(options, utilgrpc.GetDefaultServerInterceptor()...)

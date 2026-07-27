@@ -171,6 +171,14 @@ Server = []
 # optional
 GRPCAddress = ''
 
+[GRPCTLS]
+# required
+CACertFile = ''
+# required
+CertFile = ''
+# required
+KeyFile = ''
+
 [SpDB]
 # required
 User = ''
@@ -609,6 +617,10 @@ These private keys are generated during wallet setup.
 ## Endpoint
 
 `[Endpoint]` specified the URL of different services.
+
+Internal gRPC always uses mutual TLS 1.3. `GRPCTLS.CACertFile`, `GRPCTLS.CertFile`, and `GRPCTLS.KeyFile` are required; startup fails if any file is absent or invalid. The certificate must be trusted by `CACertFile` and support both `serverAuth` and `clientAuth`. Client certificate identity is verified at the transport layer, while method-level authorization is configured separately.
+
+The TLS server name is derived from each endpoint's dial target. Every target hostname must therefore be present in the destination workload certificate's DNS SANs. `GRPCAddress` is a listen address and must not be used as an endpoint when it contains a wildcard address such as `0.0.0.0`; configure a resolvable DNS name or loopback name covered by the certificate instead.
 
 For single-machine host (not recommended):
 

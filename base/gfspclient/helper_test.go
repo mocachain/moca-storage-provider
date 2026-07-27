@@ -63,7 +63,7 @@ func TestMain(m *testing.M) {
 
 func mockBufClient() *GfSpClient {
 	return NewGfSpClient(mockBufNet, mockBufNet, mockBufNet, mockBufNet, mockBufNet, mockBufNet, mockBufNet,
-		mockBufNet, mockBufNet, true)
+		mockBufNet, mockBufNet, insecure.NewCredentials(), true)
 }
 
 // setup used for approver, manager, p2p and signer

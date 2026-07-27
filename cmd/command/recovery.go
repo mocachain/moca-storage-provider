@@ -83,7 +83,10 @@ func recoverObjectAction(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	client := utils.MakeGfSpClient(cfg)
+	client, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	bucketName := ctx.String(bucketFlag.Name)
 
 	if !ctx.IsSet(objectFlag.Name) && !ctx.IsSet(objectListFlag.Name) {
@@ -189,7 +192,10 @@ func recoverPieceAction(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	client := utils.MakeGfSpClient(cfg)
+	client, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 
 	objectName := ctx.String(objectFlag.Name)
 	bucketName := ctx.String(bucketFlag.Name)
@@ -239,7 +245,10 @@ func getReplicateIdxBySP(bucketInfo *types.BucketInfo, objectInfo *types.ObjectI
 	if err != nil {
 		return 0, err
 	}
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return 0, err
+	}
 	sp, err := chain.QuerySP(context.Background(), cfg.SpAccount.SpOperatorAddress)
 	if err != nil {
 		return 0, err

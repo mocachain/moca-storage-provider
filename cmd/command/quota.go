@@ -64,7 +64,10 @@ func updateFreeQuotaAction(ctx *cli.Context) error {
 		FreeReadQuota: freeQuota,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	txnHash, err := spClient.UpdateSPPrice(localCtx, msgUpdateStoragePrice)
 	if err != nil {
 		return err

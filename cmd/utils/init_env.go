@@ -94,7 +94,7 @@ func initLog(ctx *cli.Context, cfg *gfspconfig.GfSpConfig) error {
 	return nil
 }
 
-func MakeGfSpClient(cfg *gfspconfig.GfSpConfig) *gfspclient.GfSpClient {
+func MakeGfSpClient(cfg *gfspconfig.GfSpConfig) (*gfspclient.GfSpClient, error) {
 	if len(cfg.GRPCAddress) == 0 {
 		cfg.GRPCAddress = gfspapp.DefaultGRPCAddress
 	}
@@ -125,6 +125,10 @@ func MakeGfSpClient(cfg *gfspconfig.GfSpConfig) *gfspclient.GfSpClient {
 	if len(cfg.Endpoint.AuthenticatorEndpoint) == 0 {
 		cfg.Endpoint.AuthenticatorEndpoint = cfg.GRPCAddress
 	}
+	clientCredentials, _, err := gfspconfig.LoadGRPCTLSCredentials(cfg.GRPCTLS)
+	if err != nil {
+		return nil, err
+	}
 	client := gfspclient.NewGfSpClient(
 		cfg.Endpoint.ApproverEndpoint,
 		cfg.Endpoint.ManagerEndpoint,
@@ -135,8 +139,9 @@ func MakeGfSpClient(cfg *gfspconfig.GfSpConfig) *gfspclient.GfSpClient {
 		cfg.Endpoint.P2PEndpoint,
 		cfg.Endpoint.SignerEndpoint,
 		cfg.Endpoint.AuthenticatorEndpoint,
+		clientCredentials,
 		false)
-	return client
+	return client, nil
 }
 
 func MakeGnfd(cfg *gfspconfig.GfSpConfig) (*gnfd.Gnfd, error) {
