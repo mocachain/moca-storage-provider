@@ -10,8 +10,43 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 )
+
+func TestGfSpBaseApp_GfSpSignRejectsUnauthenticatedRequest(t *testing.T) {
+	g := &GfSpBaseApp{}
+	g.newRPCServer()
+
+	lis := bufconn.Listen(1024 * 1024)
+	go func() {
+		_ = g.server.Serve(lis)
+	}()
+	t.Cleanup(func() {
+		g.server.Stop()
+		_ = lis.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, "bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return lis.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	assert.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	_, err = gfspserver.NewGfSpSignServiceClient(conn).GfSpSign(ctx, &gfspserver.GfSpSignRequest{})
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+}
 
 func TestGfSpBaseApp_StartRPCServerSuccess(t *testing.T) {
 	g := &GfSpBaseApp{grpcAddress: "localhost:0"}
