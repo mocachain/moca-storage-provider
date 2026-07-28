@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1158,4 +1159,101 @@ func TestListUserPublicKeyV2Handler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeleteUserPublicKeyV2HandlerRejectsCrossAccountRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	attackerKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	victimKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	victimAddress := crypto.PubkeyToAddress(victimKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(SamplePublicKey))
+	req.Header.Set(GnfdUserAddressHeader, victimAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), attackerKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestDeleteUserPublicKeyV2HandlerAllowsSameAccountRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), gomock.Any(), SampleDAppDomain, []string{SamplePublicKey}).
+		Return(true, nil).Times(1)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	accountKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	accountAddress := crypto.PubkeyToAddress(accountKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(SamplePublicKey))
+	req.Header.Set(GnfdUserAddressHeader, accountAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestDeleteUserPublicKeyV2HandlerAllowsLowercaseSameAccountRequest(t *testing.T) {
+	accountKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	accountAddress := strings.ToLower(crypto.PubkeyToAddress(accountKey.PublicKey).Hex())
+
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), accountAddress, SampleDAppDomain, []string{SamplePublicKey}).
+		Return(true, nil).Times(1)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(SamplePublicKey))
+	req.Header.Set(GnfdUserAddressHeader, accountAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
 }

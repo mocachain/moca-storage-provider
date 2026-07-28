@@ -437,8 +437,9 @@ func (g *GateModular) deleteUserPublicKeyV2Handler(w http.ResponseWriter, r *htt
 		log.Errorw("failed to check account address", "account_address", account, "error", err)
 		return
 	}
-	if account != reqCtx.account {
+	if common.HexToAddress(account) != common.HexToAddress(reqCtx.account) {
 		err = ErrNoPermission
+		return
 	}
 
 	data, err := io.ReadAll(r.Body)
