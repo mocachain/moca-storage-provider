@@ -240,8 +240,17 @@ func (r *MetadataModular) GfSpGetObjectMeta(ctx context.Context, req *types.GfSp
 	return resp, nil
 }
 
-// GfSpListObjectsByIDs list objects by object ids
+// GfSpListObjectsByIDs list objects by object ids.
 func (r *MetadataModular) GfSpListObjectsByIDs(ctx context.Context, req *types.GfSpListObjectsByIDsRequest) (resp *types.GfSpListObjectsByIDsResponse, err error) {
+	return r.listObjectsByIDs(ctx, req, false)
+}
+
+// GfSpListObjectsByIDsInternal is the private-visibility counterpart of GfSpListObjectsByIDs.
+func (r *MetadataModular) GfSpListObjectsByIDsInternal(ctx context.Context, req *types.GfSpListObjectsByIDsRequest) (resp *types.GfSpListObjectsByIDsResponse, err error) {
+	return r.listObjectsByIDs(ctx, req, true)
+}
+
+func (r *MetadataModular) listObjectsByIDs(ctx context.Context, req *types.GfSpListObjectsByIDsRequest, includePrivate bool) (resp *types.GfSpListObjectsByIDsResponse, err error) {
 	var (
 		objects    []*model.Object
 		ids        []common.Hash
@@ -253,7 +262,7 @@ func (r *MetadataModular) GfSpListObjectsByIDs(ctx context.Context, req *types.G
 		ids[i] = common.BigToHash(math.NewUint(id).BigInt())
 	}
 
-	objects, err = r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.IncludeRemoved, req.IncludePrivate)
+	objects, err = r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.IncludeRemoved, includePrivate)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list objects by object ids", "error", err)
 		return nil, err

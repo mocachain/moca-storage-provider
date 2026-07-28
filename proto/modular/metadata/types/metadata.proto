@@ -617,9 +617,6 @@ message GfSpListBucketsByIDsRequest {
   // include_removed indicates whether this request can get the removed buckets
   // information
   bool include_removed = 2;
-  // include_private indicates whether this request can get the private buckets
-  // information
-  bool include_private = 3;
 }
 
 // GfSpGetBucketByIDsResponse is response type for the GfSpListBucketsByIDs RPC
@@ -637,9 +634,6 @@ message GfSpListObjectsByIDsRequest {
   // include_removed indicates whether this request can get the removed objects
   // information
   bool include_removed = 2;
-  // include_private indicates whether this request can get the private objects
-  // information
-  bool include_private = 3;
 }
 
 // GfSpListObjectsByIDsRequest is response type for the GfSpListObjectsByIDs RPC
@@ -1307,6 +1301,10 @@ service GfSpMetadataService {
   rpc GfSpListBucketsByIDs(GfSpListBucketsByIDsRequest)
       returns (GfSpListBucketsByIDsResponse) {}
   rpc GfSpListObjectsByIDs(GfSpListObjectsByIDsRequest)
+      returns (GfSpListObjectsByIDsResponse) {}
+  // GfSpListObjectsByIDsInternal is the private-visibility counterpart of
+  // GfSpListObjectsByIDs, for internal callers only.
+  rpc GfSpListObjectsByIDsInternal(GfSpListObjectsByIDsRequest)
       returns (GfSpListObjectsByIDsResponse) {}
   rpc GfSpVerifyPermissionByID(GfSpVerifyPermissionByIDRequest)
       returns (GfSpVerifyPermissionByIDResponse) {}

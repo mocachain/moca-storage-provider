@@ -609,7 +609,7 @@ func (r *MetadataModular) GfSpListBucketReadRecord(
 	return resp, nil
 }
 
-// GfSpListBucketsByIDs list buckets by bucket ids
+// GfSpListBucketsByIDs list buckets by bucket ids.
 func (r *MetadataModular) GfSpListBucketsByIDs(ctx context.Context, req *types.GfSpListBucketsByIDsRequest) (
 	resp *types.GfSpListBucketsByIDsResponse, err error,
 ) {
@@ -625,7 +625,7 @@ func (r *MetadataModular) GfSpListBucketsByIDs(ctx context.Context, req *types.G
 	}
 
 	ctx = log.Context(ctx, req)
-	buckets, err = r.baseApp.GfBsDB().ListBucketsByIDs(ids, req.IncludeRemoved, req.IncludePrivate)
+	buckets, err = r.baseApp.GfBsDB().ListBucketsByIDs(ids, req.IncludeRemoved, false)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list buckets by bucket ids", "error", err)
 		return nil, err

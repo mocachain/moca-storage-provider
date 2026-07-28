@@ -620,6 +620,44 @@ func TestMetadataModular_GfSpListObjectsByIDs_Failed(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestMetadataModular_GfSpListObjectsByIDs_ExcludesPrivate(t *testing.T) {
+	a := setup(t)
+	ctrl := gomock.NewController(t)
+	m := bsdb.NewMockBSDB(ctrl)
+	a.baseApp.SetGfBsDB(m)
+	var capturedIncludePrivate bool
+	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*bsdb.Object, error) {
+			capturedIncludePrivate = includePrivate
+			return nil, nil
+		},
+	).Times(1)
+	_, err := a.GfSpListObjectsByIDs(context.Background(), &types.GfSpListObjectsByIDsRequest{
+		ObjectIds: []uint64{1},
+	})
+	assert.Nil(t, err)
+	assert.False(t, capturedIncludePrivate)
+}
+
+func TestMetadataModular_GfSpListObjectsByIDsInternal_IncludesPrivate(t *testing.T) {
+	a := setup(t)
+	ctrl := gomock.NewController(t)
+	m := bsdb.NewMockBSDB(ctrl)
+	a.baseApp.SetGfBsDB(m)
+	var capturedIncludePrivate bool
+	m.EXPECT().ListObjectsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*bsdb.Object, error) {
+			capturedIncludePrivate = includePrivate
+			return nil, nil
+		},
+	).Times(1)
+	_, err := a.GfSpListObjectsByIDsInternal(context.Background(), &types.GfSpListObjectsByIDsRequest{
+		ObjectIds: []uint64{1},
+	})
+	assert.Nil(t, err)
+	assert.True(t, capturedIncludePrivate)
+}
+
 func TestMetadataModular_GfSpListObjectsInGVGAndBucket_Success(t *testing.T) {
 	a := setup(t)
 	ctrl := gomock.NewController(t)
