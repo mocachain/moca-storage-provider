@@ -12,8 +12,8 @@ package bsdb
 import (
 	reflect "reflect"
 
-	types "github.com/mocachain/moca/v2/x/permission/types"
 	common "github.com/forbole/juno/v4/common"
+	types "github.com/mocachain/moca/v2/x/permission/types"
 	decimal "github.com/shopspring/decimal"
 	gomock "go.uber.org/mock/gomock"
 	gorm "gorm.io/gorm"
@@ -672,18 +672,18 @@ func (mr *MockMetadataMockRecorder) GetVirtualGroupFamiliesByVgfID(vgfID any) *g
 }
 
 // ListBucketsByIDs mocks base method.
-func (m *MockMetadata) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*Bucket, error) {
+func (m *MockMetadata) ListBucketsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Bucket, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBucketsByIDs", ids, includeRemoved)
+	ret := m.ctrl.Call(m, "ListBucketsByIDs", ids, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListBucketsByIDs indicates an expected call of ListBucketsByIDs.
-func (mr *MockMetadataMockRecorder) ListBucketsByIDs(ids, includeRemoved any) *gomock.Call {
+func (mr *MockMetadataMockRecorder) ListBucketsByIDs(ids, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucketsByIDs", reflect.TypeOf((*MockMetadata)(nil).ListBucketsByIDs), ids, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucketsByIDs", reflect.TypeOf((*MockMetadata)(nil).ListBucketsByIDs), ids, includeRemoved, includePrivate)
 }
 
 // ListBucketsByVgfID mocks base method.
@@ -927,18 +927,18 @@ func (mr *MockMetadataMockRecorder) ListObjectsByGVGAndBucketForGC(bucketID, gvg
 }
 
 // ListObjectsByIDs mocks base method.
-func (m *MockMetadata) ListObjectsByIDs(ids []common.Hash, includeRemoved bool) ([]*Object, error) {
+func (m *MockMetadata) ListObjectsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Object, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListObjectsByIDs", ids, includeRemoved)
+	ret := m.ctrl.Call(m, "ListObjectsByIDs", ids, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListObjectsByIDs indicates an expected call of ListObjectsByIDs.
-func (mr *MockMetadataMockRecorder) ListObjectsByIDs(ids, includeRemoved any) *gomock.Call {
+func (mr *MockMetadataMockRecorder) ListObjectsByIDs(ids, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByIDs", reflect.TypeOf((*MockMetadata)(nil).ListObjectsByIDs), ids, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByIDs", reflect.TypeOf((*MockMetadata)(nil).ListObjectsByIDs), ids, includeRemoved, includePrivate)
 }
 
 // ListObjectsByLVGID mocks base method.
@@ -1755,18 +1755,18 @@ func (mr *MockBSDBMockRecorder) GetVirtualGroupFamiliesByVgfID(vgfID any) *gomoc
 }
 
 // ListBucketsByIDs mocks base method.
-func (m *MockBSDB) ListBucketsByIDs(ids []common.Hash, includeRemoved bool) ([]*Bucket, error) {
+func (m *MockBSDB) ListBucketsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Bucket, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBucketsByIDs", ids, includeRemoved)
+	ret := m.ctrl.Call(m, "ListBucketsByIDs", ids, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*Bucket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListBucketsByIDs indicates an expected call of ListBucketsByIDs.
-func (mr *MockBSDBMockRecorder) ListBucketsByIDs(ids, includeRemoved any) *gomock.Call {
+func (mr *MockBSDBMockRecorder) ListBucketsByIDs(ids, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucketsByIDs", reflect.TypeOf((*MockBSDB)(nil).ListBucketsByIDs), ids, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucketsByIDs", reflect.TypeOf((*MockBSDB)(nil).ListBucketsByIDs), ids, includeRemoved, includePrivate)
 }
 
 // ListBucketsByVgfID mocks base method.
@@ -2010,18 +2010,18 @@ func (mr *MockBSDBMockRecorder) ListObjectsByGVGAndBucketForGC(bucketID, gvgID, 
 }
 
 // ListObjectsByIDs mocks base method.
-func (m *MockBSDB) ListObjectsByIDs(ids []common.Hash, includeRemoved bool) ([]*Object, error) {
+func (m *MockBSDB) ListObjectsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Object, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListObjectsByIDs", ids, includeRemoved)
+	ret := m.ctrl.Call(m, "ListObjectsByIDs", ids, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListObjectsByIDs indicates an expected call of ListObjectsByIDs.
-func (mr *MockBSDBMockRecorder) ListObjectsByIDs(ids, includeRemoved any) *gomock.Call {
+func (mr *MockBSDBMockRecorder) ListObjectsByIDs(ids, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByIDs", reflect.TypeOf((*MockBSDB)(nil).ListObjectsByIDs), ids, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByIDs", reflect.TypeOf((*MockBSDB)(nil).ListObjectsByIDs), ids, includeRemoved, includePrivate)
 }
 
 // ListObjectsByLVGID mocks base method.

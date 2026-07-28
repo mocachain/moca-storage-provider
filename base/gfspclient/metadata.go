@@ -551,6 +551,25 @@ func (s *GfSpClient) ListObjectsByIDs(ctx context.Context, objectIDs []uint64, i
 	return resp.Objects, nil
 }
 
+func (s *GfSpClient) ListObjectsByIDsInternal(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error) {
+	conn, connErr := s.Connection(ctx, s.metadataEndpoint, opts...)
+	if connErr != nil {
+		log.CtxErrorw(ctx, "client failed to connect metadata", "error", connErr)
+		return nil, ErrRPCUnknownWithDetail("client failed to connect metadata, error: ", connErr)
+	}
+	defer conn.Close()
+	req := &types.GfSpListObjectsByIDsRequest{
+		ObjectIds:      objectIDs,
+		IncludeRemoved: includeRemoved,
+	}
+	resp, err := types.NewGfSpMetadataServiceClient(conn).GfSpListObjectsByIDsInternal(ctx, req)
+	if err != nil {
+		log.CtxErrorw(ctx, "client failed to list objects by object ids (internal)", "error", err)
+		return nil, ErrRPCUnknownWithDetail("client failed to list objects by object ids (internal), error: ", err)
+	}
+	return resp.Objects, nil
+}
+
 func (s *GfSpClient) ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*virtual_types.GlobalVirtualGroupFamily, error) {
 	conn, connErr := s.Connection(ctx, s.metadataEndpoint, opts...)
 	if connErr != nil {
@@ -792,31 +811,18 @@ func (s *GfSpClient) ListSpExitEvents(ctx context.Context, blockID uint64, spID 
 }
 
 func (s *GfSpClient) GetObjectByID(ctx context.Context, objectID uint64, opts ...grpc.DialOption) (*storage_types.ObjectInfo, error) {
-	conn, connErr := s.Connection(ctx, s.metadataEndpoint, opts...)
-	if connErr != nil {
-		log.CtxErrorw(ctx, "client failed to connect metadata", "error", connErr)
-		return nil, ErrRPCUnknownWithDetail("client failed to connect metadata, error: ", connErr)
-	}
-	defer conn.Close()
-	req := &types.GfSpListObjectsByIDsRequest{
-		ObjectIds:      []uint64{objectID},
-		IncludeRemoved: false,
-	}
-	resp, err := types.NewGfSpMetadataServiceClient(conn).GfSpListObjectsByIDs(ctx, req)
+	objects, err := s.ListObjectsByIDsInternal(ctx, []uint64{objectID}, false, opts...)
 	if err != nil {
-		log.CtxErrorw(ctx, "client failed to list objects by object ids", "error", err)
-		return nil, ErrRPCUnknownWithDetail("client failed to list objects by object ids, error: ", err)
+		return nil, err
 	}
-	if len(resp.GetObjects()) == 0 {
+	if len(objects) == 0 {
 		return nil, ErrNoSuchObject
 	}
-	if _, ok := resp.GetObjects()[objectID]; !ok {
+	object, ok := objects[objectID]
+	if !ok || object.GetObjectInfo() == nil {
 		return nil, ErrNoSuchObject
 	}
-	if resp.GetObjects()[objectID].GetObjectInfo() == nil {
-		return nil, ErrNoSuchObject
-	}
-	return resp.GetObjects()[objectID].GetObjectInfo(), nil
+	return object.GetObjectInfo(), nil
 }
 
 // VerifyPermissionByID Verify the input account’s permission to input source type and resource id

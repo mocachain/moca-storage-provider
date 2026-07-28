@@ -126,6 +126,8 @@ type MetadataAPI interface {
 	GetGroupList(ctx context.Context, name string, prefix string, sourceType string, limit int64, offset int64, includeRemoved bool, opts ...grpc.DialOption) ([]*types.Group, int64, error)
 	ListBucketsByIDs(ctx context.Context, bucketIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Bucket, error)
 	ListObjectsByIDs(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error)
+	// ListObjectsByIDsInternal is the private-visibility counterpart of ListObjectsByIDs.
+	ListObjectsByIDsInternal(ctx context.Context, objectIDs []uint64, includeRemoved bool, opts ...grpc.DialOption) (map[uint64]*types.Object, error)
 	ListVirtualGroupFamiliesSpID(ctx context.Context, spID uint32, opts ...grpc.DialOption) ([]*virtualgrouptypes.GlobalVirtualGroupFamily, error)
 	GetGlobalVirtualGroupByGvgID(ctx context.Context, gvgID uint32, opts ...grpc.DialOption) (*virtualgrouptypes.GlobalVirtualGroup, error)
 	ListObjectsInGVGAndBucket(ctx context.Context, gvgID uint32, bucketID uint64, startAfter uint64, limit uint32, opts ...grpc.DialOption) ([]*types.ObjectDetails, error)

@@ -537,8 +537,8 @@ func TestMetadataModular_GfSpListBucketsByIDs_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Bucket, error) {
+	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Bucket, error) {
 			return []*bsdb.Bucket{&bsdb.Bucket{
 				ID:                         848,
 				Owner:                      common.HexToAddress("0x11E0A11A7A01E2E757447B52FBD7152004AC699D"),
@@ -580,8 +580,8 @@ func TestMetadataModular_GfSpListBucketsByIDs_Failed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any()).DoAndReturn(
-		func([]common.Hash, bool) ([]*bsdb.Bucket, error) {
+	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func([]common.Hash, bool, bool) ([]*bsdb.Bucket, error) {
 			return nil, ErrExceedRequest
 		},
 	).Times(1)
@@ -591,6 +591,25 @@ func TestMetadataModular_GfSpListBucketsByIDs_Failed(t *testing.T) {
 		IncludeRemoved: true,
 	})
 	assert.NotNil(t, err)
+}
+
+func TestMetadataModular_GfSpListBucketsByIDs_ExcludesPrivate(t *testing.T) {
+	a := setup(t)
+	ctrl := gomock.NewController(t)
+	m := bsdb.NewMockBSDB(ctrl)
+	a.baseApp.SetGfBsDB(m)
+	var capturedIncludePrivate bool
+	m.EXPECT().ListBucketsByIDs(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*bsdb.Bucket, error) {
+			capturedIncludePrivate = includePrivate
+			return nil, nil
+		},
+	).Times(1)
+	_, err := a.GfSpListBucketsByIDs(context.Background(), &types.GfSpListBucketsByIDsRequest{
+		BucketIds: []uint64{848},
+	})
+	assert.Nil(t, err)
+	assert.False(t, capturedIncludePrivate)
 }
 
 func TestMetadataModular_GfSpGetLatestBucketReadQuota_Failure1(t *testing.T) {

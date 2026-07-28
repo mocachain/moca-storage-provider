@@ -1302,6 +1302,10 @@ service GfSpMetadataService {
       returns (GfSpListBucketsByIDsResponse) {}
   rpc GfSpListObjectsByIDs(GfSpListObjectsByIDsRequest)
       returns (GfSpListObjectsByIDsResponse) {}
+  // GfSpListObjectsByIDsInternal is the private-visibility counterpart of
+  // GfSpListObjectsByIDs, for internal callers only.
+  rpc GfSpListObjectsByIDsInternal(GfSpListObjectsByIDsRequest)
+      returns (GfSpListObjectsByIDsResponse) {}
   rpc GfSpVerifyPermissionByID(GfSpVerifyPermissionByIDRequest)
       returns (GfSpVerifyPermissionByIDResponse) {}
   rpc GfSpListVirtualGroupFamiliesBySpID(
