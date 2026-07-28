@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -19,10 +20,11 @@ import (
 
 func setup(t *testing.T) *GfSpBaseApp {
 	return &GfSpBaseApp{
-		appID:           "mockAppID",
-		grpcAddress:     "mockGRPCAddress",
-		operatorAddress: "mockOperatorAddress",
-		chainID:         "mockChainID",
+		appID:                 "mockAppID",
+		grpcAddress:           "mockGRPCAddress",
+		operatorAddress:       "mockOperatorAddress",
+		chainID:               "mockChainID",
+		grpcClientCredentials: insecure.NewCredentials(),
 	}
 }
 
