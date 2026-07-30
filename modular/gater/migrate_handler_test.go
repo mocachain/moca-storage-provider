@@ -649,6 +649,25 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 			wantedResult: "no permission",
 		},
 		{
+			name: "refuse to sign a sign doc without a bucket id",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				g.baseApp.SetChainID(mockChainID)
+				return g
+			},
+			request: func() *http.Request {
+				req := newSecondaryBlsMigrationRequest()
+				req.Header.Set(GnfdSecondarySPMigrationBucketMsgHeader, mockSignDocWithoutBucketIDHeader)
+				return req
+			},
+			wantedResult: "gnfd msg validate error",
+		},
+		{
 			name: "refuse to sign a sign doc of another chain",
 			fn: func() *GateModular {
 				g := setup(t)
@@ -888,13 +907,14 @@ func TestGateModular_getSwapOutApproval(t *testing.T) {
 
 const (
 	// values encoded in the request headers used by the approval handler tests
-	mockChainID                          = "1"
-	mockSelfSPID                  uint32 = 1
-	mockSecondarySPID             uint32 = 5
-	mockSwapOutSPID               uint32 = 7
-	mockSwapOutSPAddress                 = "0x1C7C8A668e23aED291f78fC2f3b1865Acc87b6F6"
-	mockSecondaryBlsSignDocHeader        = "7b22636861696e5f6964223a2231222c226473745f7072696d6172795f73705f6964223a312c227372635f676c6f62616c5f7669727475616c5f67726f75705f6964223a322c226473745f676c6f62616c5f7669727475616c5f67726f75705f6964223a332c226275636b65745f6964223a2231227d"
-	mockSwapOutMsgHeader                 = "7b2273746f726167655f70726f7669646572223a22307831433743384136363865323361454432393166373866433266336231383635416363383762364636222c22676c6f62616c5f7669727475616c5f67726f75705f66616d696c795f6964223a322c22676c6f62616c5f7669727475616c5f67726f75705f696473223a5b5d2c22737563636573736f725f73705f6964223a312c22737563636573736f725f73705f617070726f76616c223a6e756c6c7d"
+	mockChainID                             = "1"
+	mockSelfSPID                     uint32 = 1
+	mockSecondarySPID                uint32 = 5
+	mockSwapOutSPID                  uint32 = 7
+	mockSwapOutSPAddress                    = "0x1C7C8A668e23aED291f78fC2f3b1865Acc87b6F6"
+	mockSecondaryBlsSignDocHeader           = "7b22636861696e5f6964223a2231222c226473745f7072696d6172795f73705f6964223a312c227372635f676c6f62616c5f7669727475616c5f67726f75705f6964223a322c226473745f676c6f62616c5f7669727475616c5f67726f75705f6964223a332c226275636b65745f6964223a2231227d"
+	mockSignDocWithoutBucketIDHeader        = "7b22636861696e5f6964223a2231222c226473745f7072696d6172795f73705f6964223a312c227372635f676c6f62616c5f7669727475616c5f67726f75705f6964223a322c226473745f676c6f62616c5f7669727475616c5f67726f75705f6964223a337d"
+	mockSwapOutMsgHeader                    = "7b2273746f726167655f70726f7669646572223a22307831433743384136363865323361454432393166373866433266336231383635416363383762364636222c22676c6f62616c5f7669727475616c5f67726f75705f66616d696c795f6964223a322c22676c6f62616c5f7669727475616c5f67726f75705f696473223a5b5d2c22737563636573736f725f73705f6964223a312c22737563636573736f725f73705f617070726f76616c223a6e756c6c7d"
 )
 
 func newSecondaryBlsMigrationRequest() *http.Request {

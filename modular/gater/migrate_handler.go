@@ -276,6 +276,11 @@ func (g *GateModular) checkSecondaryBlsMigrationBucketApproval(ctx context.Conte
 		log.CtxErrorw(ctx, "chain id mismatch", "expected", g.baseApp.ChainID(), "actual", signDoc.GetChainId())
 		return ErrValidateMsg
 	}
+	// a sign doc without a bucket id unmarshals into a nil Uint, every method on it panics
+	if signDoc.BucketId.IsNil() {
+		log.CtxError(ctx, "sign doc carries no bucket id")
+		return ErrValidateMsg
+	}
 	spID, err := g.getSPID()
 	if err != nil {
 		return ErrConsensusWithDetail("failed to query sp id, error: " + err.Error())
