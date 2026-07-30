@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -76,6 +77,22 @@ func verifiedClientContext(t *testing.T, uri string) context.Context {
 		VerifiedChains:   [][]*x509.Certificate{{certificate}},
 	}}
 	return peer.NewContext(context.Background(), &peer.Peer{AuthInfo: tlsInfo})
+}
+
+func TestGfSpBaseApp_ReflectionDisabledByDefault(t *testing.T) {
+	g := &GfSpBaseApp{}
+	g.newRPCServer(insecure.NewCredentials(), false)
+
+	_, registered := g.server.GetServiceInfo()[reflectionServiceName]
+	assert.False(t, registered, "grpc reflection must not be registered unless explicitly enabled")
+}
+
+func TestGfSpBaseApp_ReflectionEnabledByConfig(t *testing.T) {
+	g := &GfSpBaseApp{}
+	g.newRPCServer(insecure.NewCredentials(), true)
+
+	_, registered := g.server.GetServiceInfo()[reflectionServiceName]
+	assert.True(t, registered)
 }
 
 func TestGfSpBaseApp_StartRPCServerSuccess(t *testing.T) {
