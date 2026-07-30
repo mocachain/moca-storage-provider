@@ -234,7 +234,7 @@ func DefaultStaticOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error {
 		return err
 	}
 	app.grpcClientCredentials = clientCredentials
-	app.newRPCServer(serverCredentials, grpc.ChainUnaryInterceptor(
+	app.newRPCServer(serverCredentials, cfg.EnableGRPCReflection, grpc.ChainUnaryInterceptor(
 		signerAuthUnaryInterceptor(cfg.SignerAuth.AllowedClientURIs),
 	))
 	return nil
