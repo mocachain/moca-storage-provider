@@ -2,6 +2,8 @@ package gfspconfig
 
 import (
 	"errors"
+	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,4 +74,56 @@ func TestGfSpConfig_StringKeepsEmptySecretsEmpty(t *testing.T) {
 	result := cfg.String()
 
 	assert.NotContains(t, result, redactedValue)
+}
+
+// secretFieldPattern matches config field names that hold credentials.
+var secretFieldPattern = regexp.MustCompile(`(?i)(privatekey|passwd|password|secret|token|credential)`)
+
+// TestGfSpConfig_StringRedactsEverySecretField walks the configuration, fills every
+// field whose name says it holds a credential with a sentinel and asserts none of
+// them survives rendering. It fails when a new secret field is added to the config
+// without teaching String() about it.
+func TestGfSpConfig_StringRedactsEverySecretField(t *testing.T) {
+	const sentinel = "sentinel-secret-value"
+
+	cfg := &GfSpConfig{}
+	filled := fillSecretFields(t, reflect.ValueOf(cfg).Elem(), "", sentinel)
+	assert.NotEmpty(t, filled, "the walk must find the known secret fields")
+	assert.Contains(t, filled, "SpAccount.OperatorPrivateKey")
+	assert.Contains(t, filled, "SpDB.Passwd")
+
+	result := cfg.String()
+
+	assert.NotContains(t, result, sentinel, "a secret field is rendered: %v", filled)
+}
+
+// fillSecretFields sets every settable string field with a secret looking name to
+// value and returns the paths it filled.
+func fillSecretFields(t *testing.T, v reflect.Value, prefix, value string) []string {
+	t.Helper()
+	var filled []string
+	if v.Kind() != reflect.Struct {
+		return filled
+	}
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Type().Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		path := field.Name
+		if prefix != "" {
+			path = prefix + "." + field.Name
+		}
+		fieldValue := v.Field(i)
+		switch fieldValue.Kind() {
+		case reflect.Struct:
+			filled = append(filled, fillSecretFields(t, fieldValue, path, value)...)
+		case reflect.String:
+			if secretFieldPattern.MatchString(field.Name) {
+				fieldValue.SetString(value)
+				filled = append(filled, path)
+			}
+		}
+	}
+	return filled
 }
