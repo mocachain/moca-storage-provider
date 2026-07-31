@@ -35,6 +35,9 @@ var (
 	ErrKeyFormat         = gfsperrors.Register(module.DownloadModularName, http.StatusBadRequest, 30007, "invalid key format")
 	ErrAccountFrozen     = gfsperrors.Register(module.DownloadModularName, http.StatusNotAcceptable, 30008, "stream account has been frozen")
 	ErrDownloadStatus    = gfsperrors.Register(module.DownloadModularName, http.StatusBadRequest, 30009, "object cannot be downloaded")
+	// ErrPaymentStatusUnknown is returned when the stream account status cannot be
+	// established, which is not the same as the account being active.
+	ErrPaymentStatusUnknown = gfsperrors.Register(module.DownloadModularName, http.StatusServiceUnavailable, 30010, "stream account status is unavailable")
 )
 
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
@@ -78,15 +81,20 @@ func (d *DownloadModular) PreDownloadObject(ctx context.Context, downloadObjectT
 	}
 
 	bucketName := downloadObjectTask.GetBucketInfo().GetBucketName()
-	// if stream account has been frozen, it is not allowed to download
+	// if stream account has been frozen, it is not allowed to download. A status that
+	// cannot be established is not the same as an active one, so the read is refused
+	// rather than allowed while the lookup is failing.
 	streamRecord, checkErr := d.baseApp.GfSpClient().GetPaymentByBucketName(ctx, bucketName, true)
-	if checkErr == nil {
-		if streamRecord.Status != payment_types.STREAM_ACCOUNT_STATUS_ACTIVE {
-			return ErrAccountFrozen
-		}
-	} else {
-		// the meta service happen error will not be return
-		log.CtxDebugw(ctx, "failed to get stream record info", "error", checkErr)
+	if checkErr != nil {
+		log.CtxErrorw(ctx, "failed to get stream record info", "bucket_name", bucketName, "error", checkErr)
+		return ErrPaymentStatusUnknown
+	}
+	if streamRecord == nil {
+		log.CtxErrorw(ctx, "no stream record for the bucket", "bucket_name", bucketName)
+		return ErrPaymentStatusUnknown
+	}
+	if streamRecord.Status != payment_types.STREAM_ACCOUNT_STATUS_ACTIVE {
+		return ErrAccountFrozen
 	}
 
 	readRecord := &spdb.ReadRecord{

@@ -484,3 +484,78 @@ func TestQueryTasks(t *testing.T) {
 	d := setup(t)
 	d.QueryTasks(context.TODO(), "")
 }
+
+// TestPreDownloadObject_PaymentLookupFailureIsNotFailOpen covers the frozen-account
+// check when the payment status cannot be established. A metadata error there used to
+// be swallowed, which let a frozen account keep downloading for as long as the lookup
+// kept failing.
+func TestPreDownloadObject_PaymentLookupFailureIsNotFailOpen(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(mockGRPCAPI)
+	mockGRPCAPI.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockGRPCAPI.EXPECT().GetPaymentByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, fmt.Errorf("metadata unavailable"))
+	allowEverythingAfterTheFrozenCheck(ctrl, d)
+
+	err := d.PreDownloadObject(context.TODO(), newFrozenCheckTask())
+	assert.NotNil(t, err, "an unknown payment status must not be treated as active")
+}
+
+// TestPreDownloadObject_MissingStreamRecordIsNotFailOpen covers the same check when the
+// lookup succeeds but returns no record: the status is just as unknown, and reading it
+// off a nil record would panic.
+func TestPreDownloadObject_MissingStreamRecordIsNotFailOpen(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(mockGRPCAPI)
+	mockGRPCAPI.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockGRPCAPI.EXPECT().GetPaymentByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil)
+	allowEverythingAfterTheFrozenCheck(ctrl, d)
+
+	err := d.PreDownloadObject(context.TODO(), newFrozenCheckTask())
+	assert.NotNil(t, err, "a missing stream record must not be treated as active")
+}
+
+// TestPreDownloadObject_FrozenAccountIsRefused pins the case the check exists for.
+func TestPreDownloadObject_FrozenAccountIsRefused(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(mockGRPCAPI)
+	mockGRPCAPI.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockGRPCAPI.EXPECT().GetPaymentByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&payment_types.StreamRecord{Status: payment_types.STREAM_ACCOUNT_STATUS_FROZEN}, nil)
+	allowEverythingAfterTheFrozenCheck(ctrl, d)
+
+	err := d.PreDownloadObject(context.TODO(), newFrozenCheckTask())
+	assert.Equal(t, ErrAccountFrozen, err)
+}
+
+// allowEverythingAfterTheFrozenCheck makes every step after the frozen-account check
+// succeed, so that a test reaching the end of PreDownloadObject gets a nil error and
+// the assertion is about the frozen check alone.
+func allowEverythingAfterTheFrozenCheck(ctrl *gomock.Controller, d *DownloadModular) {
+	mockSPDB := spdb.NewMockSPDB(ctrl)
+	d.baseApp.SetGfSpDB(mockSPDB)
+	mockSPDB.EXPECT().GetBucketTraffic(gomock.Any(), gomock.Any()).Return(&spdb.BucketTraffic{}, nil).AnyTimes()
+	mockSPDB.EXPECT().CheckQuotaAndAddReadRecord(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+}
+
+func newFrozenCheckTask() *gfsptask.GfSpDownloadObjectTask {
+	return &gfsptask.GfSpDownloadObjectTask{
+		Task:          &gfsptask.GfSpTask{UserAddress: "123"},
+		BucketInfo:    &storagetypes.BucketInfo{Id: sdkmath.NewUint(100), BucketName: "mock_bucket"},
+		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(100), ObjectStatus: storagetypes.OBJECT_STATUS_SEALED},
+		StorageParams: &storagetypes.Params{},
+	}
+}
