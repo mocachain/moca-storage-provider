@@ -321,6 +321,28 @@ func TestDefaultGfSpPProfOption(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestDefaultGfSpPProfOptionRejectsRoutableAddress(t *testing.T) {
+	for _, address := range []string{"0.0.0.0:24368", ":24368", "10.0.0.5:24368", "[::]:24368"} {
+		g := setup(t)
+		cfg := &gfspconfig.GfSpConfig{
+			Monitor: gfspconfig.MonitorConfig{PProfHTTPAddress: address},
+		}
+		err := DefaultGfSpPProfOption(g, cfg)
+		assert.ErrorContains(t, err, "not a loopback address", "address %s must be rejected", address)
+	}
+}
+
+func TestDefaultGfSpPProfOptionAcceptsLoopbackAddress(t *testing.T) {
+	for _, address := range []string{"", "localhost:24368", "Localhost:24368", "127.0.0.1:24368", "[::1]:24368"} {
+		g := setup(t)
+		cfg := &gfspconfig.GfSpConfig{
+			Monitor: gfspconfig.MonitorConfig{PProfHTTPAddress: address},
+		}
+		err := DefaultGfSpPProfOption(g, cfg)
+		assert.NoError(t, err, "address %s must be accepted", address)
+	}
+}
+
 func TestNewGfSpBaseAppFailure1(t *testing.T) {
 	t.Log("Failure case description: missing gRPC TLS configuration")
 	cfg := &gfspconfig.GfSpConfig{Customize: nil}

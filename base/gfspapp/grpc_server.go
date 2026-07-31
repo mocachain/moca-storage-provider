@@ -16,6 +16,8 @@ import (
 const (
 	// MaxServerCallMsgSize defines the max message size for grpc server
 	MaxServerCallMsgSize = 3 * 1024 * 1024 * 1024
+	// reflectionServiceName defines the grpc server reflection service name
+	reflectionServiceName = "grpc.reflection.v1.ServerReflection"
 )
 
 func DefaultGrpcServerOptions() []grpc.ServerOption {
@@ -25,7 +27,7 @@ func DefaultGrpcServerOptions() []grpc.ServerOption {
 	return options
 }
 
-func (g *GfSpBaseApp) newRPCServer(transportCredentials credentials.TransportCredentials, options ...grpc.ServerOption) {
+func (g *GfSpBaseApp) newRPCServer(transportCredentials credentials.TransportCredentials, enableReflection bool, options ...grpc.ServerOption) {
 	options = append(options, grpc.Creds(transportCredentials))
 	options = append(options, DefaultGrpcServerOptions()...)
 	if g.EnableMetrics() {
@@ -42,7 +44,12 @@ func (g *GfSpBaseApp) newRPCServer(transportCredentials credentials.TransportCre
 	gfspserver.RegisterGfSpSignServiceServer(g.server, g)
 	gfspserver.RegisterGfSpUploadServiceServer(g.server, g)
 	gfspserver.RegisterGfSpQueryTaskServiceServer(g.server, g)
-	reflection.Register(g.server)
+	// reflection exposes the full service schema to every caller that reaches
+	// the port, so it stays off unless an operator explicitly enables it.
+	if enableReflection {
+		log.Warnw("grpc server reflection is enabled", "address", g.grpcAddress)
+		reflection.Register(g.server)
+	}
 }
 
 func (g *GfSpBaseApp) StartRPCServer(ctx context.Context) error {
