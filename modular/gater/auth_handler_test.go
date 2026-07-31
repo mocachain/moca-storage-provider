@@ -1257,3 +1257,73 @@ func TestDeleteUserPublicKeyV2HandlerAllowsLowercaseSameAccountRequest(t *testin
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
+
+func TestDeleteUserPublicKeyV2HandlerRejectsAnOversizedBody(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	accountKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	accountAddress := crypto.PubkeyToAddress(accountKey.PublicKey).Hex()
+
+	oversized := strings.Repeat("a", MaxAuthKeyListBodySize+1)
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(oversized))
+	req.Header.Set(GnfdUserAddressHeader, accountAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code,
+		"an authenticated caller must not be able to make the gateway buffer an arbitrary body")
+}
+
+func TestDeleteUserPublicKeyV2HandlerAcceptsABodyAtTheLimit(t *testing.T) {
+	keys := strings.Split(strings.Repeat(SamplePublicKey+",", 4), ",")
+	keys = keys[:len(keys)-1]
+	body := strings.Join(keys, ",")
+	assert.LessOrEqual(t, len(body), MaxAuthKeyListBodySize)
+
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), gomock.Any(), SampleDAppDomain, keys).
+		Return(true, nil).Times(1)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	accountKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	accountAddress := crypto.PubkeyToAddress(accountKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(body))
+	req.Header.Set(GnfdUserAddressHeader, accountAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}

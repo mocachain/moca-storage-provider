@@ -61,6 +61,9 @@ var (
 	// 3. Contains "\": May indicate an attempt at illegal path or file operations, especially in Windows systems.
 	// 4. Fails SQL Injection Test (util.IsSQLInjection): Object name contains patterns that might be used for SQL injection, like ';select', 'xxx;insert', etc., or SQL comment patterns.
 	ErrInvalidObjectName = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50044, "invalid object name")
+	// ErrRequestBodyTooLarge is returned when a request body exceeds the size the
+	// handler is willing to buffer.
+	ErrRequestBodyTooLarge = gfsperrors.Register(module.GateModularName, http.StatusRequestEntityTooLarge, 50045, "request body is too large")
 )
 
 func ErrEncodeResponseWithDetail(detail string) *gfsperrors.GfSpError {
