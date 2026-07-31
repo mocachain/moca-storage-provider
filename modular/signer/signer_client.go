@@ -362,7 +362,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
 
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.privateKeys[SignSeal], chainId, client.gasInfo[Seal].GasLimit, nonce)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.privateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, nonce)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -3096,7 +3096,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.privateKeys[SignSeal], chainId, client.gasInfo[Seal].GasLimit, nonce)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.privateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, nonce)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
