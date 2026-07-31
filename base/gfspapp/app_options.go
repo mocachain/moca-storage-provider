@@ -627,7 +627,7 @@ func checkPProfLoopbackAddress(address string) error {
 	if err != nil {
 		return fmt.Errorf("invalid pprof address %q: %w", address, err)
 	}
-	if host == "localhost" {
+	if strings.EqualFold(host, "localhost") {
 		return nil
 	}
 	ip := net.ParseIP(host)

@@ -333,7 +333,7 @@ func TestDefaultGfSpPProfOptionRejectsRoutableAddress(t *testing.T) {
 }
 
 func TestDefaultGfSpPProfOptionAcceptsLoopbackAddress(t *testing.T) {
-	for _, address := range []string{"", "localhost:24368", "127.0.0.1:24368", "[::1]:24368"} {
+	for _, address := range []string{"", "localhost:24368", "Localhost:24368", "127.0.0.1:24368", "[::1]:24368"} {
 		g := setup(t)
 		cfg := &gfspconfig.GfSpConfig{
 			Monitor: gfspconfig.MonitorConfig{PProfHTTPAddress: address},
