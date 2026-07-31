@@ -2,6 +2,7 @@ package sqldb
 
 import (
 	"bytes"
+	"os"
 	"sync"
 	"testing"
 
@@ -33,11 +34,23 @@ func (c *logCapture) String() string {
 	return c.buf.String()
 }
 
+// stderrWriter restores the default log destination after a test.
+type stderrWriter struct{}
+
+func (stderrWriter) Write(p []byte) (int, error) { return os.Stderr.Write(p) }
+
+func (stderrWriter) Sync() error { return nil }
+
+func (stderrWriter) Stop() error { return nil }
+
 func TestGetUpdatedConsumedQuotaV2_DoesNotLogQuotaStateAtInfo(t *testing.T) {
 	capture := &logCapture{}
 	log.SetWriter(capture)
 	log.SetLevel(log.InfoLevel)
-	defer log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() {
+		log.SetLevel(log.DebugLevel)
+		log.SetWriter(stderrWriter{})
+	})
 
 	_, _, _, _, _, err := getUpdatedConsumedQuotaV2(10, 100, 0, 0, 1000, 100, 0)
 	require.NoError(t, err)
