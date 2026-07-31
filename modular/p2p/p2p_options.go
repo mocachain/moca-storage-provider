@@ -1,12 +1,11 @@
 package p2p
 
 import (
-	"os"
-
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/modular/p2p/p2pnode"
+	"github.com/mocachain/moca-storage-provider/util"
 )
 
 const (
@@ -33,9 +32,11 @@ func DefaultP2POptions(p2p *P2PModular, cfg *gfspconfig.GfSpConfig) error {
 	}
 	p2p.replicateApprovalQueue = cfg.Customize.NewStrategyTQueueFunc(
 		p2p.Name()+"-ask-replicate-piece", cfg.Parallel.AskReplicateApprovalParallelPerNode)
-	if val, ok := os.LookupEnv(P2PPrivateKey); ok {
-		cfg.P2P.P2PPrivateKey = val
+	privateKey, err := util.SecretFromEnv(P2PPrivateKey, cfg.P2P.P2PPrivateKey)
+	if err != nil {
+		return err
 	}
+	cfg.P2P.P2PPrivateKey = privateKey
 	if cfg.P2P.P2PAddress == "" {
 		cfg.P2P.P2PAddress = DefaultP2PProtocolAddress
 	}

@@ -35,3 +35,10 @@
     "P2P_PRIVATE_KEY":"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     }
 ```
+
+A key that is present in the secret takes precedence over the same key in
+`config.toml`, and the storage provider logs which source it used at startup —
+the value itself is never logged. A key that is present but empty is rejected and
+the process fails to start, so a mis-rendered secret cannot silently blank a
+signing key or make the p2p node generate a throwaway identity. Either leave the
+variable out entirely or give it a real value.
