@@ -3,7 +3,6 @@ package manager
 import (
 	"container/list"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -220,7 +219,7 @@ func (plan *BucketMigrateExecutePlan) sendCompleteMigrateBucketTx(migrateExecute
 			return err
 		}
 		vgfID = migrateGVGUnit.DestGVG.GetFamilyId()
-		log.Infow("get bls aggregate signature", "bucket_id", bucket.BucketInfo.Id, "migrateGVGUnit", migrateGVGUnit, "aggBlsSig", hex.EncodeToString(aggBlsSig))
+		log.Infow("get bls aggregate signature", "bucket_id", bucket.BucketInfo.Id, "migrateGVGUnit", migrateGVGUnit)
 		gvgMappings = append(gvgMappings, &storagetypes.GVGMapping{
 			SrcGlobalVirtualGroupId: migrateGVGUnit.SrcGVG.GetId(),
 			DstGlobalVirtualGroupId: migrateGVGUnit.DestGVGID, SecondarySpBlsSignature: aggBlsSig,
@@ -378,8 +377,7 @@ func (plan *BucketMigrateExecutePlan) getBlsAggregateSigForBucketMigration(ctx c
 		msg := signDoc.GetBlsSignHash()
 		err = verifySecondarySpBlsSignature(spInfo.BlsKey, sig, msg[:], spInfo.Id)
 		if err != nil {
-			log.Errorw("failed to verify secondary sp bls signature", "error", err, "sp_id", spInfo.Id, "bls_pubkey",
-				hex.EncodeToString(spInfo.BlsKey), "bls_sig", hex.EncodeToString(sig))
+			log.Errorw("failed to verify secondary sp bls signature", "error", err, "sp_id", spInfo.Id)
 			return nil, err
 		}
 		secondarySigs = append(secondarySigs, sig)
