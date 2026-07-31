@@ -170,6 +170,8 @@ AppID = ''
 Server = []
 # optional
 GRPCAddress = ''
+# optional, registers the grpc server reflection service, disabled by default
+EnableGRPCReflection = false
 
 [GRPCTLS]
 # required
@@ -450,7 +452,8 @@ DisablePProf = false
 DisableProbe = false
 # required
 MetricsHTTPAddress = ''
-# required
+# required, must be a loopback address such as 'localhost:24368'; the SP refuses
+# to start when pprof is bound to a routable interface, set DisablePProf instead
 PProfHTTPAddress = ''
 # required
 ProbeHTTPAddress = ''
