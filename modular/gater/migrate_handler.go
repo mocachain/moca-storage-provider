@@ -327,7 +327,9 @@ func (g *GateModular) checkSwapOutApproval(ctx context.Context, swapOut *virtual
 		log.CtxErrorw(ctx, "swap out successor is another sp", "successor_sp_id", swapOut.GetSuccessorSpId(), "sp_id", spID)
 		return ErrNoPermission
 	}
-	srcSP, err := g.spCachePool.QuerySPByAddress(swapOut.GetStorageProvider())
+	// query the chain directly instead of the sp cache pool, the decision depends on
+	// the sp status and the cache pool serves entries up to 30 minutes old
+	srcSP, err := g.baseApp.Consensus().QuerySP(ctx, swapOut.GetStorageProvider())
 	if err != nil {
 		return ErrConsensusWithDetail("failed to query the swap out sp, sp: " +
 			swapOut.GetStorageProvider() + ", error: " + err.Error())
