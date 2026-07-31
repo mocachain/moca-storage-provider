@@ -383,7 +383,7 @@ func (plan *BucketMigrateExecutePlan) getBlsAggregateSigForBucketMigration(ctx c
 			return nil, err
 		}
 		secondarySigs = append(secondarySigs, sig)
-		log.Infow("get secondary sp migration bucket approval", "sp_info", spInfo, "sig", hex.EncodeToString(sig))
+		log.Infow("get secondary sp migration bucket approval", "sp_info", spInfo)
 	}
 	aggBlsSig, err := util.BlsAggregate(secondarySigs)
 	if err != nil {
