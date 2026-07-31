@@ -35,3 +35,5 @@
     "P2P_PRIVATE_KEY":"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     }
 ```
+
+`BUCKET_URL` only applies when `PieceStore.Store.BucketURL` is left empty in `config.toml`. Setting both to different values fails the startup instead of silently redirecting piece storage.
