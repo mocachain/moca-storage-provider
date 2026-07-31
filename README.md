@@ -170,6 +170,8 @@ AppID = ''
 Server = []
 # optional
 GRPCAddress = ''
+# optional, registers the grpc server reflection service, disabled by default
+EnableGRPCReflection = false
 
 [GRPCTLS]
 # required
