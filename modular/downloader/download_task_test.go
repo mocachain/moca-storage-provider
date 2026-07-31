@@ -13,6 +13,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
+	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	payment_types "github.com/mocachain/moca/v2/x/payment/types"
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
@@ -483,4 +484,77 @@ func TestPostChallengePiece(t *testing.T) {
 func TestQueryTasks(t *testing.T) {
 	d := setup(t)
 	d.QueryTasks(context.TODO(), "")
+}
+
+// TestPreDownloadPiece_DBErrorDoesNotBypassQuota covers the quota accounting write
+// failing for a reason other than "quota exhausted". Letting the request through in
+// that case serves the piece without charging for it, so a database that is down or
+// rejecting writes turns into unmetered reads.
+func TestPreDownloadPiece_DBErrorDoesNotBypassQuota(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(mockGRPCAPI)
+	mockGRPCAPI.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	mockSPDB := spdb.NewMockSPDB(ctrl)
+	d.baseApp.SetGfSpDB(mockSPDB)
+	mockSPDB.EXPECT().GetBucketTraffic(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockSPDB.EXPECT().InitBucketTraffic(gomock.Any(), gomock.Any()).Return(nil)
+	mockSPDB.EXPECT().CheckQuotaAndAddReadRecord(gomock.Any(), gomock.Any()).
+		Return(fmt.Errorf("dial tcp 127.0.0.1:3306: connect: connection refused"))
+
+	mockConsensusAPI := consensus.NewMockConsensus(ctrl)
+	d.baseApp.SetConsensus(mockConsensusAPI)
+	mockConsensusAPI.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtualgrouptypes.GlobalVirtualGroupFamily{}, nil)
+	mockConsensusAPI.EXPECT().QuerySPByID(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{}, nil)
+	mockConsensusAPI.EXPECT().QuerySPFreeQuota(gomock.Any(), gomock.Any()).Return(uint64(100), nil)
+
+	task := &gfsptask.GfSpDownloadPieceTask{
+		Task:          &gfsptask.GfSpTask{UserAddress: "123"},
+		BucketInfo:    &storagetypes.BucketInfo{Id: sdkmath.NewUint(100), BucketName: "mock_bucket"},
+		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(100), ObjectStatus: storagetypes.OBJECT_STATUS_SEALED},
+		StorageParams: &storagetypes.Params{},
+		EnableCheck:   true,
+	}
+
+	err := d.PreDownloadPiece(context.TODO(), task)
+	assert.NotNil(t, err, "a failed quota accounting write must refuse the read, not serve it unmetered")
+}
+
+// TestPreDownloadPiece_ExhaustedQuotaKeepsItsOwnError makes sure the change above did
+// not flatten the quota-exhausted case into a generic database error.
+func TestPreDownloadPiece_ExhaustedQuotaKeepsItsOwnError(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(mockGRPCAPI)
+	mockGRPCAPI.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	mockSPDB := spdb.NewMockSPDB(ctrl)
+	d.baseApp.SetGfSpDB(mockSPDB)
+	mockSPDB.EXPECT().GetBucketTraffic(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockSPDB.EXPECT().InitBucketTraffic(gomock.Any(), gomock.Any()).Return(nil)
+	mockSPDB.EXPECT().CheckQuotaAndAddReadRecord(gomock.Any(), gomock.Any()).Return(sqldb.ErrCheckQuotaEnough)
+
+	mockConsensusAPI := consensus.NewMockConsensus(ctrl)
+	d.baseApp.SetConsensus(mockConsensusAPI)
+	mockConsensusAPI.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtualgrouptypes.GlobalVirtualGroupFamily{}, nil)
+	mockConsensusAPI.EXPECT().QuerySPByID(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{}, nil)
+	mockConsensusAPI.EXPECT().QuerySPFreeQuota(gomock.Any(), gomock.Any()).Return(uint64(100), nil)
+
+	task := &gfsptask.GfSpDownloadPieceTask{
+		Task:          &gfsptask.GfSpTask{UserAddress: "123"},
+		BucketInfo:    &storagetypes.BucketInfo{Id: sdkmath.NewUint(100), BucketName: "mock_bucket"},
+		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(100), ObjectStatus: storagetypes.OBJECT_STATUS_SEALED},
+		StorageParams: &storagetypes.Params{},
+		EnableCheck:   true,
+	}
+
+	err := d.PreDownloadPiece(context.TODO(), task)
+	assert.Equal(t, ErrExceedBucketQuota, err)
 }

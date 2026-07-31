@@ -353,7 +353,9 @@ func (d *DownloadModular) PreDownloadPiece(ctx context.Context, downloadPieceTas
 			if errors.Is(dbErr, sqldb.ErrCheckQuotaEnough) {
 				return ErrExceedBucketQuota
 			}
-			// ignore the access db error, it is the system's inner error, will be let the request go.
+			// the read record is what charges the quota, so a write that did not
+			// happen must refuse the read rather than serve it unmetered
+			return ErrGfSpDBWithDetail("failed to check bucket quota, error: " + dbErr.Error())
 		}
 		metrics.PerfGetObjectTimeHistogram.WithLabelValues("get_object_check_quota_time").Observe(time.Since(checkQuotaTime).Seconds())
 
