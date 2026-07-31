@@ -35,34 +35,37 @@ type Customize struct {
 
 // GfSpConfig defines the GfSp configuration.
 type GfSpConfig struct {
-	Env            string   `comment:"optional"`
-	AppID          string   `comment:"optional"`
-	Server         []string `comment:"optional"`
-	GRPCAddress    string   `comment:"optional"`
-	GRPCTLS        GRPCTLSConfig
-	SignerAuth     SignerAuthConfig
-	Customize      *Customize `comment:"optional"`
-	SpDB           storeconfig.SQLDBConfig
-	BsDB           storeconfig.SQLDBConfig
-	PieceStore     storage.PieceStoreConfig
-	Chain          ChainConfig
-	SpAccount      SpAccountConfig
-	Endpoint       EndpointConfig
-	Approval       ApprovalConfig
-	Bucket         BucketConfig
-	Gateway        GatewayConfig
-	Executor       ExecutorConfig
-	P2P            P2PConfig
-	Parallel       ParallelConfig
-	Task           TaskConfig
-	Monitor        MonitorConfig
-	Rcmgr          RcmgrConfig `comment:"optional"`
-	Log            LogConfig
-	BlockSyncer    BlockSyncerConfig
-	APIRateLimiter mwhttp.RateLimiterConfig
-	Manager        ManagerConfig
-	GC             GCConfig
-	Quota          QuotaConfig
+	Env         string   `comment:"optional"`
+	AppID       string   `comment:"optional"`
+	Server      []string `comment:"optional"`
+	GRPCAddress string   `comment:"optional"`
+	// EnableGRPCReflection registers the grpc server reflection service, it exposes
+	// the full service schema to every caller that can reach the port.
+	EnableGRPCReflection bool `comment:"optional"`
+	GRPCTLS              GRPCTLSConfig
+	SignerAuth           SignerAuthConfig
+	Customize            *Customize `comment:"optional"`
+	SpDB                 storeconfig.SQLDBConfig
+	BsDB                 storeconfig.SQLDBConfig
+	PieceStore           storage.PieceStoreConfig
+	Chain                ChainConfig
+	SpAccount            SpAccountConfig
+	Endpoint             EndpointConfig
+	Approval             ApprovalConfig
+	Bucket               BucketConfig
+	Gateway              GatewayConfig
+	Executor             ExecutorConfig
+	P2P                  P2PConfig
+	Parallel             ParallelConfig
+	Task                 TaskConfig
+	Monitor              MonitorConfig
+	Rcmgr                RcmgrConfig `comment:"optional"`
+	Log                  LogConfig
+	BlockSyncer          BlockSyncerConfig
+	APIRateLimiter       mwhttp.RateLimiterConfig
+	Manager              ManagerConfig
+	GC                   GCConfig
+	Quota                QuotaConfig
 }
 
 // GRPCTLSConfig defines the mutual TLS files used by internal gRPC clients and servers.
@@ -88,16 +91,41 @@ func (cfg *GfSpConfig) Apply(opts ...Option) error {
 	return nil
 }
 
-// String returns the detail GfSp configuration.
+// redactedValue replaces secret values when rendering the configuration.
+const redactedValue = "[REDACTED]"
+
+// String returns the detail GfSp configuration, every secret value is redacted
+// because the rendered configuration is written to the log on startup.
 func (cfg *GfSpConfig) String() string {
-	customize := cfg.Customize
-	cfg.Customize = nil
-	bz, err := toml.Marshal(cfg)
+	redacted := *cfg
+	redacted.Customize = nil
+	redacted.SpAccount = redactSpAccount(cfg.SpAccount)
+	redacted.P2P.P2PPrivateKey = redactSecret(cfg.P2P.P2PPrivateKey)
+	redacted.SpDB.Passwd = redactSecret(cfg.SpDB.Passwd)
+	redacted.BsDB.Passwd = redactSecret(cfg.BsDB.Passwd)
+	bz, err := toml.Marshal(&redacted)
 	if err != nil {
 		return ""
 	}
-	cfg.Customize = customize
 	return string(bz)
+}
+
+func redactSpAccount(account SpAccountConfig) SpAccountConfig {
+	account.OperatorPrivateKey = redactSecret(account.OperatorPrivateKey)
+	account.FundingPrivateKey = redactSecret(account.FundingPrivateKey)
+	account.SealPrivateKey = redactSecret(account.SealPrivateKey)
+	account.ApprovalPrivateKey = redactSecret(account.ApprovalPrivateKey)
+	account.GcPrivateKey = redactSecret(account.GcPrivateKey)
+	account.BlsPrivateKey = redactSecret(account.BlsPrivateKey)
+	return account
+}
+
+// redactSecret hides a configured secret and keeps an unset one visibly unset.
+func redactSecret(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return redactedValue
 }
 
 type ChainConfig struct {

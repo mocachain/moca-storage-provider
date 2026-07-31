@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"math/big"
 	"net/http"
@@ -9,11 +10,19 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/require"
 )
 
-const testPrivateKey = "0000000000000000000000000000000000000000000000000000000000000001"
+const testPrivateKeyHex = "0000000000000000000000000000000000000000000000000000000000000001"
+
+func testPrivateKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	privateKey, err := crypto.HexToECDSA(testPrivateKeyHex)
+	require.NoError(t, err)
+	return privateKey
+}
 
 func TestCreateTxOpts_UsesConfiguredChainID(t *testing.T) {
 	server := newGasPriceServer(t, "0x2a", false)
@@ -22,7 +31,7 @@ func TestCreateTxOpts_UsesConfiguredChainID(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	chainID := big.NewInt(5151)
-	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey, chainID, 700_000, 9)
+	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), chainID, 700_000, 9)
 	require.NoError(t, err)
 	require.Equal(t, uint64(700_000), txOpts.GasLimit)
 	require.Equal(t, big.NewInt(42), txOpts.GasPrice)
@@ -39,7 +48,7 @@ func TestCreateTxOpts_ReturnsGasPriceError(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
-	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey, big.NewInt(5151), 700_000, 9)
+	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), big.NewInt(5151), 700_000, 9)
 	require.Error(t, err)
 	require.Nil(t, txOpts)
 }
