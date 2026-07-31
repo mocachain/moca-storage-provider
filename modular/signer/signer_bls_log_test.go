@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"os"
 	"sync"
 	"testing"
 
@@ -37,6 +38,15 @@ func (c *logCapture) String() string {
 	return c.buf.String()
 }
 
+// stderrWriter restores the default log destination after a test.
+type stderrWriter struct{}
+
+func (stderrWriter) Write(p []byte) (int, error) { return os.Stderr.Write(p) }
+
+func (stderrWriter) Sync() error { return nil }
+
+func (stderrWriter) Stop() error { return nil }
+
 func TestSignSecondarySealBls_DoesNotLogKeyOrSignature(t *testing.T) {
 	// test-only bls private key material, 32 bytes
 	blsKm, err := keys.NewBlsPrivateKeyManager("2f3a1b6c9d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f8091a2b3c4d5e6f7")
@@ -45,6 +55,7 @@ func TestSignSecondarySealBls_DoesNotLogKeyOrSignature(t *testing.T) {
 	capture := &logCapture{}
 	log.SetWriter(capture)
 	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() { log.SetWriter(stderrWriter{}) })
 
 	signer := &SignModular{
 		baseApp: &gfspapp.GfSpBaseApp{},
