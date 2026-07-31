@@ -78,6 +78,31 @@ func verifiedClientContext(t *testing.T, uri string) context.Context {
 	return peer.NewContext(context.Background(), &peer.Peer{AuthInfo: tlsInfo})
 }
 
+func TestGfSpBaseApp_ReflectionDisabledByDefault(t *testing.T) {
+	g := &GfSpBaseApp{}
+	g.newRPCServer(insecure.NewCredentials(), false)
+
+	services := g.server.GetServiceInfo()
+	_, registered := services[reflectionServiceName]
+	assert.False(t, registered, "grpc reflection must not be registered unless explicitly enabled")
+	// the gate must only cover reflection, the sp services stay registered
+	assert.Contains(t, services, signServiceName)
+}
+
+func TestGfSpBaseApp_ReflectionEnabledByConfig(t *testing.T) {
+	g := &GfSpBaseApp{}
+	g.newRPCServer(insecure.NewCredentials(), true)
+
+	services := g.server.GetServiceInfo()
+	_, registered := services[reflectionServiceName]
+	assert.True(t, registered)
+	assert.Contains(t, services, signServiceName)
+}
+
+// signServiceName is one of the sp services, used to assert the reflection gate
+// does not skip the service registration.
+const signServiceName = "base.types.gfspserver.GfSpSignService"
+
 func TestGfSpBaseApp_StartRPCServerSuccess(t *testing.T) {
 	g := &GfSpBaseApp{grpcAddress: "localhost:0"}
 	g.server = grpc.NewServer()
