@@ -42,3 +42,5 @@ the value itself is never logged. A key that is present but empty is rejected an
 the process fails to start, so a mis-rendered secret cannot silently blank a
 signing key or make the p2p node generate a throwaway identity. Either leave the
 variable out entirely or give it a real value.
+
+`BUCKET_URL` only applies when `PieceStore.Store.BucketURL` is left empty in `config.toml`. Setting both to different values fails the startup instead of silently redirecting piece storage.

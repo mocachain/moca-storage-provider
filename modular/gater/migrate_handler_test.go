@@ -24,6 +24,7 @@ import (
 	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 func mockNotifyMigrateSwapOutHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
@@ -596,6 +597,7 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().SignSecondarySPMigrationBucket(gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSecondaryBlsMigrationChain(t, g, clientMock, permissiontypes.EFFECT_ALLOW)
 				return g
 			},
 			request: func() *http.Request {
@@ -610,6 +612,77 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 			wantedResult: "failed to sign secondary sp migration bucket",
 		},
 		{
+			name: "refuse to sign when the bucket is not migrating to the declared dest sp",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				setupSecondaryBlsMigrationChain(t, g, clientMock, permissiontypes.EFFECT_DENY)
+				return g
+			},
+			request:      newSecondaryBlsMigrationRequest,
+			wantedResult: "no permission",
+		},
+		{
+			name: "refuse to sign when this sp is not a secondary sp of the dst gvg",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				g.baseApp.SetChainID(mockChainID)
+				consensusMock := consensus.NewMockConsensus(ctrl)
+				consensusMock.EXPECT().QuerySP(gomock.Any(), gomock.Any()).
+					Return(&sptypes.StorageProvider{Id: mockSecondarySPID}, nil).AnyTimes()
+				consensusMock.EXPECT().QueryGlobalVirtualGroup(gomock.Any(), uint32(3)).
+					Return(&virtual_types.GlobalVirtualGroup{Id: 3, PrimarySpId: mockSelfSPID, SecondarySpIds: []uint32{42}}, nil).Times(1)
+				g.baseApp.SetConsensus(consensusMock)
+				g.spCachePool = NewSPCachePool(consensusMock)
+				return g
+			},
+			request:      newSecondaryBlsMigrationRequest,
+			wantedResult: "no permission",
+		},
+		{
+			name: "refuse to sign a sign doc without a bucket id",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				g.baseApp.SetChainID(mockChainID)
+				return g
+			},
+			request: func() *http.Request {
+				req := newSecondaryBlsMigrationRequest()
+				req.Header.Set(GnfdSecondarySPMigrationBucketMsgHeader, mockSignDocWithoutBucketIDHeader)
+				return req
+			},
+			wantedResult: "gnfd msg validate error",
+		},
+		{
+			name: "refuse to sign a sign doc of another chain",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				g.baseApp.SetChainID("another-chain")
+				return g
+			},
+			request:      newSecondaryBlsMigrationRequest,
+			wantedResult: "gnfd msg validate error",
+		},
+		{
 			name: "success",
 			fn: func() *GateModular {
 				g := setup(t)
@@ -619,6 +692,7 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().SignSecondarySPMigrationBucket(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSecondaryBlsMigrationChain(t, g, clientMock, permissiontypes.EFFECT_ALLOW)
 				return g
 			},
 			request: func() *http.Request {
@@ -733,6 +807,7 @@ func TestGateModular_getSwapOutApproval(t *testing.T) {
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().SignSwapOut(gomock.Any(), gomock.Any()).Return(nil, mockErr)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_GRACEFUL_EXITING, mockSwapOutSPID)
 				return g
 			},
 			request: func() *http.Request {
@@ -747,6 +822,55 @@ func TestGateModular_getSwapOutApproval(t *testing.T) {
 			wantedResult: "failed to sign swap out",
 		},
 		{
+			name: "refuse to sign when the requesting sp is not exiting",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_IN_SERVICE, mockSwapOutSPID)
+				return g
+			},
+			request:      newSwapOutApprovalRequest,
+			wantedResult: "no permission",
+		},
+		{
+			name: "refuse to sign when the family belongs to another sp",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_GRACEFUL_EXITING, mockSwapOutSPID+1)
+				return g
+			},
+			request:      newSwapOutApprovalRequest,
+			wantedResult: "no permission",
+		},
+		{
+			name: "refuse to sign when this sp is not the successor",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				consensusMock := consensus.NewMockConsensus(ctrl)
+				consensusMock.EXPECT().QuerySP(gomock.Any(), gomock.Any()).
+					Return(&sptypes.StorageProvider{Id: 99}, nil).AnyTimes()
+				g.baseApp.SetConsensus(consensusMock)
+				g.spCachePool = NewSPCachePool(consensusMock)
+				return g
+			},
+			request:      newSwapOutApprovalRequest,
+			wantedResult: "no permission",
+		},
+		{
 			name: "success",
 			fn: func() *GateModular {
 				g := setup(t)
@@ -756,6 +880,7 @@ func TestGateModular_getSwapOutApproval(t *testing.T) {
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().SignSwapOut(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_GRACEFUL_EXITING, mockSwapOutSPID)
 				return g
 			},
 			request: func() *http.Request {
@@ -778,4 +903,67 @@ func TestGateModular_getSwapOutApproval(t *testing.T) {
 			assert.Contains(t, w.Body.String(), tt.wantedResult)
 		})
 	}
+}
+
+const (
+	// values encoded in the request headers used by the approval handler tests
+	mockChainID                             = "1"
+	mockSelfSPID                     uint32 = 1
+	mockSecondarySPID                uint32 = 5
+	mockSwapOutSPID                  uint32 = 7
+	mockSwapOutSPAddress                    = "0x1C7C8A668e23aED291f78fC2f3b1865Acc87b6F6"
+	mockSecondaryBlsSignDocHeader           = "7b22636861696e5f6964223a2231222c226473745f7072696d6172795f73705f6964223a312c227372635f676c6f62616c5f7669727475616c5f67726f75705f6964223a322c226473745f676c6f62616c5f7669727475616c5f67726f75705f6964223a332c226275636b65745f6964223a2231227d"
+	mockSignDocWithoutBucketIDHeader        = "7b22636861696e5f6964223a2231222c226473745f7072696d6172795f73705f6964223a312c227372635f676c6f62616c5f7669727475616c5f67726f75705f6964223a322c226473745f676c6f62616c5f7669727475616c5f67726f75705f6964223a337d"
+	mockSwapOutMsgHeader                    = "7b2273746f726167655f70726f7669646572223a22307831433743384136363865323361454432393166373866433266336231383635416363383762364636222c22676c6f62616c5f7669727475616c5f67726f75705f66616d696c795f6964223a322c22676c6f62616c5f7669727475616c5f67726f75705f696473223a5b5d2c22737563636573736f725f73705f6964223a312c22737563636573736f725f73705f617070726f76616c223a6e756c6c7d"
+)
+
+func newSecondaryBlsMigrationRequest() *http.Request {
+	path := fmt.Sprintf("%s%s%s", scheme, testDomain, SecondarySPMigrationBucketApprovalPath)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+	req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+	req.Header.Set(GnfdSecondarySPMigrationBucketMsgHeader, mockSecondaryBlsSignDocHeader)
+	return req
+}
+
+func newSwapOutApprovalRequest() *http.Request {
+	path := fmt.Sprintf("%s%s%s", scheme, testDomain, SwapOutApprovalPath)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+	req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+	req.Header.Set(GnfdUnsignedApprovalMsgHeader, mockSwapOutMsgHeader)
+	return req
+}
+
+// setupSecondaryBlsMigrationChain wires the chain state the sign doc in
+// mockSecondaryBlsSignDocHeader claims: this SP is a secondary SP of dst gvg 3,
+// which belongs to dst primary SP 1.
+func setupSecondaryBlsMigrationChain(t *testing.T, g *GateModular, clientMock *gfspclient.MockGfSpClientAPI, effect permissiontypes.Effect) {
+	t.Helper()
+	g.baseApp.SetChainID(mockChainID)
+	ctrl := gomock.NewController(t)
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QuerySP(gomock.Any(), gomock.Any()).
+		Return(&sptypes.StorageProvider{Id: mockSecondarySPID}, nil).AnyTimes()
+	consensusMock.EXPECT().QueryGlobalVirtualGroup(gomock.Any(), uint32(3)).
+		Return(&virtual_types.GlobalVirtualGroup{Id: 3, PrimarySpId: mockSelfSPID, SecondarySpIds: []uint32{mockSecondarySPID}}, nil).AnyTimes()
+	g.baseApp.SetConsensus(consensusMock)
+	g.spCachePool = NewSPCachePool(consensusMock)
+	clientMock.EXPECT().VerifyMigrateGVGPermission(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&effect, nil).AnyTimes()
+}
+
+// setupSwapOutChain wires the chain state the swap out in mockSwapOutMsgHeader
+// claims: this SP is successor 1, the requesting SP owns family 2.
+func setupSwapOutChain(t *testing.T, g *GateModular, ctrl *gomock.Controller, srcStatus sptypes.Status, familyPrimarySPID uint32) {
+	t.Helper()
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QuerySP(gomock.Any(), mockSwapOutSPAddress).
+		Return(&sptypes.StorageProvider{Id: mockSwapOutSPID, OperatorAddress: mockSwapOutSPAddress, Status: srcStatus}, nil).AnyTimes()
+	consensusMock.EXPECT().QuerySP(gomock.Any(), gomock.Any()).
+		Return(&sptypes.StorageProvider{Id: mockSelfSPID}, nil).AnyTimes()
+	consensusMock.EXPECT().QueryVirtualGroupFamily(gomock.Any(), uint32(2)).
+		Return(&virtual_types.GlobalVirtualGroupFamily{Id: 2, PrimarySpId: familyPrimarySPID}, nil).AnyTimes()
+	g.baseApp.SetConsensus(consensusMock)
+	g.spCachePool = NewSPCachePool(consensusMock)
 }
