@@ -85,8 +85,7 @@ func (s *SpDBImpl) CheckQuotaAndAddReadRecord(record *corespdb.ReadRecord, quota
 // getUpdatedConsumedQuota compute the updated quota of traffic table by the incoming read cost and the newest record.
 // it returns the updated consumed free quota,consumed charged quota and remained free quota
 func getUpdatedConsumedQuotaV2(recordQuotaCost, freeQuotaRemain, consumeFreeQuota, consumeChargedQuota, chargedQuota, monthlyFreeQuotaRemain, consumeMonthlyFreeQuota uint64) (uint64, uint64, uint64, uint64, uint64, error) {
-	log.Infow("quota info", "freeQuotaRemain", freeQuotaRemain, "consumeFreeQuota", consumeFreeQuota, "consumeChargedQuota", consumeChargedQuota, "chargedQuota", chargedQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain, "consumeMonthlyFreeQuota", consumeMonthlyFreeQuota)
-	defer log.Infow("quota info", "freeQuotaRemain", freeQuotaRemain, "consumeFreeQuota", consumeFreeQuota, "consumeChargedQuota", consumeChargedQuota, "chargedQuota", chargedQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain, "consumeMonthlyFreeQuota", consumeMonthlyFreeQuota)
+	log.Debugw("quota info", "freeQuotaRemain", freeQuotaRemain, "consumeFreeQuota", consumeFreeQuota, "consumeChargedQuota", consumeChargedQuota, "chargedQuota", chargedQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain, "consumeMonthlyFreeQuota", consumeMonthlyFreeQuota)
 	chargedQuotaInt := int64(chargedQuota) - int64(consumeChargedQuota)
 	if chargedQuotaInt >= int64(recordQuotaCost) {
 		consumeChargedQuota += recordQuotaCost
@@ -407,7 +406,7 @@ func (s *SpDBImpl) UpdateExtraQuota(bucketID, extraQuota uint64, yearMonth strin
 			consumedChargeQuota := bucketTraffic.ReadConsumedSize
 			consumedMonthlyFreeQuota := bucketTraffic.MonthlyFreeQuotaConsumedSize
 			monthlyFreeQuotaRemain := bucketTraffic.MonthlyQuotaSize
-			log.Infow("quota info", "consumedFreeQuota", consumedFreeQuota, "remainedFreeQuota", remainedFreeQuota, "consumedChargeQuota", consumedChargeQuota, "consumedMonthlyFreeQuota", consumedMonthlyFreeQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain)
+			log.Debugw("quota info", "consumedFreeQuota", consumedFreeQuota, "remainedFreeQuota", remainedFreeQuota, "consumedChargeQuota", consumedChargeQuota, "consumedMonthlyFreeQuota", consumedMonthlyFreeQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain)
 			// The priority of compensation is chargeQuota > monthlyFreeQuota > freeQuota
 			// ChargeQuota
 			if consumedChargeQuota >= extraQuota {
@@ -432,7 +431,7 @@ func (s *SpDBImpl) UpdateExtraQuota(bucketID, extraQuota uint64, yearMonth strin
 				consumedFreeQuota -= extraQuota
 				remainedFreeQuota += extraQuota
 			}
-			log.Infow("quota info", "consumedFreeQuota", consumedFreeQuota, "remainedFreeQuota", remainedFreeQuota, "consumedChargeQuota", consumedChargeQuota, "consumedMonthlyFreeQuota", consumedMonthlyFreeQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain)
+			log.Debugw("quota info", "consumedFreeQuota", consumedFreeQuota, "remainedFreeQuota", remainedFreeQuota, "consumedChargeQuota", consumedChargeQuota, "consumedMonthlyFreeQuota", consumedMonthlyFreeQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain)
 			err = tx.Model(&bucketTraffic).
 				Select("read_consumed_size", "free_quota_consumed_size", "monthly_free_quota_consumed_size", "free_quota_size", "monthly_quota_size", "modified_time").Updates(BucketTrafficTable{
 				ReadConsumedSize:             consumedChargeQuota,
