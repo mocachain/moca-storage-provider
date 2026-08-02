@@ -33,11 +33,13 @@ func (s *Statement) Eval(action permtypes.ActionType, opts *permtypes.VerifyOpti
 		}
 	}
 
-	// convert action bitmap to action list
+	// convert action bitmap to action list. The bit position and the action type are
+	// two different numbers - ACTION_TYPE_ALL is 99 and sits in bit 0 - so the action
+	// has to come from the map key, not from the bit index.
 	actions := make([]permtypes.ActionType, 0)
-	for _, v := range ActionTypeMap {
-		if s.ActionValue&(1<<v) == 1<<v {
-			actions = append(actions, permtypes.ActionType(v))
+	for actionType, bit := range ActionTypeMap {
+		if s.ActionValue&(1<<bit) == 1<<bit {
+			actions = append(actions, actionType)
 		}
 	}
 

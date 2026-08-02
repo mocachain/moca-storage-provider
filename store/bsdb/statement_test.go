@@ -71,15 +71,39 @@ func TestStatement_Eval(t *testing.T) {
 			want:   permtypes.EFFECT_UNSPECIFIED,
 		},
 		{
+			// the previous version of this case set every bit, so it passed on the
+			// ACTION_DELETE_BUCKET bit and never exercised ACTION_TYPE_ALL at all
 			name: "ACTION_TYPE_ALL matches everything",
 			statement: &Statement{
-				ActionValue: ^0,
+				ActionValue: 1 << ActionTypeMap[permtypes.ACTION_TYPE_ALL],
 				Effect:      permtypes.EFFECT_ALLOW.String(),
 				Resources:   []string{"test_resource"},
 			},
 			action: permtypes.ACTION_DELETE_BUCKET,
 			opts:   &permtypes.VerifyOptions{Resource: "test_resource"},
 			want:   permtypes.EFFECT_ALLOW,
+		},
+		{
+			name: "ACTION_TYPE_ALL denies everything",
+			statement: &Statement{
+				ActionValue: 1 << ActionTypeMap[permtypes.ACTION_TYPE_ALL],
+				Effect:      permtypes.EFFECT_DENY.String(),
+				Resources:   []string{"test_resource"},
+			},
+			action: permtypes.ACTION_GET_OBJECT,
+			opts:   &permtypes.VerifyOptions{Resource: "test_resource"},
+			want:   permtypes.EFFECT_DENY,
+		},
+		{
+			name: "ACTION_TYPE_ALL deny wins over an unrelated allow bit",
+			statement: &Statement{
+				ActionValue: 1<<ActionTypeMap[permtypes.ACTION_TYPE_ALL] | 1<<ActionTypeMap[permtypes.ACTION_CREATE_OBJECT],
+				Effect:      permtypes.EFFECT_DENY.String(),
+				Resources:   []string{"test_resource"},
+			},
+			action: permtypes.ACTION_DELETE_OBJECT,
+			opts:   &permtypes.VerifyOptions{Resource: "test_resource"},
+			want:   permtypes.EFFECT_DENY,
 		},
 		{
 			name: "action matches - deny effect",
