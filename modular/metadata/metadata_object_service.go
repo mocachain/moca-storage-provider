@@ -18,6 +18,22 @@ import (
 )
 
 // GfSpListObjectsByBucketName list objects info by a bucket name
+// isBucketOwner reports whether account owns the bucket. An empty account is never an
+// owner, so an unauthenticated caller can only ever see the public listing.
+func (r *MetadataModular) isBucketOwner(bucketName, account string) (bool, error) {
+	if account == "" {
+		return false, nil
+	}
+	bucket, err := r.baseApp.GfBsDB().GetBucketByName(bucketName, true)
+	if err != nil {
+		return false, err
+	}
+	if bucket == nil {
+		return false, nil
+	}
+	return common.HexToAddress(bucket.Owner.String()) == common.HexToAddress(account), nil
+}
+
 func (r *MetadataModular) GfSpListObjectsByBucketName(ctx context.Context, req *types.GfSpListObjectsByBucketNameRequest) (resp *types.GfSpListObjectsByBucketNameResponse, err error) {
 	var (
 		results               []*model.ListObjectsResult
@@ -41,7 +57,16 @@ func (r *MetadataModular) GfSpListObjectsByBucketName(ctx context.Context, req *
 	}
 
 	ctx = log.Context(ctx, req)
-	results, err = r.baseApp.GfBsDB().ListObjectsByBucketName(req.BucketName, req.ContinuationToken, req.Prefix, req.Delimiter, int(maxKeys), req.IncludeRemoved)
+
+	// the private objects of a bucket are listed only to the account that owns it;
+	// for anyone else the listing is restricted to the publicly readable objects
+	includePrivate, err := r.isBucketOwner(req.BucketName, req.AccountId)
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to resolve the bucket owner", "error", err)
+		return
+	}
+
+	results, err = r.baseApp.GfBsDB().ListObjectsByBucketName(req.BucketName, req.ContinuationToken, req.Prefix, req.Delimiter, int(maxKeys), req.IncludeRemoved, includePrivate)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list objects by bucket name", "error", err)
 		return

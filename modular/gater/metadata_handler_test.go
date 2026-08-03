@@ -1,7 +1,9 @@
 package gater
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -15,11 +17,15 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	commonhttp "github.com/mocachain/moca-common/go/http"
+	"github.com/mocachain/moca-storage-provider/base/gfspapp"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	payment_types "github.com/mocachain/moca/v2/x/payment/types"
 	storage_types "github.com/mocachain/moca/v2/x/storage/types"
@@ -2372,6 +2378,13 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 				clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 					gomock.Any(), gomock.Any()).Return(nil, errors.New(`rpc error: code = Unknown desc = {"code_space":"metadata","http_status_code":404,"inner_code":90008,"description":"the specified bucket does not exist"}`)).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				// the caller has to administer the object to reach the rpc at all
+				consensusMock := consensus.NewMockConsensus(ctrl)
+				consensusMock.EXPECT().QueryBucketInfoAndObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+					&storage_types.BucketInfo{BucketName: mockBucketName, Owner: testAccount},
+					&storage_types.ObjectInfo{ObjectName: mockObjectName, Owner: testAccount, Creator: testAccount},
+					nil).Times(1)
+				g.baseApp.SetConsensus(consensusMock)
 				return g
 			},
 			request: func() *http.Request {
@@ -2393,4 +2406,167 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 			assert.Equal(t, w.Code, tt.wantedCode)
 		})
 	}
+}
+
+// TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist covers the operational status
+// endpoint. Verifying a signature only establishes that some account made the request;
+// any wallet can do that, so it does not by itself restrict who reads the SP's internal
+// blocksyncer, manager, executor and gc state.
+func TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower("0x1000000000000000000000000000000000000001"): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerRefusesEveryoneWhenNoAllowlistIsConfigured(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerAllowsAnAccountOnTheAllowlist(t *testing.T) {
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Return(&types.Status{}, nil).Times(1)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower(crypto.PubkeyToAddress(accountKey.PublicKey).Hex()): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequestWithKey(t, accountKey))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func newSignedStatusRequest(t *testing.T) *http.Request {
+	t.Helper()
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	return newSignedStatusRequestWithKey(t, accountKey)
+}
+
+func newSignedStatusRequestWithKey(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, StatusPath, nil)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+// serveStatusRequest routes through mux so that the handler sees the route name the
+// request context authentication depends on.
+func serveStatusRequest(t *testing.T, gateway *GateModular, w http.ResponseWriter, req *http.Request) {
+	t.Helper()
+	router := mux.NewRouter()
+	router.Path(StatusPath).Name(getStatusRouterName).Methods(http.MethodGet).HandlerFunc(gateway.getStatusHandler)
+	router.ServeHTTP(w, req)
+}
+
+func newListObjectPoliciesRequest(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {
+	t.Helper()
+	path := fmt.Sprintf("%s%s.%s/%s?%s&%s=1", scheme, mockBucketName, testDomain, mockObjectName,
+		ListObjectPoliciesQuery, VerifyPermissionActionType)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour).Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+func setupObjectPolicyChain(t *testing.T, g *GateModular, ctrl *gomock.Controller, bucketOwner, objectOwner string) *gfspclient.MockGfSpClientAPI {
+	t.Helper()
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QueryBucketInfoAndObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+		&storage_types.BucketInfo{BucketName: mockBucketName, Owner: bucketOwner},
+		&storage_types.ObjectInfo{ObjectName: mockObjectName, Owner: objectOwner, Creator: objectOwner},
+		nil).AnyTimes()
+	g.baseApp.SetConsensus(consensusMock)
+
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	g.baseApp.SetGfSpClient(clientMock)
+	return clientMock
+}
+
+func TestGateModular_listObjectPoliciesHandlerRefusesAStranger(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	strangerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, testAccount, testAccount)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, strangerKey))
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"the principals granted access to an object must not be listable by an unrelated account")
+}
+
+func TestGateModular_listObjectPoliciesHandlerAllowsTheObjectOwner(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	ownerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	owner := crypto.PubkeyToAddress(ownerKey.PublicKey).Hex()
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, testAccount, owner)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*types.Policy{}, nil).Times(1)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, ownerKey))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGateModular_listObjectPoliciesHandlerAllowsTheBucketOwner(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	bucketOwnerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	bucketOwner := crypto.PubkeyToAddress(bucketOwnerKey.PublicKey).Hex()
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, bucketOwner, testAccount)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*types.Policy{}, nil).Times(1)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, bucketOwnerKey))
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }

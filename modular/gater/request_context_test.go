@@ -1,6 +1,7 @@
 package gater
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -446,4 +447,25 @@ func Test_parseAccAddressFromHexUnsafe(t *testing.T) {
 	withoutPrefix, err := parseAccAddressFromHexUnsafe(strings.TrimPrefix(address, "0x"))
 	assert.NoError(t, err)
 	assert.Equal(t, withoutPrefix.String(), withPrefix.String())
+}
+
+// TestSkipAuthRouterNames_DoesNotSkipObjectListing pins that listing the objects of a
+// bucket is authenticated. The listing has no visibility filter of its own, so skipping
+// authentication for it exposed the object names of private buckets to anyone.
+func TestSkipAuthRouterNames_DoesNotSkipObjectListing(t *testing.T) {
+	assert.NotContains(t, skipAuthRouterNames, listObjectsByBucketRouterName)
+}
+
+func TestNewRequestContext_RequiresASignatureForObjectListing(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	router.Host("{bucket:.+}." + g.domain).Subrouter().
+		NewRoute().Name(listObjectsByBucketRouterName).Methods(http.MethodGet).Path("/").
+		HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			_, err := NewRequestContext(r, g)
+			assert.Error(t, err, "an unsigned object listing must not produce an authenticated context")
+		})
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s%s.%s/", scheme, mockBucketName, testDomain), nil)
+	router.ServeHTTP(httptest.NewRecorder(), req)
 }
