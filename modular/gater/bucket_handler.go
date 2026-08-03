@@ -1,7 +1,6 @@
 package gater
 
 import (
-	"context"
 	"encoding/xml"
 	"net/http"
 	"strconv"
@@ -344,12 +343,16 @@ func (g *GateModular) queryBucketMigrationProgressHandler(w http.ResponseWriter,
 func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err           error
+		reqCtx        *RequestContext
 		offset, limit uint64
 		result        []*metadatatypes.BucketReadQuotaRecord
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to list bucket read quota", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -359,7 +362,13 @@ func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 	offsetStr := queryParams.Get("offset")
@@ -416,12 +425,16 @@ func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.
 // getBucketReadQuotaCountHandler handles the get bucket read quota count request.
 func (g *GateModular) getBucketReadQuotaCountHandler(w http.ResponseWriter, r *http.Request) {
 	var (
-		err   error
-		count int64
+		err    error
+		reqCtx *RequestContext
+		count  int64
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to get bucket read quota count", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -431,7 +444,13 @@ func (g *GateModular) getBucketReadQuotaCountHandler(w http.ResponseWriter, r *h
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 

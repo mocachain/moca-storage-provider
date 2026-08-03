@@ -645,3 +645,59 @@ func TestGateModular_listBucketReadRecordHandlerRejectsUnsignedRequest(t *testin
 	assert.NotEqual(t, http.StatusOK, w.Code,
 		"the read records of a bucket must not be readable without a verified signature")
 }
+
+func mockListBucketReadQuotaRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	router.Path("/").Name(listBucketReadQuotaRouterName).Methods(http.MethodGet).
+		Queries(ListBucketReadRecordQuery, "").HandlerFunc(g.listBucketReadQuotaHandler)
+	return router
+}
+
+func mockGetBucketReadQuotaCountRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	router.Path("/").Name(getBucketReadQuotaCountRouterName).Methods(http.MethodGet).
+		Queries(ListBucketReadCountQuery, "").HandlerFunc(g.getBucketReadQuotaCountHandler)
+	return router
+}
+
+// TestGateModular_listBucketReadQuotaHandlerRejectsUnsignedRequest pins that the
+// handler builds a request context, the step that verifies the signature, before it
+// reads anything. It is the sibling of the two endpoints fixed in MOCA-873 / #87 and
+// carries the same quota consumption data.
+func TestGateModular_listBucketReadQuotaHandlerRejectsUnsignedRequest(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	clientMock.EXPECT().ListBucketReadQuota(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	path := fmt.Sprintf("%s%s/?%s&offset=0&limit=1", scheme, testDomain, ListBucketReadRecordQuery)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+
+	w := httptest.NewRecorder()
+	mockListBucketReadQuotaRoute(t, g).ServeHTTP(w, req)
+
+	assert.NotEqual(t, http.StatusOK, w.Code,
+		"the bucket read quota list must not be readable without a verified signature")
+}
+
+// TestGateModular_getBucketReadQuotaCountHandlerRejectsUnsignedRequest pins the same
+// invariant for the count endpoint.
+func TestGateModular_getBucketReadQuotaCountHandlerRejectsUnsignedRequest(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	clientMock.EXPECT().GetBucketReadQuotaCount(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	path := fmt.Sprintf("%s%s/?%s", scheme, testDomain, ListBucketReadCountQuery)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+
+	w := httptest.NewRecorder()
+	mockGetBucketReadQuotaCountRoute(t, g).ServeHTTP(w, req)
+
+	assert.NotEqual(t, http.StatusOK, w.Code,
+		"the bucket read quota count must not be readable without a verified signature")
+}
