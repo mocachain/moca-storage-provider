@@ -1368,3 +1368,65 @@ func signAuthKeyListRequest(t *testing.T, req *http.Request, domain string) {
 	require.NoError(t, err)
 	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
 }
+
+// zeroAddressHex is what common.HexToAddress returns for an empty string, which is
+// what reqCtx.account holds when NewRequestContext returned an error.
+const zeroAddressHex = "0x0000000000000000000000000000000000000000"
+
+// TestListUserPublicKeyV2HandlerRejectsUnsignedZeroAddress pins that the handler
+// refuses an unsigned request before the account comparison, not because of it.
+//
+// The comparison is common.HexToAddress(account) != common.HexToAddress(reqCtx.account).
+// On a failed NewRequestContext, reqCtx.account is empty, and common.HexToAddress("")
+// is the zero address — the same value a caller gets by putting the zero address in
+// the header. The two sides are then equal and the comparison passes. Only the error
+// return from NewRequestContext stops the request, so that is what this pins: the
+// existing unsigned test uses a random victim address, which the comparison rejects
+// on its own and which therefore keeps passing if the error return is removed.
+func TestListUserPublicKeyV2HandlerRejectsUnsignedZeroAddress(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	req := httptest.NewRequest(http.MethodGet, ListAuthKeyV2Path, nil)
+	req.Header.Set(GnfdUserAddressHeader, zeroAddressHex)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+
+	recorder := httptest.NewRecorder()
+	gateway.listUserPublicKeyV2Handler(recorder, req)
+
+	assert.NotEqual(t, http.StatusOK, recorder.Code,
+		"an unsigned request must be refused even when the address header is the zero address")
+}
+
+// TestDeleteUserPublicKeyV2HandlerRejectsUnsignedZeroAddress pins the same invariant
+// for the sibling delete handler, which has the identical shape.
+func TestDeleteUserPublicKeyV2HandlerRejectsUnsignedZeroAddress(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().DeleteAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(SamplePublicKey))
+	req.Header.Set(GnfdUserAddressHeader, zeroAddressHex)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+
+	recorder := httptest.NewRecorder()
+	gateway.deleteUserPublicKeyV2Handler(recorder, req)
+
+	assert.NotEqual(t, http.StatusOK, recorder.Code,
+		"an unsigned request must be refused even when the address header is the zero address")
+}
