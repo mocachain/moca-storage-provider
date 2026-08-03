@@ -1,6 +1,7 @@
 package gater
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 
 	sdkmath "cosmossdk.io/math"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -67,7 +69,7 @@ func TestGateModular_getBucketReadQuotaHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "mismatch sp",
@@ -90,7 +92,7 @@ func TestGateModular_getBucketReadQuotaHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "failed to get bucket info from consensus",
@@ -119,7 +121,7 @@ func TestGateModular_getBucketReadQuotaHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "mock error",
@@ -148,7 +150,7 @@ func TestGateModular_getBucketReadQuotaHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "",
@@ -207,7 +209,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "mismatch sp",
@@ -230,7 +232,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "failed to get bucket info from consensus",
@@ -257,7 +259,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "invalid request params for query",
@@ -284,7 +286,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "invalid request params for query",
@@ -311,7 +313,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "invalid request params for query",
@@ -340,7 +342,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "mock error",
@@ -375,7 +377,7 @@ func TestGateModular_listBucketReadRecordHandler(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
-				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				signAsRandomAccount(req)
 				return req
 			},
 			wantedResult: "",
@@ -576,4 +578,70 @@ func TestGateModular_queryBucketMigrationProgressHandler(t *testing.T) {
 			assert.Contains(t, w.Body.String(), tt.wantedResult)
 		})
 	}
+}
+
+// signAsRandomAccount signs the request with a freshly generated account so that it
+// passes gateway authentication. These handlers authenticate but do not restrict which
+// account may call them, so the identity itself does not matter to these cases.
+func signAsRandomAccount(req *http.Request) *http.Request {
+	accountKey, err := crypto.GenerateKey()
+	if err != nil {
+		panic(err)
+	}
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+func mockListBucketReadRecordRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	var routers []*mux.Router
+	routers = append(routers, router.Host("{bucket:.+}."+g.domain).Subrouter())
+	routers = append(routers, router.PathPrefix("/{bucket}").Subrouter())
+	for _, r := range routers {
+		r.NewRoute().Name(listBucketReadRecordRouterName).Methods(http.MethodGet).HandlerFunc(g.listBucketReadRecordHandler).
+			Queries(ListBucketReadRecordQuery, "", ListBucketReadRecordMaxRecordsQuery, "{max_records}",
+				StartTimestampUs, "{start_ts}", EndTimestampUs, "{end_ts}")
+	}
+	return router
+}
+
+func TestGateModular_getBucketReadQuotaHandlerRejectsUnsignedRequest(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QueryBucketInfo(gomock.Any(), gomock.Any()).Times(0)
+	g.baseApp.SetConsensus(consensusMock)
+
+	path := fmt.Sprintf("%s%s.%s/?%s&%s", scheme, mockBucketName, testDomain, GetBucketReadQuotaQuery,
+		GetBucketReadQuotaMonthQuery)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+
+	w := httptest.NewRecorder()
+	mockGetBucketReadQuotaRoute(t, g).ServeHTTP(w, req)
+
+	assert.NotEqual(t, http.StatusOK, w.Code,
+		"the quota of a bucket must not be readable without a verified signature")
+}
+
+func TestGateModular_listBucketReadRecordHandlerRejectsUnsignedRequest(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QueryBucketInfo(gomock.Any(), gomock.Any()).Times(0)
+	g.baseApp.SetConsensus(consensusMock)
+
+	path := fmt.Sprintf("%s%s.%s/?%s&%s=1&%s=1&%s=2", scheme, mockBucketName, testDomain, ListBucketReadRecordQuery,
+		ListBucketReadRecordMaxRecordsQuery, StartTimestampUs, EndTimestampUs)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+
+	w := httptest.NewRecorder()
+	mockListBucketReadRecordRoute(t, g).ServeHTTP(w, req)
+
+	assert.NotEqual(t, http.StatusOK, w.Code,
+		"the read records of a bucket must not be readable without a verified signature")
 }

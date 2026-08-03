@@ -366,8 +366,11 @@ func (g *GateModular) listUserPublicKeyV2Handler(w http.ResponseWriter, r *http.
 		}
 	}()
 
-	// ignore the error, because the listUserPublicKeyV2 does not need signature
-	reqCtx, _ = NewRequestContext(r, g)
+	// the registered keys of an account are only listed to that account itself
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	account := reqCtx.request.Header.Get(GnfdUserAddressHeader)
 	domain := reqCtx.request.Header.Get(GnfdOffChainAuthAppDomainHeader)
@@ -376,6 +379,10 @@ func (g *GateModular) listUserPublicKeyV2Handler(w http.ResponseWriter, r *http.
 	if ok := common.IsHexAddress(account); !ok {
 		err = ErrInvalidHeader
 		log.Errorw("failed to check account address", "account_address", account, "error", err)
+		return
+	}
+	if common.HexToAddress(account) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 

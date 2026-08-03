@@ -42,12 +42,26 @@ func defaultGaterOptions(gater *GateModular, cfg *gfspconfig.GfSpConfig) error {
 	gater.domain = cfg.Gateway.DomainName
 	gater.httpAddress = cfg.Gateway.HTTPAddress
 	gater.maxListReadQuota = cfg.Bucket.MaxListReadQuotaNumber
+	gater.statusAllowedAccounts = makeStatusAllowlist(cfg.Gateway.StatusAllowedAccounts)
 	rateCfg := makeAPIRateLimitCfg(cfg.APIRateLimiter)
 	if err := mwhttp.NewAPILimiter(rateCfg); err != nil {
 		log.Errorw("failed to new api limiter", "err", err)
 		return err
 	}
 	return nil
+}
+
+// makeStatusAllowlist normalises the configured accounts for case-insensitive lookup.
+func makeStatusAllowlist(accounts []string) map[string]struct{} {
+	allowlist := make(map[string]struct{}, len(accounts))
+	for _, account := range accounts {
+		account = strings.ToLower(strings.TrimSpace(account))
+		if account == "" {
+			continue
+		}
+		allowlist[account] = struct{}{}
+	}
+	return allowlist
 }
 
 func makeAPIRateLimitCfg(cfg mwhttp.RateLimiterConfig) *mwhttp.APILimiterConfig {
