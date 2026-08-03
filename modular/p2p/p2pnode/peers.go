@@ -99,6 +99,11 @@ func (pr *PeerProvider) UpdateSp(SPs []string) {
 
 // checkSP checks the sp is valid
 func (pr *PeerProvider) checkSP(sp string) bool {
+	// PeerSpUnspecified is the bucket that holds peers whose sp is not on chain,
+	// it is always present in spPeers and must never pass the sp whitelist.
+	if sp == PeerSpUnspecified {
+		return false
+	}
 	pr.mux.RLock()
 	defer pr.mux.RUnlock()
 	_, ok := pr.spPeers[sp]

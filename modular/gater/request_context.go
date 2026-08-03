@@ -46,7 +46,6 @@ var skipAuthRouterNames = []string{
 	healthCheckRouterName,
 	downloadObjectByUniversalEndpointName,
 	viewObjectByUniversalEndpointName,
-	listObjectsByBucketRouterName,
 	getObjectMetaRouterName,
 	getBucketMetaRouterName,
 	listBucketsByIDsRouterName,
