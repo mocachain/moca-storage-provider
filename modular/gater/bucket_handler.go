@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
@@ -175,6 +176,14 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 		log.CtxErrorw(ctx, "sp operator address mismatch", "actual_sp_id", spID,
 			"expected_sp_id", bucketSPID)
 		err = ErrMismatchSp
+		return
+	}
+	// a read record names the account that downloaded the object and when, so the
+	// list is only served to the account that owns the bucket
+	if common.HexToAddress(bucketInfo.GetOwner()) != common.HexToAddress(reqCtx.Account()) {
+		log.CtxErrorw(ctx, "refused to list read records of a bucket the caller does not own",
+			"bucket_name", bucketName)
+		err = ErrNoPermission
 		return
 	}
 
