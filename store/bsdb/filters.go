@@ -91,3 +91,16 @@ func WithLimit(limit int) func(*gorm.DB) *gorm.DB {
 		return db.Limit(limit)
 	}
 }
+
+// PublicReadOnlyFilter restricts a query on an objects table to the objects a caller
+// with no relationship to the bucket may see: visibility PUBLIC_READ, or INHERIT when
+// the parent bucket is public. It matches the predicate the single-object
+// GetObjectByName(includePrivate=false) path already uses.
+func PublicReadOnlyFilter(bucketName string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Where("visibility = 'VISIBILITY_TYPE_PUBLIC_READ' or "+
+			"(visibility = 'VISIBILITY_TYPE_INHERIT' and exists "+
+			"(select 1 from buckets where buckets.bucket_name = ? and buckets.visibility = 'VISIBILITY_TYPE_PUBLIC_READ'))",
+			bucketName)
+	}
+}
