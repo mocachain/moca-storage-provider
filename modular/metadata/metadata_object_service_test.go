@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/forbole/juno/v4/common"
@@ -18,8 +19,11 @@ func TestMetadataModular_GfSpListObjectsByBucketName_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(string, string, string, string, int, bool) ([]*bsdb.ListObjectsResult, error) {
+	// the listing resolves the bucket owner to decide whether private objects
+	// belong in the response
+	m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, string, string, string, int, bool, bool) ([]*bsdb.ListObjectsResult, error) {
 			return []*bsdb.ListObjectsResult{&bsdb.ListObjectsResult{
 				PathName:   "/folder1",
 				ResultType: "Object",
@@ -74,8 +78,11 @@ func TestMetadataModular_GfSpListObjectsByBucketName_Success2(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(string, string, string, string, int, bool) ([]*bsdb.ListObjectsResult, error) {
+	// the listing resolves the bucket owner to decide whether private objects
+	// belong in the response
+	m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, string, string, string, int, bool, bool) ([]*bsdb.ListObjectsResult, error) {
 			return []*bsdb.ListObjectsResult{&bsdb.ListObjectsResult{
 				PathName:   "/folder1",
 				ResultType: "Object",
@@ -130,8 +137,11 @@ func TestMetadataModular_GfSpListObjectsByBucketName_Success3(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(string, string, string, string, int, bool) ([]*bsdb.ListObjectsResult, error) {
+	// the listing resolves the bucket owner to decide whether private objects
+	// belong in the response
+	m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, string, string, string, int, bool, bool) ([]*bsdb.ListObjectsResult, error) {
 			return []*bsdb.ListObjectsResult{
 				&bsdb.ListObjectsResult{
 					PathName:   "/folder1",
@@ -254,8 +264,11 @@ func TestMetadataModular_GfSpListObjectsByBucketName_Success4(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(string, string, string, string, int, bool) ([]*bsdb.ListObjectsResult, error) {
+	// the listing resolves the bucket owner to decide whether private objects
+	// belong in the response
+	m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, string, string, string, int, bool, bool) ([]*bsdb.ListObjectsResult, error) {
 			return []*bsdb.ListObjectsResult{
 				&bsdb.ListObjectsResult{
 					PathName:   "/folder1",
@@ -345,8 +358,11 @@ func TestMetadataModular_GfSpListObjectsByBucketName_Failed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	m := bsdb.NewMockBSDB(ctrl)
 	a.baseApp.SetGfBsDB(m)
-	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(string, string, string, string, int, bool) ([]*bsdb.ListObjectsResult, error) {
+	// the listing resolves the bucket owner to decide whether private objects
+	// belong in the response
+	m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(string, string, string, string, int, bool, bool) ([]*bsdb.ListObjectsResult, error) {
 			return nil, ErrExceedRequest
 		},
 	).Times(1)
@@ -1524,4 +1540,46 @@ func TestMetadataModular_GfSpListObjectsInGVG_Failed2(t *testing.T) {
 		Limit:      11111,
 	})
 	assert.NotNil(t, err)
+}
+
+// TestMetadataModular_GfSpListObjectsByBucketName_OnlyOwnerSeesPrivateObjects pins the
+// visibility decision. A caller that does not own the bucket must be given the
+// public-only listing, and an unauthenticated caller must never be treated as the owner.
+func TestMetadataModular_GfSpListObjectsByBucketName_OnlyOwnerSeesPrivateObjects(t *testing.T) {
+	const owner = "0xe978A9160BC061f602fa083e9C68539C549A421D"
+	cases := []struct {
+		name               string
+		accountID          string
+		wantIncludePrivate bool
+	}{
+		{name: "the bucket owner", accountID: owner, wantIncludePrivate: true},
+		{name: "the bucket owner in lower case", accountID: strings.ToLower(owner), wantIncludePrivate: true},
+		{name: "another account", accountID: "0x1000000000000000000000000000000000000001", wantIncludePrivate: false},
+		{name: "no account at all", accountID: "", wantIncludePrivate: false},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			a := setup(t)
+			ctrl := gomock.NewController(t)
+			m := bsdb.NewMockBSDB(ctrl)
+			a.baseApp.SetGfBsDB(m)
+			m.EXPECT().GetBucketByName(gomock.Any(), gomock.Any()).
+				Return(&bsdb.Bucket{BucketName: "barry", Owner: common.HexToAddress(owner)}, nil).AnyTimes()
+
+			var gotIncludePrivate bool
+			m.EXPECT().ListObjectsByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_, _, _, _ string, _ int, _, includePrivate bool) ([]*bsdb.ListObjectsResult, error) {
+					gotIncludePrivate = includePrivate
+					return nil, nil
+				}).Times(1)
+
+			_, err := a.GfSpListObjectsByBucketName(context.Background(), &types.GfSpListObjectsByBucketNameRequest{
+				BucketName: "barry",
+				AccountId:  tt.accountID,
+			})
+			assert.Nil(t, err)
+			assert.Equal(t, tt.wantIncludePrivate, gotIncludePrivate)
+		})
+	}
 }
