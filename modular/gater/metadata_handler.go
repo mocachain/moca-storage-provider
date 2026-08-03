@@ -2522,6 +2522,10 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if err = g.checkObjectPolicyReader(reqCtx); err != nil {
+		return
+	}
+
 	policies, err = g.baseApp.GfSpClient().ListObjectPolicies(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, startAfter, actionType, limit)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to list policies by object info", "error", err)
@@ -2538,6 +2542,32 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 
 	w.Header().Set(ContentTypeHeader, ContentTypeXMLHeaderValue)
 	w.Write(respBytes)
+}
+
+// checkObjectPolicyReader reports whether the caller may read the policy list of an
+// object. The list names every principal granted access to the object, so it is
+// administrative data of that object and is served to the accounts that administer it:
+// the object owner, the object creator and the owner of the bucket it lives in.
+func (g *GateModular) checkObjectPolicyReader(reqCtx *RequestContext) error {
+	bucketInfo, objectInfo, err := g.baseApp.Consensus().QueryBucketInfoAndObjectInfo(
+		reqCtx.Context(), reqCtx.bucketName, reqCtx.objectName)
+	if err != nil {
+		log.CtxErrorw(reqCtx.Context(), "failed to get bucket and object info from consensus",
+			"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName, "error", err)
+		return ErrConsensusWithDetail("failed to get bucket and object info from consensus, error: " + err.Error())
+	}
+	if objectInfo == nil {
+		return ErrNoSuchObject
+	}
+	caller := common.HexToAddress(reqCtx.Account())
+	if caller == common.HexToAddress(objectInfo.GetOwner()) ||
+		caller == common.HexToAddress(objectInfo.GetCreator()) ||
+		(bucketInfo != nil && caller == common.HexToAddress(bucketInfo.GetOwner())) {
+		return nil
+	}
+	log.CtxErrorw(reqCtx.Context(), "refused to list the policies of an object the caller does not administer",
+		"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName)
+	return ErrNoPermission
 }
 
 // listPaymentAccountStreamsHandler list payment account streams
