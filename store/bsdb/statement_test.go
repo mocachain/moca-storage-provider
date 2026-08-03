@@ -7,9 +7,6 @@ import (
 )
 
 func TestStatement_Eval(t *testing.T) {
-	//regexp.MustCompile function will never return nil.
-	//Therefore, we don't need to check for reg == nil.
-	//If there is an issue with the regular expression pattern, it will panic with an error message
 	tests := []struct {
 		name      string
 		statement *Statement
@@ -121,6 +118,46 @@ func TestStatement_Eval(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.statement.Eval(tt.action, tt.opts); got != tt.want {
+				t.Errorf("Statement.Eval() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStatement_EvalWithInvalidResourcePattern covers policy resources that are not
+// valid regular expressions. The resource strings come from on-chain policies, so a
+// user picks them; an unparseable one must not take the permission evaluation down.
+func TestStatement_EvalWithInvalidResourcePattern(t *testing.T) {
+	tests := []struct {
+		name      string
+		statement *Statement
+		want      permtypes.Effect
+	}{
+		{
+			name: "only an invalid pattern, nothing can match",
+			statement: &Statement{
+				Resources:   []string{"["},
+				ActionValue: 1 << ActionTypeMap[permtypes.ACTION_UPDATE_BUCKET_INFO],
+				Effect:      permtypes.EFFECT_ALLOW.String(),
+			},
+			want: permtypes.EFFECT_UNSPECIFIED,
+		},
+		{
+			name: "an invalid pattern does not hide a valid one after it",
+			statement: &Statement{
+				Resources:   []string{"a(b", "test_resource"},
+				ActionValue: 1 << ActionTypeMap[permtypes.ACTION_UPDATE_BUCKET_INFO],
+				Effect:      permtypes.EFFECT_ALLOW.String(),
+			},
+			want: permtypes.EFFECT_ALLOW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.statement.Eval(permtypes.ACTION_UPDATE_BUCKET_INFO,
+				&permtypes.VerifyOptions{Resource: "test_resource"})
+			if got != tt.want {
 				t.Errorf("Statement.Eval() = %v, want %v", got, tt.want)
 			}
 		})

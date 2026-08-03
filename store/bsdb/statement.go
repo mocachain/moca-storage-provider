@@ -4,6 +4,8 @@ import (
 	"regexp"
 
 	permtypes "github.com/mocachain/moca/v2/x/permission/types"
+
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 // Eval is used to evaluate the execution results of statement policies.
@@ -18,13 +20,16 @@ func (s *Statement) Eval(action permtypes.ActionType, opts *permtypes.VerifyOpti
 	if opts != nil && opts.Resource != "" && s != nil && s.Resources != nil {
 		isMatch := false
 		for _, res := range s.Resources {
-			reg := regexp.MustCompile(res)
-			if reg == nil {
+			// the resource patterns come from on-chain policies, so a user chooses
+			// them; one that is not a valid regular expression matches nothing
+			// instead of taking the permission evaluation down
+			reg, err := regexp.Compile(res)
+			if err != nil {
+				log.Errorw("failed to compile policy resource pattern", "resource", res, "error", err)
 				continue
 			}
-			matchRes := reg.MatchString(opts.Resource)
-			if matchRes {
-				isMatch = matchRes
+			if reg.MatchString(opts.Resource) {
+				isMatch = true
 				break
 			}
 		}
