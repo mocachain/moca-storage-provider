@@ -207,6 +207,11 @@ type BucketConfig struct {
 type GatewayConfig struct {
 	DomainName  string `comment:"required"`
 	HTTPAddress string `comment:"required"`
+	// StatusAllowedAccounts lists the accounts allowed to read the operational
+	// status endpoint. A signature only proves that some account made the request,
+	// and anyone can create an account, so the endpoint stays closed until this is
+	// populated.
+	StatusAllowedAccounts []string `comment:"optional"`
 }
 
 type ExecutorConfig struct {

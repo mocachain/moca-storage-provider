@@ -29,6 +29,10 @@ type GateModular struct {
 	maxListReadQuota int64
 	maxPayloadSize   uint64
 
+	// statusAllowedAccounts holds the lower-cased accounts allowed to read the
+	// operational status endpoint; an empty map closes it to everyone.
+	statusAllowedAccounts map[string]struct{}
+
 	spID        uint32
 	spCachePool *SPCachePool
 }
