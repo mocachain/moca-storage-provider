@@ -159,6 +159,27 @@ func (a *ApprovalProtocol) onGetApprovalRequest(s network.Stream) {
 		s.Conn().LocalPeer(), s.Conn().RemotePeer(), req.Key().String(), err)
 }
 
+var (
+	// ErrApprovalUnknownSP defines the approval sender is not a known storage provider
+	ErrApprovalUnknownSP = errors.New("the approval sp is not in the sp whitelist")
+	// ErrApprovalSelfSP defines the approval was sent by this storage provider itself
+	ErrApprovalSelfSP = errors.New("the approval sp is the local sp")
+)
+
+// checkApprovalResponse checks the sender of an approval response. The sp whitelist
+// is checked before the signature, so that a peer that is not a known storage
+// provider cannot make this node run a secp256k1 ecrecover.
+func (a *ApprovalProtocol) checkApprovalResponse(resp *gfsptask.GfSpReplicatePieceApprovalTask) error {
+	sp := resp.GetApprovedSpOperatorAddress()
+	if !a.node.peers.checkSP(sp) {
+		return ErrApprovalUnknownSP
+	}
+	if strings.Compare(sp, a.node.baseApp.OperatorAddress()) == 0 {
+		return ErrApprovalSelfSP
+	}
+	return VerifySignature(sp, resp.GetSignBytes(), resp.GetApprovedSignature())
+}
+
 // onGetApprovalRequest defines the get approval response protocol callback
 func (a *ApprovalProtocol) onGetApprovalResponse(s network.Stream) {
 	resp := &gfsptask.GfSpReplicatePieceApprovalTask{}
@@ -178,20 +199,9 @@ func (a *ApprovalProtocol) onGetApprovalResponse(s network.Stream) {
 	log.Debugf("%s received approval response from %s, object_id: %d",
 		s.Conn().LocalPeer(), s.Conn().RemotePeer(), resp.GetObjectInfo().Id.Uint64())
 
-	err = VerifySignature(resp.GetApprovedSpOperatorAddress(), resp.GetSignBytes(), resp.GetApprovedSignature())
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to verify get approval response msg signature", "local",
-			s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
-		return
-	}
-	if !a.node.peers.checkSP(resp.GetApprovedSpOperatorAddress()) {
-		log.CtxWarnw(ctx, "ignore invalid sp approval response", "sp", resp.GetApprovedSpOperatorAddress(),
-			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer())
-		return
-	}
-	if strings.Compare(resp.GetApprovedSpOperatorAddress(), a.node.baseApp.OperatorAddress()) == 0 {
-		log.CtxWarnw(ctx, "ignore self approval response", "sp", resp.GetApprovedSpOperatorAddress(),
-			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer())
+	if err = a.checkApprovalResponse(resp); err != nil {
+		log.CtxWarnw(ctx, "ignore invalid approval response", "sp", resp.GetApprovedSpOperatorAddress(),
+			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
 		return
 	}
 	err = a.notifyApprovalResponse(resp)

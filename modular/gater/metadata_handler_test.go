@@ -24,6 +24,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	commonhttp "github.com/mocachain/moca-common/go/http"
+	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	payment_types "github.com/mocachain/moca/v2/x/payment/types"
@@ -2405,6 +2406,90 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 			assert.Equal(t, w.Code, tt.wantedCode)
 		})
 	}
+}
+
+// TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist covers the operational status
+// endpoint. Verifying a signature only establishes that some account made the request;
+// any wallet can do that, so it does not by itself restrict who reads the SP's internal
+// blocksyncer, manager, executor and gc state.
+func TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower("0x1000000000000000000000000000000000000001"): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerRefusesEveryoneWhenNoAllowlistIsConfigured(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerAllowsAnAccountOnTheAllowlist(t *testing.T) {
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Return(&types.Status{}, nil).Times(1)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower(crypto.PubkeyToAddress(accountKey.PublicKey).Hex()): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequestWithKey(t, accountKey))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func newSignedStatusRequest(t *testing.T) *http.Request {
+	t.Helper()
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	return newSignedStatusRequestWithKey(t, accountKey)
+}
+
+func newSignedStatusRequestWithKey(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, StatusPath, nil)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+// serveStatusRequest routes through mux so that the handler sees the route name the
+// request context authentication depends on.
+func serveStatusRequest(t *testing.T, gateway *GateModular, w http.ResponseWriter, req *http.Request) {
+	t.Helper()
+	router := mux.NewRouter()
+	router.Path(StatusPath).Name(getStatusRouterName).Methods(http.MethodGet).HandlerFunc(gateway.getStatusHandler)
+	router.ServeHTTP(w, req)
 }
 
 func newListObjectPoliciesRequest(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {

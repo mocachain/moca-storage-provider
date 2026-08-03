@@ -220,7 +220,47 @@ func Test_overrideConfigFromEnv(t *testing.T) {
 		Shards: 0,
 		Store:  storage.ObjectStorageConfig{},
 	}
-	overrideConfigFromEnv(cfg)
+	err := overrideConfigFromEnv(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, mockBucketURL, cfg.Store.BucketURL)
+}
+
+func Test_overrideConfigFromEnvKeepsConfiguredBucketURL(t *testing.T) {
+	os.Setenv(storage.BucketURL, "https://attacker.example.com/bucket")
+	defer os.Unsetenv(storage.BucketURL)
+	cfg := &storage.PieceStoreConfig{
+		Store: storage.ObjectStorageConfig{BucketURL: mockBucketURL},
+	}
+
+	err := overrideConfigFromEnv(cfg)
+
+	assert.Error(t, err)
+	assert.Equal(t, mockBucketURL, cfg.Store.BucketURL)
+}
+
+func Test_overrideConfigFromEnvAcceptsIdenticalBucketURL(t *testing.T) {
+	os.Setenv(storage.BucketURL, mockBucketURL)
+	defer os.Unsetenv(storage.BucketURL)
+	cfg := &storage.PieceStoreConfig{
+		Store: storage.ObjectStorageConfig{BucketURL: mockBucketURL},
+	}
+
+	err := overrideConfigFromEnv(cfg)
+
+	assert.NoError(t, err)
+	assert.Equal(t, mockBucketURL, cfg.Store.BucketURL)
+}
+
+func Test_overrideConfigFromEnvRejectsEmptyEnv(t *testing.T) {
+	os.Setenv(storage.BucketURL, "")
+	defer os.Unsetenv(storage.BucketURL)
+	cfg := &storage.PieceStoreConfig{
+		Store: storage.ObjectStorageConfig{BucketURL: mockBucketURL},
+	}
+
+	err := overrideConfigFromEnv(cfg)
+
+	assert.Error(t, err)
 	assert.Equal(t, mockBucketURL, cfg.Store.BucketURL)
 }
 

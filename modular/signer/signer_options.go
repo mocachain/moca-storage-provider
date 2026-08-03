@@ -2,7 +2,6 @@ package signer
 
 import (
 	"fmt"
-	"os"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -10,6 +9,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/mocachain/moca/v2/sdk/types"
 )
 
@@ -183,20 +183,21 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	if cfg.Chain.CancelSwapInFeeAmount == 0 {
 		cfg.Chain.CancelSwapInFeeAmount = DefaultCancelSwapInFeeAmount
 	}
-	if val, ok := os.LookupEnv(SpOperatorPrivKey); ok {
-		cfg.SpAccount.OperatorPrivateKey = val
+	var err error
+	if cfg.SpAccount.OperatorPrivateKey, err = util.SecretFromEnv(SpOperatorPrivKey, cfg.SpAccount.OperatorPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpSealPrivKey); ok {
-		cfg.SpAccount.SealPrivateKey = val
+	if cfg.SpAccount.SealPrivateKey, err = util.SecretFromEnv(SpSealPrivKey, cfg.SpAccount.SealPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpBlsPrivKey); ok {
-		cfg.SpAccount.BlsPrivateKey = val
+	if cfg.SpAccount.BlsPrivateKey, err = util.SecretFromEnv(SpBlsPrivKey, cfg.SpAccount.BlsPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpApprovalPrivKey); ok {
-		cfg.SpAccount.ApprovalPrivateKey = val
+	if cfg.SpAccount.ApprovalPrivateKey, err = util.SecretFromEnv(SpApprovalPrivKey, cfg.SpAccount.ApprovalPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpGcPrivKey); ok {
-		cfg.SpAccount.GcPrivateKey = val
+	if cfg.SpAccount.GcPrivateKey, err = util.SecretFromEnv(SpGcPrivKey, cfg.SpAccount.GcPrivateKey); err != nil {
+		return err
 	}
 
 	gasInfo := make(map[GasInfoType]GasInfo)
