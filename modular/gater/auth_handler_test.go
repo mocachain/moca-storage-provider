@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 
@@ -1086,8 +1087,9 @@ func TestListUserPublicKeyV2Handler(t *testing.T) {
 				mockedClient := gfspclient.NewMockGfSpClientAPI(c)
 				req := httptest.NewRequest(http.MethodGet, "/auth/keys_v2", nil)
 
-				req.Header.Set(GnfdUserAddressHeader, SampleUserAccount)
-				req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+				// the endpoint only lists the caller's own keys, so the request has
+				// to be signed by the account named in the address header
+				signAuthKeyListRequest(t, req, SampleDAppDomain)
 
 				mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]string{"testKey"}, nil).Times(1)
@@ -1110,7 +1112,7 @@ func TestListUserPublicKeyV2Handler(t *testing.T) {
 				mockedClient := gfspclient.NewMockGfSpClientAPI(c)
 				req := httptest.NewRequest(http.MethodGet, "/auth/keys_v2", nil)
 
-				req.Header.Set(GnfdUserAddressHeader, SampleUserAccount)
+				signAuthKeyListRequest(t, req, "")
 
 				mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return([]string{"testKey"}, nil).Times(0)
@@ -1256,4 +1258,113 @@ func TestDeleteUserPublicKeyV2HandlerAllowsLowercaseSameAccountRequest(t *testin
 	gateway.deleteUserPublicKeyV2Handler(recorder, req)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestListUserPublicKeyV2HandlerRejectsUnsignedRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	victimKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	victimAddress := crypto.PubkeyToAddress(victimKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodGet, ListAuthKeyV2Path, nil)
+	req.Header.Set(GnfdUserAddressHeader, victimAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+
+	recorder := httptest.NewRecorder()
+	gateway.listUserPublicKeyV2Handler(recorder, req)
+
+	assert.NotEqual(t, http.StatusOK, recorder.Code,
+		"anyone must not be able to enumerate another account's registered keys")
+}
+
+func TestListUserPublicKeyV2HandlerRejectsCrossAccountRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	attackerKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	victimKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	victimAddress := crypto.PubkeyToAddress(victimKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodGet, ListAuthKeyV2Path, nil)
+	req.Header.Set(GnfdUserAddressHeader, victimAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), attackerKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.listUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestListUserPublicKeyV2HandlerAllowsSameAccountRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().ListAuthKeysV2(gomock.Any(), gomock.Any(), SampleDAppDomain).
+		Return([]string{SamplePublicKey}, nil).Times(1)
+
+	gateway := &GateModular{
+		env:    gfspapp.EnvLocal,
+		domain: testDomain,
+	}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	accountKey, err := crypto.GenerateKey()
+	assert.NoError(t, err)
+	accountAddress := crypto.PubkeyToAddress(accountKey.PublicKey).Hex()
+
+	req := httptest.NewRequest(http.MethodGet, ListAuthKeyV2Path, nil)
+	req.Header.Set(GnfdUserAddressHeader, accountAddress)
+	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	assert.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+
+	recorder := httptest.NewRecorder()
+	gateway.listUserPublicKeyV2Handler(recorder, req)
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+// signAuthKeyListRequest fills in the address, domain, expiry and GNFD1-ECDSA
+// signature of a freshly generated account, so the request authenticates as the
+// account whose keys it is asking for.
+func signAuthKeyListRequest(t *testing.T, req *http.Request, domain string) {
+	t.Helper()
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	req.Header.Set(GnfdUserAddressHeader, crypto.PubkeyToAddress(accountKey.PublicKey).Hex())
+	if domain != "" {
+		req.Header.Set(GnfdOffChainAuthAppDomainHeader, domain)
+	}
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
 }
