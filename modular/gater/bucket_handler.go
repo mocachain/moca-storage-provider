@@ -26,13 +26,17 @@ import (
 func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err                                                                  error
+		reqCtx                                                               *RequestContext
 		bucketInfo                                                           *storagetypes.BucketInfo
 		charge, free, consume, free_consume, monthlyFree, monthlyFreeConsume uint64
 		bucketSPID                                                           uint32
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to get bucket read quota", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -42,7 +46,13 @@ func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.R
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	yearMonth := vars["year_month"]
@@ -116,6 +126,7 @@ func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.R
 func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err              error
+		reqCtx           *RequestContext
 		startTimestampUs int64
 		endTimestampUs   int64
 		maxRecordNum     int64
@@ -124,7 +135,10 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to list bucket read record", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -134,7 +148,13 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
