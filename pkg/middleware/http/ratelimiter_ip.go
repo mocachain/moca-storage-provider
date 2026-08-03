@@ -56,12 +56,13 @@ func (p *ipResolver) clientIP(r *http.Request) string {
 	}
 	// walk the chain right to left and stop at the first hop that a trusted proxy
 	// did not vouch for; everything further left was supplied by the caller
-	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	hops := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
 	for i := len(hops) - 1; i >= 0; i-- {
 		addr, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
 		if err != nil {
 			break
 		}
+		addr = addr.Unmap()
 		if !p.trusted(addr) {
 			return addr.String()
 		}

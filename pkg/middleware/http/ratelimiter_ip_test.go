@@ -53,6 +53,25 @@ func TestClientIP_TakesTheLastUntrustedHopOfAForwardedForChain(t *testing.T) {
 		resolver.clientIP(newRequestFrom(t, "10.1.2.3:44321", "1.1.1.1, 198.51.100.9, 10.4.5.6")))
 }
 
+func TestClientIP_CombinesRepeatedForwardedForHeaderLines(t *testing.T) {
+	resolver, err := newIPResolver([]string{"10.0.0.0/8"})
+	require.NoError(t, err)
+
+	r := newRequestFrom(t, "10.1.2.3:44321", "")
+	r.Header.Add("X-Forwarded-For", "1.1.1.1")
+	r.Header.Add("X-Forwarded-For", "198.51.100.9, 10.4.5.6")
+
+	assert.Equal(t, "198.51.100.9", resolver.clientIP(r))
+}
+
+func TestClientIP_UnmapsIPv4MappedForwardedForHops(t *testing.T) {
+	resolver, err := newIPResolver([]string{"10.0.0.0/8"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "198.51.100.9",
+		resolver.clientIP(newRequestFrom(t, "10.1.2.3:44321", "::ffff:198.51.100.9, ::ffff:10.4.5.6")))
+}
+
 func TestClientIP_FallsBackToThePeerWhenEveryHopIsTrusted(t *testing.T) {
 	resolver, err := newIPResolver([]string{"10.0.0.0/8"})
 	require.NoError(t, err)
