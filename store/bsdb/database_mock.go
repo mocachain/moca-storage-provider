@@ -896,18 +896,18 @@ func (mr *MockMetadataMockRecorder) ListObjectPolicies(objectID, actionType, sta
 }
 
 // ListObjectsByBucketName mocks base method.
-func (m *MockMetadata) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved bool) ([]*ListObjectsResult, error) {
+func (m *MockMetadata) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved, includePrivate bool) ([]*ListObjectsResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListObjectsByBucketName", bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved)
+	ret := m.ctrl.Call(m, "ListObjectsByBucketName", bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*ListObjectsResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListObjectsByBucketName indicates an expected call of ListObjectsByBucketName.
-func (mr *MockMetadataMockRecorder) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved any) *gomock.Call {
+func (mr *MockMetadataMockRecorder) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByBucketName", reflect.TypeOf((*MockMetadata)(nil).ListObjectsByBucketName), bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByBucketName", reflect.TypeOf((*MockMetadata)(nil).ListObjectsByBucketName), bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate)
 }
 
 // ListObjectsByGVGAndBucketForGC mocks base method.
@@ -1979,18 +1979,18 @@ func (mr *MockBSDBMockRecorder) ListObjectPolicies(objectID, actionType, startAf
 }
 
 // ListObjectsByBucketName mocks base method.
-func (m *MockBSDB) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved bool) ([]*ListObjectsResult, error) {
+func (m *MockBSDB) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved, includePrivate bool) ([]*ListObjectsResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListObjectsByBucketName", bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved)
+	ret := m.ctrl.Call(m, "ListObjectsByBucketName", bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate)
 	ret0, _ := ret[0].([]*ListObjectsResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListObjectsByBucketName indicates an expected call of ListObjectsByBucketName.
-func (mr *MockBSDBMockRecorder) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved any) *gomock.Call {
+func (mr *MockBSDBMockRecorder) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByBucketName", reflect.TypeOf((*MockBSDB)(nil).ListObjectsByBucketName), bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObjectsByBucketName", reflect.TypeOf((*MockBSDB)(nil).ListObjectsByBucketName), bucketName, continuationToken, prefix, delimiter, maxKeys, includeRemoved, includePrivate)
 }
 
 // ListObjectsByGVGAndBucketForGC mocks base method.

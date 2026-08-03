@@ -29,6 +29,10 @@ const (
 	ExpiryDateFormat          string = time.RFC3339
 	ExpectedEddsaPubKeyLength int    = 64
 	SignedContentV2Pattern           = `(.+) wants you to sign in with your Moca Chain account:\n*(.+)\n*Register your identity public key (.+)\n*URI: (.+)\n*Version: (.+)\n*Chain ID: (.+)\n*Issued At: (.+)\n*Expiration Time: (.+)`
+	// MaxAuthKeyListBodySize bounds a request body that carries a comma separated list
+	// of eddsa public keys. Each key is ExpectedEddsaPubKeyLength hex characters plus a
+	// separator, so this holds well over a hundred of them.
+	MaxAuthKeyListBodySize int = 8 * 1024
 )
 
 type RequestNonceResp struct {
@@ -449,10 +453,16 @@ func (g *GateModular) deleteUserPublicKeyV2Handler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	data, err := io.ReadAll(r.Body)
+	// read one byte past the limit so that a body sitting exactly on it still fits
+	data, err := io.ReadAll(io.LimitReader(r.Body, int64(MaxAuthKeyListBodySize)+1))
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to read publicKeys from request body", "error", err)
 		err = ErrExceptionStream
+		return
+	}
+	if len(data) > MaxAuthKeyListBodySize {
+		log.CtxErrorw(reqCtx.Context(), "public key list body is too large", "limit", MaxAuthKeyListBodySize)
+		err = ErrRequestBodyTooLarge
 		return
 	}
 

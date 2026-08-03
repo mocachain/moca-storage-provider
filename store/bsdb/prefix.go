@@ -14,7 +14,7 @@ import (
 const PrefixesNumberOfShards = 64
 
 // ListObjects List objects by bucket name
-func (b *BsDBImpl) ListObjects(bucketName, continuationToken, prefix string, maxKeys int) ([]*ListObjectsResult, error) {
+func (b *BsDBImpl) ListObjects(bucketName, continuationToken, prefix string, maxKeys int, includePrivate bool) ([]*ListObjectsResult, error) {
 	var (
 		nodes       []*SlashPrefixTreeNode
 		filters     []func(*gorm.DB) *gorm.DB
@@ -56,7 +56,7 @@ func (b *BsDBImpl) ListObjects(bucketName, continuationToken, prefix string, max
 	if err != nil {
 		return nil, err
 	}
-	res, err = b.filterObjects(nodes, bucketName)
+	res, err = b.filterObjects(nodes, bucketName, includePrivate)
 	return res, err
 }
 
@@ -82,7 +82,7 @@ func processPath(pathName string) (string, string) {
 // filterObjects filters a slice of SlashPrefixTreeNode for nodes which IsObject attribute is true,
 // maps these objects by their ID and transforms them into a ListObjectsResult format.
 // Returns a slice of ListObjectsResult containing filtered object data or an error if something goes wrong.
-func (b *BsDBImpl) filterObjects(nodes []*SlashPrefixTreeNode, bucketName string) ([]*ListObjectsResult, error) {
+func (b *BsDBImpl) filterObjects(nodes []*SlashPrefixTreeNode, bucketName string, includePrivate bool) ([]*ListObjectsResult, error) {
 	var (
 		objectIDs    []common.Hash
 		totalObjects []*Object
@@ -108,9 +108,12 @@ func (b *BsDBImpl) filterObjects(nodes []*SlashPrefixTreeNode, bucketName string
 		}
 	}
 
-	err = b.db.Table(GetObjectsTableName(bucketName)).
-		Where("object_id in (?)", objectIDs).
-		Find(&objects).Error
+	query := b.db.Table(GetObjectsTableName(bucketName)).
+		Where("object_id in (?)", objectIDs)
+	if !includePrivate {
+		query = query.Scopes(PublicReadOnlyFilter(bucketName))
+	}
+	err = query.Find(&objects).Error
 
 	if err != nil {
 		return nil, err

@@ -254,7 +254,9 @@ func (g *GateModular) listObjectsByBucketNameHandler(w http.ResponseWriter, r *h
 		err := g.baseApp.GfSpClient().ListObjectsByBucketName(
 		reqCtx.Context(),
 		requestBucketName,
-		"",
+		// the authenticated caller decides whether the private objects of the
+		// bucket are part of the listing
+		reqCtx.Account(),
 		maxKeys,
 		requestStartAfter,
 		continuationToken,
@@ -2174,6 +2176,10 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if err = g.checkStatusAllowed(reqCtx.Account()); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refused to serve sp status", "account", reqCtx.Account())
+		return
+	}
 
 	status, err = g.baseApp.GfSpClient().GetStatus(reqCtx.Context())
 	if err != nil {
@@ -2191,6 +2197,16 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
 	w.Write(b.Bytes())
+}
+
+// checkStatusAllowed reports whether the account may read the operational status.
+// The status carries this SP's blocksyncer, manager, executor and gc state, so it is
+// restricted to the configured operator accounts rather than to anyone who can sign.
+func (g *GateModular) checkStatusAllowed(account string) error {
+	if _, ok := g.statusAllowedAccounts[strings.ToLower(account)]; !ok {
+		return ErrNoPermission
+	}
+	return nil
 }
 
 func (g *GateModular) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -2508,6 +2524,10 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if err = g.checkObjectPolicyReader(reqCtx); err != nil {
+		return
+	}
+
 	policies, err = g.baseApp.GfSpClient().ListObjectPolicies(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, startAfter, actionType, limit)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to list policies by object info", "error", err)
@@ -2524,6 +2544,32 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 
 	w.Header().Set(ContentTypeHeader, ContentTypeXMLHeaderValue)
 	w.Write(respBytes)
+}
+
+// checkObjectPolicyReader reports whether the caller may read the policy list of an
+// object. The list names every principal granted access to the object, so it is
+// administrative data of that object and is served to the accounts that administer it:
+// the object owner, the object creator and the owner of the bucket it lives in.
+func (g *GateModular) checkObjectPolicyReader(reqCtx *RequestContext) error {
+	bucketInfo, objectInfo, err := g.baseApp.Consensus().QueryBucketInfoAndObjectInfo(
+		reqCtx.Context(), reqCtx.bucketName, reqCtx.objectName)
+	if err != nil {
+		log.CtxErrorw(reqCtx.Context(), "failed to get bucket and object info from consensus",
+			"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName, "error", err)
+		return ErrConsensusWithDetail("failed to get bucket and object info from consensus, error: " + err.Error())
+	}
+	if objectInfo == nil {
+		return ErrNoSuchObject
+	}
+	caller := common.HexToAddress(reqCtx.Account())
+	if caller == common.HexToAddress(objectInfo.GetOwner()) ||
+		caller == common.HexToAddress(objectInfo.GetCreator()) ||
+		(bucketInfo != nil && caller == common.HexToAddress(bucketInfo.GetOwner())) {
+		return nil
+	}
+	log.CtxErrorw(reqCtx.Context(), "refused to list the policies of an object the caller does not administer",
+		"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName)
+	return ErrNoPermission
 }
 
 // listPaymentAccountStreamsHandler list payment account streams

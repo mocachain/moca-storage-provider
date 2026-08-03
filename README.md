@@ -580,6 +580,9 @@ On = false
 RateLimit = 0
 # optional
 RatePeriod = ''
+# optional; CIDR blocks or addresses of proxies allowed to supply X-Forwarded-For.
+# Leave empty when the storage provider is not behind a trusted proxy.
+TrustedProxies = []
 
 [Manager]
 # optional
