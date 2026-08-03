@@ -33,6 +33,11 @@ type IPLimitConfig struct {
 	On         bool   `comment:"optional"`
 	RateLimit  int    `comment:"optional"`
 	RatePeriod string `comment:"optional"`
+	// TrustedProxies lists the CIDR blocks or addresses whose X-Forwarded-For
+	// entries may be believed. Leave it empty unless this storage provider is
+	// behind a proxy it controls: the header is caller-supplied, and honouring it
+	// from an untrusted peer lets any caller pick its own rate limit bucket.
+	TrustedProxies []string `comment:"optional"`
 }
 
 type RateLimiterConfig struct {
@@ -67,6 +72,7 @@ type apiLimiter struct {
 	store      slimiter.Store
 	limiterMap sync.Map
 	cfg        APILimiterConfig
+	ipResolver *ipResolver
 }
 
 var limiter *apiLimiter
@@ -76,8 +82,13 @@ func NewAPILimiter(cfg *APILimiterConfig) error {
 		Prefix:          "sp_api_rate_limiter",
 		CleanUpInterval: 5 * time.Second,
 	})
+	resolver, err := newIPResolver(cfg.IPLimitCfg.TrustedProxies)
+	if err != nil {
+		return err
+	}
 	limiter = &apiLimiter{
-		store: localStore,
+		store:      localStore,
+		ipResolver: resolver,
 		cfg: APILimiterConfig{
 			APILimits:    make(map[string][]MemoryLimiterConfig),
 			PathPattern:  make(map[string][]MemoryLimiterConfig),
@@ -88,7 +99,6 @@ func NewAPILimiter(cfg *APILimiterConfig) error {
 		},
 	}
 
-	var err error
 	var rate slimiter.Rate
 
 	for k, v := range cfg.PathPattern {
@@ -218,8 +228,7 @@ func (t *apiLimiter) HTTPAllow(ctx context.Context, r *http.Request) bool {
 	if !t.cfg.IPLimitCfg.On {
 		return true
 	}
-	ipStr := GetIP(r)
-	key := "ip_" + ipStr
+	key := "ip_" + t.ipResolver.clientIP(r)
 
 	rate, err := slimiter.NewRateFromFormatted(fmt.Sprintf("%d-%s", t.cfg.IPLimitCfg.RateLimit, t.cfg.IPLimitCfg.RatePeriod))
 	if err != nil {
@@ -253,12 +262,9 @@ func Limit(domain string) func(http.Handler) http.Handler {
 	}
 }
 
-// GetIP gets a requests IP address by reading off the forwarded-for
-// header (for proxies) and falls back to use the remote address.
+// GetIP returns the address of the peer the request arrived from, ignoring any
+// forwarded-for header. Use apiLimiter.clientIP when a trusted proxy list is
+// configured.
 func GetIP(r *http.Request) string {
-	forwarded := r.Header.Get("X-FORWARDED-FOR")
-	if forwarded != "" {
-		return forwarded
-	}
-	return r.RemoteAddr
+	return (&ipResolver{}).clientIP(r)
 }
