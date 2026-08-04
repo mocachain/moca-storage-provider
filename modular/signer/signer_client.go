@@ -33,8 +33,12 @@ import (
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
-// test seam: allow tests to stub WaitForEvmTx
-var waitForEvmTxFn = client.WaitForEvmTx
+// test seams for chain interactions
+var (
+	waitForEvmTxFn      = client.WaitForEvmTx
+	getCosmosNonceFn    = (*client.MocaClient).GetNonce
+	broadcastCosmosTxFn = (*client.MocaClient).BroadcastTx
+)
 
 // SignType is the type of msg signature
 type SignType string
@@ -2541,7 +2545,13 @@ func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClie
 func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *client.MocaClient,
 	msgs []sdk.Msg, txOpt *ctypes.TxOption, opts ...grpc.CallOption,
 ) (string, error) {
-	resp, err := gnfdClient.BroadcastTx(ctx, msgs, txOpt, opts...)
+	nonce, err := getCosmosNonceFn(gnfdClient, ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get nonce on chain")
+	}
+	txOpt.Nonce = nonce
+
+	resp, err := broadcastCosmosTxFn(gnfdClient, ctx, msgs, txOpt, opts...)
 	if err != nil {
 		if strings.Contains(err.Error(), "account sequence mismatch") {
 			return "", sdkErrors.ErrWrongSequence
