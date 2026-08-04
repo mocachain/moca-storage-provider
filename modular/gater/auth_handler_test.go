@@ -1453,6 +1453,8 @@ const zeroAddressHex = "0x0000000000000000000000000000000000000000"
 // return from NewRequestContext stops the request, so that is what this pins: the
 // existing unsigned test uses a random victim address, which the comparison rejects
 // on its own and which therefore keeps passing if the error return is removed.
+// The expiry header is valid so the refusal comes from signature verification, not
+// from the attacker-satisfiable expiry parse that runs before it.
 func TestListUserPublicKeyV2HandlerRejectsUnsignedZeroAddress(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
@@ -1468,6 +1470,7 @@ func TestListUserPublicKeyV2HandlerRejectsUnsignedZeroAddress(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, ListAuthKeyV2Path, nil)
 	req.Header.Set(GnfdUserAddressHeader, zeroAddressHex)
 	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
 
 	recorder := httptest.NewRecorder()
 	gateway.listUserPublicKeyV2Handler(recorder, req)
@@ -1493,6 +1496,7 @@ func TestDeleteUserPublicKeyV2HandlerRejectsUnsignedZeroAddress(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, AuthDeleteKeysV2Path, strings.NewReader(SamplePublicKey))
 	req.Header.Set(GnfdUserAddressHeader, zeroAddressHex)
 	req.Header.Set(GnfdOffChainAuthAppDomainHeader, SampleDAppDomain)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
 
 	recorder := httptest.NewRecorder()
 	gateway.deleteUserPublicKeyV2Handler(recorder, req)
