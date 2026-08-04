@@ -9,12 +9,14 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/mocachain/moca/v2/sdk/client"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 func TestResolvePendingEvmTxLookupErrorKeepsExactHash(t *testing.T) {
@@ -206,6 +208,46 @@ func TestRecordPendingEvmTxClearsOnlyExactHash(t *testing.T) {
 	}
 }
 
+func TestPendingEvmTxStateIsSafeAcrossSigningAccounts(t *testing.T) {
+	signerClient := &MocaChainSignClient{}
+
+	var wg sync.WaitGroup
+	for _, scope := range []SignType{SignOperator, SignSeal, SignGc} {
+		scope := scope
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				hash := ethcmn.BigToHash(big.NewInt(int64(i + 1)))
+				signerClient.recordPendingEvmTx(scope, hash, uint64(i), hash)
+				signerClient.clearPendingEvmTx(scope, hash)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestCompleteSPExitFingerprintIgnoresUnsubmittedStorageProvider(t *testing.T) {
+	first, err := completeSPExitEvmFingerprint(&virtualgrouptypes.MsgCompleteStorageProviderExit{
+		StorageProvider: "first",
+		Operator:        "operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := completeSPExitEvmFingerprint(&virtualgrouptypes.MsgCompleteStorageProviderExit{
+		StorageProvider: "second",
+		Operator:        "operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first != second {
+		t.Fatalf("identical CompleteSPExit calldata produced different fingerprints: %s != %s", first, second)
+	}
+}
+
 func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, "signer_client.go", nil, 0)
@@ -237,6 +279,9 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 		})
 
 		fingerprintPos := calls["evmOperationFingerprint"]
+		if function.Name.Name == "CompleteSPExitEvm" {
+			fingerprintPos = calls["completeSPExitEvmFingerprint"]
+		}
 		resolvePos := calls["resolvePendingEvmTx"]
 		recordPos := calls["recordPendingEvmTx"]
 		clearPos := calls["clearPendingEvmTx"]

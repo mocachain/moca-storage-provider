@@ -134,6 +134,7 @@ type MocaChainSignClient struct {
 	operatorAccNonce uint64
 	sealAccNonce     uint64
 	gcAccNonce       uint64
+	pendingEvmTxMu   sync.Mutex
 	pendingEvmTxs    map[SignType]pendingEvmTx
 	blsKm            keys.KeyManager
 }
@@ -1841,7 +1842,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		Operator:        completeSPExit.Operator,
 	}
 
-	operation, err := evmOperationFingerprint(msgCompleteSPExit)
+	operation, err := completeSPExitEvmFingerprint(msgCompleteSPExit)
 	if err != nil {
 		return "", err
 	}
@@ -2798,10 +2799,18 @@ func evmOperationFingerprint(msg sdk.Msg) (ethcmn.Hash, error) {
 	return crypto.Keccak256Hash([]byte(fmt.Sprintf("%T\x00", msg)), msgBytes), nil
 }
 
+func completeSPExitEvmFingerprint(msg *virtualgrouptypes.MsgCompleteStorageProviderExit) (ethcmn.Hash, error) {
+	return evmOperationFingerprint(&virtualgrouptypes.MsgCompleteStorageProviderExit{
+		Operator: msg.Operator,
+	})
+}
+
 func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scope SignType,
 	operation ethcmn.Hash,
 ) (string, bool, error) {
+	client.pendingEvmTxMu.Lock()
 	pending, ok := client.pendingEvmTxs[scope]
+	client.pendingEvmTxMu.Unlock()
 	if !ok {
 		return "", false, nil
 	}
@@ -2831,6 +2840,8 @@ func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scop
 func (client *MocaChainSignClient) recordPendingEvmTx(scope SignType, operation ethcmn.Hash, nonce uint64,
 	txHash ethcmn.Hash,
 ) {
+	client.pendingEvmTxMu.Lock()
+	defer client.pendingEvmTxMu.Unlock()
 	if client.pendingEvmTxs == nil {
 		client.pendingEvmTxs = make(map[SignType]pendingEvmTx, 3)
 	}
@@ -2838,6 +2849,8 @@ func (client *MocaChainSignClient) recordPendingEvmTx(scope SignType, operation 
 }
 
 func (client *MocaChainSignClient) clearPendingEvmTx(scope SignType, txHash ethcmn.Hash) {
+	client.pendingEvmTxMu.Lock()
+	defer client.pendingEvmTxMu.Unlock()
 	pending, ok := client.pendingEvmTxs[scope]
 	if ok && pending.hash == txHash {
 		delete(client.pendingEvmTxs, scope)
