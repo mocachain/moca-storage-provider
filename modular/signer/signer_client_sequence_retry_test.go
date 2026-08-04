@@ -121,6 +121,51 @@ func TestUpdateSPPriceReportsNonceRefreshFailure(t *testing.T) {
 	assert.NotContains(t, err.Error(), sdkErrors.ErrWrongSequence.Error())
 }
 
+func TestDiscontinueBucketDoesNotRetryNonSequenceError(t *testing.T) {
+	chainClient := newSequenceRetryTestClient(t)
+	signClient := &MocaChainSignClient{
+		mocaClients: map[SignType]*client.MocaClient{SignGc: chainClient},
+	}
+
+	restoreSequenceRetrySeams(t)
+	broadcastCalls := 0
+	broadcastTxForRetryFn = func(_ *MocaChainSignClient, _ context.Context, _ *client.MocaClient,
+		_ []sdk.Msg, _ *ctypes.TxOption, _ ...grpc.CallOption,
+	) (string, error) {
+		broadcastCalls++
+		return "", errors.New("transport unavailable")
+	}
+
+	_, err := signClient.DiscontinueBucket(context.Background(), SignGc, &storagetypes.MsgDiscontinueBucket{})
+
+	require.ErrorIs(t, err, ErrDiscontinueBucketOnChain)
+	assert.Equal(t, 1, broadcastCalls)
+}
+
+func TestUpdateSPPriceDoesNotRetryNonSequenceError(t *testing.T) {
+	chainClient := newSequenceRetryTestClient(t)
+	signClient := &MocaChainSignClient{
+		mocaClients: map[SignType]*client.MocaClient{SignOperator: chainClient},
+		gasInfo: map[GasInfoType]GasInfo{
+			UpdateSPPrice: {},
+		},
+	}
+
+	restoreSequenceRetrySeams(t)
+	broadcastCalls := 0
+	broadcastTxForRetryFn = func(_ *MocaChainSignClient, _ context.Context, _ *client.MocaClient,
+		_ []sdk.Msg, _ *ctypes.TxOption, _ ...grpc.CallOption,
+	) (string, error) {
+		broadcastCalls++
+		return "", errors.New("transport unavailable")
+	}
+
+	_, err := signClient.UpdateSPPrice(context.Background(), SignOperator, &sptypes.MsgUpdateSpStoragePrice{})
+
+	require.ErrorIs(t, err, ErrUpdateSPPriceOnChain)
+	assert.Equal(t, 1, broadcastCalls)
+}
+
 func newSequenceRetryTestClient(t *testing.T) *client.MocaClient {
 	t.Helper()
 	km, err := keys.NewPrivateKeyManager(util.RandHexKey())

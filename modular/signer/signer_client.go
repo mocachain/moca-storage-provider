@@ -617,6 +617,11 @@ func (client *MocaChainSignClient) DiscontinueBucket(ctx context.Context, scope 
 		}
 
 		txHash, err = broadcastTxForRetryFn(client, ctx, client.mocaClients[scope], []sdk.Msg{msgDiscontinueBucket}, txOpt)
+		if err != nil && !errors.IsOf(err, sdkErrors.ErrWrongSequence) {
+			log.CtxErrorw(ctx, "failed to broadcast discontinue bucket", "retry_number", i, "error", err,
+				"discontinue_bucket", msgDiscontinueBucket.String())
+			break
+		}
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = getNonceOnChainForRetryFn(client, ctx, client.mocaClients[scope])
@@ -1075,6 +1080,11 @@ func (client *MocaChainSignClient) UpdateSPPrice(ctx context.Context, scope Sign
 		}
 
 		txHash, err = broadcastTxForRetryFn(client, ctx, client.mocaClients[scope], []sdk.Msg{msgUpdateStorageSPPrice}, txOpt)
+		if err != nil && !errors.IsOf(err, sdkErrors.ErrWrongSequence) {
+			log.CtxErrorw(ctx, "failed to broadcast update sp price msg", "retry_number", i, "error", err,
+				"update_sp_price", msgUpdateStorageSPPrice.String())
+			break
+		}
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = getNonceOnChainForRetryFn(client, ctx, client.mocaClients[scope])
