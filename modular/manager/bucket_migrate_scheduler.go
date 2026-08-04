@@ -216,7 +216,7 @@ func (plan *BucketMigrateExecutePlan) sendCompleteMigrateBucketTx(migrateExecute
 		aggBlsSig, getBlsError := plan.getBlsAggregateSigForBucketMigration(context.Background(), migrateGVGUnit)
 		if getBlsError != nil {
 			log.Errorw("failed to get bls aggregate signature", "error", getBlsError)
-			return err
+			return getBlsError
 		}
 		vgfID = migrateGVGUnit.DestGVG.GetFamilyId()
 		log.Infow("get bls aggregate signature", "bucket_id", bucket.BucketInfo.Id, "migrateGVGUnit", migrateGVGUnit)
