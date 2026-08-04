@@ -308,7 +308,7 @@ func (client *MocaChainSignClient) SealObject(ctx context.Context, scope SignTyp
 			Nonce:      nonce,
 		}
 
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSealObject}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSealObject}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -470,7 +470,7 @@ func (client *MocaChainSignClient) RejectUnSealObject(ctx context.Context, scope
 			FeeAmount:  client.gasInfo[RejectSeal].FeeAmount,
 			Nonce:      nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgRejectUnSealObject}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgRejectUnSealObject}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -609,7 +609,7 @@ func (client *MocaChainSignClient) DiscontinueBucket(ctx context.Context, scope 
 		Nonce: nonce,
 	}
 
-	txHash, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDiscontinueBucket}, txOpt)
+	txHash, nonce, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDiscontinueBucket}, txOpt)
 	if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 		// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 		nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -739,7 +739,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroup(ctx context.Context,
 			FeeAmount: client.gasInfo[CreateGlobalVirtualGroup].FeeAmount,
 			Nonce:     nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCreateGlobalVirtualGroup}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCreateGlobalVirtualGroup}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -898,7 +898,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucket(ctx context.Context, sc
 			Mode:  &mode,
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteMigrateBucket}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteMigrateBucket}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1056,7 +1056,7 @@ func (client *MocaChainSignClient) UpdateSPPrice(ctx context.Context, scope Sign
 		Nonce:     nonce,
 	}
 
-	txHash, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgUpdateStorageSPPrice}, txOpt)
+	txHash, nonce, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgUpdateStorageSPPrice}, txOpt)
 	if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 		// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 		nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1205,7 +1205,7 @@ func (client *MocaChainSignClient) SwapOut(ctx context.Context, scope SignType,
 			FeeAmount: client.gasInfo[SwapOut].FeeAmount,
 			Nonce:     nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSwapOut}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSwapOut}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1369,7 +1369,7 @@ func (client *MocaChainSignClient) CompleteSwapOut(ctx context.Context, scope Si
 			FeeAmount: client.gasInfo[CompleteSwapOut].FeeAmount,
 			Nonce:     nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSwapOut}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSwapOut}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1518,7 +1518,7 @@ func (client *MocaChainSignClient) SPExit(ctx context.Context, scope SignType,
 			FeeAmount: client.gasInfo[SPExit].FeeAmount,
 			Nonce:     nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSPExit}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSPExit}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1659,7 +1659,7 @@ func (client *MocaChainSignClient) CompleteSPExit(ctx context.Context, scope Sig
 			FeeAmount: client.gasInfo[CompleteSPExit].FeeAmount,
 			Nonce:     nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSPExit}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSPExit}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1796,7 +1796,7 @@ func (client *MocaChainSignClient) RejectMigrateBucket(ctx context.Context, scop
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgRejectMigrateBucket}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgRejectMigrateBucket}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -1937,7 +1937,7 @@ func (client *MocaChainSignClient) Deposit(ctx context.Context, scope SignType,
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDeposit}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDeposit}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2083,7 +2083,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroup(ctx context.Context,
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDeleteGlobalVirtualGroup}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDeleteGlobalVirtualGroup}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2222,7 +2222,7 @@ func (client *MocaChainSignClient) DelegateCreateObject(ctx context.Context, sco
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msg}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msg}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2372,7 +2372,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContent(ctx context.Conte
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msg}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msg}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2544,27 +2544,27 @@ func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClie
 
 func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *client.MocaClient,
 	msgs []sdk.Msg, txOpt *ctypes.TxOption, opts ...grpc.CallOption,
-) (string, error) {
+) (string, uint64, error) {
 	nonce, err := getCosmosNonceFn(gnfdClient, ctx)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to get nonce on chain")
+		return "", 0, errors.Wrap(err, "failed to get nonce on chain")
 	}
 	txOpt.Nonce = nonce
 
 	resp, err := broadcastCosmosTxFn(gnfdClient, ctx, msgs, txOpt, opts...)
 	if err != nil {
 		if strings.Contains(err.Error(), "account sequence mismatch") {
-			return "", sdkErrors.ErrWrongSequence
+			return "", nonce, sdkErrors.ErrWrongSequence
 		}
-		return "", errors.Wrap(err, "failed to broadcast tx with moca client")
+		return "", nonce, errors.Wrap(err, "failed to broadcast tx with moca client")
 	}
 	if resp.TxResponse.Code == sdkErrors.ErrWrongSequence.ABCICode() {
-		return "", sdkErrors.ErrWrongSequence
+		return "", nonce, sdkErrors.ErrWrongSequence
 	}
 	if resp.TxResponse.Code != 0 {
-		return "", fmt.Errorf("failed to broadcast tx, resp code: %d, code space: %s", resp.TxResponse.Code, resp.TxResponse.Codespace)
+		return "", nonce, fmt.Errorf("failed to broadcast tx, resp code: %d, code space: %s", resp.TxResponse.Code, resp.TxResponse.Codespace)
 	}
-	return resp.TxResponse.TxHash, nil
+	return resp.TxResponse.TxHash, nonce, nil
 }
 
 func (svc *MocaChainSignClient) waitForTransactionReceipt(ctx context.Context, txHash ethcmn.Hash) (*types.Receipt, error) {
@@ -2614,7 +2614,7 @@ func (client *MocaChainSignClient) ReserveSwapIn(ctx context.Context, scope Sign
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgReserveSwapIn}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgReserveSwapIn}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2757,7 +2757,7 @@ func (client *MocaChainSignClient) CompleteSwapIn(ctx context.Context, scope Sig
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSwapIn}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCompleteSwapIn}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -2899,7 +2899,7 @@ func (client *MocaChainSignClient) CancelSwapIn(ctx context.Context, scope SignT
 		txOpt := &ctypes.TxOption{
 			Nonce: nonce,
 		}
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCancelSwapIn}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgCancelSwapIn}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
@@ -3052,7 +3052,7 @@ func (client *MocaChainSignClient) SealObjectV2(ctx context.Context, scope SignT
 			Nonce:      nonce,
 		}
 
-		txHash, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSealObject}, txOpt)
+		txHash, nonce, err = client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgSealObject}, txOpt)
 		if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])

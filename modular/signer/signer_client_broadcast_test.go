@@ -31,10 +31,11 @@ func TestBroadcastTxOverwritesNonceFromChain(t *testing.T) {
 	}
 
 	txOpt := &ctypes.TxOption{Nonce: 9}
-	hash, err := (&MocaChainSignClient{}).broadcastTx(context.Background(), nil, nil, txOpt)
+	hash, nonce, err := (&MocaChainSignClient{}).broadcastTx(context.Background(), nil, nil, txOpt)
 
 	require.NoError(t, err)
 	require.Equal(t, "ABC123", hash)
+	require.Equal(t, uint64(17), nonce)
 	require.Equal(t, uint64(17), txOpt.Nonce)
 	require.Equal(t, uint64(17), broadcastNonce)
 }
@@ -57,7 +58,7 @@ func TestBroadcastTxDoesNotBroadcastWhenNonceQueryFails(t *testing.T) {
 	}
 
 	txOpt := &ctypes.TxOption{Nonce: 9}
-	hash, err := (&MocaChainSignClient{}).broadcastTx(context.Background(), nil, nil, txOpt)
+	hash, _, err := (&MocaChainSignClient{}).broadcastTx(context.Background(), nil, nil, txOpt)
 
 	require.ErrorContains(t, err, "failed to get nonce on chain")
 	require.Empty(t, hash)
