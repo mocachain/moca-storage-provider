@@ -132,6 +132,7 @@ type ChainConfig struct {
 	ChainID                              string   `comment:"required"`
 	ChainAddress                         []string `comment:"required"`
 	RpcAddress                           []string `comment:"required"`
+	MaxEvmGasPrice                       uint64   `comment:"optional"`
 	SealGasLimit                         uint64   `comment:"optional"`
 	SealFeeAmount                        uint64   `comment:"optional"`
 	RejectSealGasLimit                   uint64   `comment:"optional"`

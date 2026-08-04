@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	DefaultMaxEvmGasPrice = uint64(types.DefaultGasPrice)
+
 	DefaultSealGasLimit                         = 1200 // fix gas limit for MsgSealObject is 1200
 	DefaultSealFeeAmount                        = 6000000000000
 	DefaultRejectSealGasLimit                   = 12000 // fix gas limit for MsgRejectSealObject is 12000
@@ -74,6 +76,9 @@ func NewSignModular(app *gfspapp.GfSpBaseApp, cfg *gfspconfig.GfSpConfig) (corem
 func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error {
 	if len(cfg.Chain.ChainAddress) == 0 {
 		return fmt.Errorf("chain address missing")
+	}
+	if cfg.Chain.MaxEvmGasPrice == 0 {
+		cfg.Chain.MaxEvmGasPrice = DefaultMaxEvmGasPrice
 	}
 	if cfg.Chain.SealGasLimit == 0 {
 		cfg.Chain.SealGasLimit = DefaultSealGasLimit
@@ -282,7 +287,7 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 
 	client, err := NewMocaChainSignClient(cfg.Chain.ChainAddress[0], cfg.Chain.RpcAddress[0], cfg.Chain.ChainID,
-		gasInfo, cfg.SpAccount.OperatorPrivateKey, cfg.SpAccount.FundingPrivateKey,
+		gasInfo, cfg.Chain.MaxEvmGasPrice, cfg.SpAccount.OperatorPrivateKey, cfg.SpAccount.FundingPrivateKey,
 		cfg.SpAccount.SealPrivateKey, cfg.SpAccount.ApprovalPrivateKey, cfg.SpAccount.GcPrivateKey, cfg.SpAccount.BlsPrivateKey)
 	if err != nil {
 		return err

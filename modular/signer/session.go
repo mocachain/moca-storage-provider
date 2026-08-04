@@ -3,6 +3,7 @@ package signer
 import (
 	"context"
 	"crypto/ecdsa"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -13,7 +14,7 @@ import (
 	"github.com/mocachain/moca/v2/precompiles/virtualgroup"
 )
 
-func CreateTxOpts(ctx context.Context, client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain *big.Int, gasLimit uint64, nonce uint64) (*bind.TransactOpts, error) {
+func CreateTxOpts(ctx context.Context, client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain *big.Int, gasLimit uint64, nonce uint64, maxGasPrice *big.Int) (*bind.TransactOpts, error) {
 	if privateKey == nil {
 		return nil, ErrDanglingPointer
 	}
@@ -29,6 +30,9 @@ func CreateTxOpts(ctx context.Context, client *ethclient.Client, privateKey *ecd
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if maxGasPrice == nil || maxGasPrice.Sign() <= 0 || gasPrice.Cmp(maxGasPrice) > 0 {
+		return nil, fmt.Errorf("suggested gas price %s exceeds configured maximum %v", gasPrice, maxGasPrice)
 	}
 	txOpts.GasPrice = gasPrice
 
