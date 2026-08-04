@@ -230,16 +230,16 @@ func (plan *BucketMigrateExecutePlan) sendCompleteMigrateBucketTx(migrateExecute
 		Operator:   plan.manager.baseApp.OperatorAddress(),
 		BucketName: bucket.BucketInfo.GetBucketName(), GvgMappings: gvgMappings, GlobalVirtualGroupFamilyId: vgfID,
 	}
-	log.Infow("before sent complete migrate bucket msg to chain", "msg", migrateBucket, "gvgUnitMap", plan.gvgUnitMap)
+	log.Infow("before sent complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID)
 	txHash, txErr := plan.manager.baseApp.GfSpClient().CompleteMigrateBucket(context.Background(), migrateBucket)
 	if txErr != nil {
-		log.Errorw("failed to send complete migrate bucket msg to chain", "msg", migrateBucket, "tx_hash", txHash, "err", txErr)
+		log.Errorw("failed to send complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID, "tx_hash", txHash, "err", txErr)
 		return txErr
 	}
 	if err = UpdateBucketMigrationProgress(plan.manager.baseApp, plan.bucketID, storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_SEND_COMPLETE_TX_DONE); err != nil {
 		return err
 	}
-	log.Infow("sent complete migrate bucket msg to chain", "msg", migrateBucket, "tx_hash", txHash)
+	log.Infow("sent complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID, "tx_hash", txHash)
 	return nil
 }
 
@@ -381,7 +381,7 @@ func (plan *BucketMigrateExecutePlan) getBlsAggregateSigForBucketMigration(ctx c
 			return nil, err
 		}
 		secondarySigs = append(secondarySigs, sig)
-		log.Infow("get secondary sp migration bucket approval", "sp_info", spInfo)
+		log.Infow("get secondary sp migration bucket approval", "sp_id", spInfo.Id)
 	}
 	aggBlsSig, err := util.BlsAggregate(secondarySigs)
 	if err != nil {
