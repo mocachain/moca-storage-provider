@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/stretchr/testify/require"
 )
 
@@ -75,7 +76,7 @@ func TestCreateTxOpts_AcceptsDefaultChainGasPrice(t *testing.T) {
 
 	txOpts, err := CreateTxOpts(
 		context.Background(), client, testPrivateKey(t), big.NewInt(5151),
-		5_000_000, 9, new(big.Int).SetUint64(DefaultMaxEvmGasPrice),
+		5_000_000, 9, new(big.Int).SetUint64(gfspconfig.DefaultMaxEvmGasPriceWei),
 	)
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(20_000_000_000), txOpts.GasPrice)

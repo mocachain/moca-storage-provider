@@ -33,6 +33,12 @@ func TestGfSpConfig_StringSuccess(t *testing.T) {
 	assert.NotNil(t, result)
 }
 
+func TestDefaultConfigIncludesExplicitEvmGasPriceWei(t *testing.T) {
+	cfg := DefaultConfig()
+
+	assert.Equal(t, uint64(20_000_000_000), cfg.Chain.MaxEvmGasPriceWei)
+}
+
 func TestGfSpConfig_StringRedactsSecrets(t *testing.T) {
 	cfg := &GfSpConfig{
 		Env: "mainnet",

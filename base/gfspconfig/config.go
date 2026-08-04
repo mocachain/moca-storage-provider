@@ -17,6 +17,8 @@ import (
 
 type Option = func(cfg *GfSpConfig) error
 
+const DefaultMaxEvmGasPriceWei uint64 = 20_000_000_000
+
 // Customize defines the interface for developer to customize own implement, the GfSp base
 // app will call the customized implement.
 type Customize struct {
@@ -132,7 +134,7 @@ type ChainConfig struct {
 	ChainID                              string   `comment:"required"`
 	ChainAddress                         []string `comment:"required"`
 	RpcAddress                           []string `comment:"required"`
-	MaxEvmGasPrice                       uint64   `comment:"optional"`
+	MaxEvmGasPriceWei                    uint64   `comment:"optional; maximum EVM gas price in wei"`
 	SealGasLimit                         uint64   `comment:"optional"`
 	SealFeeAmount                        uint64   `comment:"optional"`
 	RejectSealGasLimit                   uint64   `comment:"optional"`
@@ -344,6 +346,9 @@ type LogConfig struct {
 // DefaultConfig returns a GfSpConfig with safe defaults for fields that must not be empty.
 func DefaultConfig() *GfSpConfig {
 	return &GfSpConfig{
+		Chain: ChainConfig{
+			MaxEvmGasPriceWei: DefaultMaxEvmGasPriceWei,
+		},
 		Log: LogConfig{
 			Path: "./logs",
 		},
