@@ -160,7 +160,7 @@ func storageProvider(ctx *cli.Context) error {
 	cfg, err := utils.MakeConfig(ctx)
 	if err != nil {
 		log.Errorw("failed to make gf-sp config", "error", err)
-		return nil
+		return err
 	}
 	err = utils.MakeEnv(ctx, cfg)
 	if err != nil {

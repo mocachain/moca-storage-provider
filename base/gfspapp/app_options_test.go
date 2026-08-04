@@ -26,6 +26,14 @@ func TestDefaultStaticOptionRejectsMissingGRPCTLS(t *testing.T) {
 	assert.ErrorContains(t, err, "GRPCTLS.CACertFile is required")
 }
 
+func TestNewGfSpBaseAppRejectsLegacyFundingPrivateKey(t *testing.T) {
+	_, err := NewGfSpBaseApp(&gfspconfig.GfSpConfig{
+		SpAccount: gfspconfig.SpAccountConfig{FundingPrivateKey: "legacy-key"},
+	})
+
+	assert.ErrorContains(t, err, "FundingPrivateKey is not supported")
+}
+
 func TestValidateSignerAuthConfig(t *testing.T) {
 	t.Run("signer requires allowed client URIs", func(t *testing.T) {
 		err := validateSignerAuthConfig([]string{module.SignModularName}, gfspconfig.SignerAuthConfig{})

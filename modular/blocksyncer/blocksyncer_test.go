@@ -1,14 +1,32 @@
 package blocksyncer
 
 import (
+	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/urfave/cli/v2"
 
+	"github.com/mocachain/moca-storage-provider/cmd/utils"
 	"github.com/mocachain/moca-storage-provider/modular/blocksyncer/test"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
+
+func TestStorageProviderRejectsLegacyFundingPrivateKey(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[SpAccount]\nFundingPrivateKey = 'legacy-key'\n"), 0o600))
+
+	set := flag.NewFlagSet("test", flag.ContinueOnError)
+	require.NoError(t, utils.ConfigFileFlag.Apply(set))
+	require.NoError(t, set.Parse([]string{"--config", configPath}))
+	err := StorageProvider(cli.NewContext(cli.NewApp(), set, nil))
+
+	require.ErrorContains(t, err, "FundingPrivateKey is not supported")
+}
 
 type BasicTestSuite struct {
 	BlockSyncerE2eBaseSuite
