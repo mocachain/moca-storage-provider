@@ -75,6 +75,9 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	if len(cfg.Chain.ChainAddress) == 0 {
 		return fmt.Errorf("chain address missing")
 	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if cfg.Chain.SealGasLimit == 0 {
 		cfg.Chain.SealGasLimit = DefaultSealGasLimit
 	}
@@ -282,7 +285,7 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 
 	client, err := NewMocaChainSignClient(cfg.Chain.ChainAddress[0], cfg.Chain.RpcAddress[0], cfg.Chain.ChainID,
-		gasInfo, cfg.SpAccount.OperatorPrivateKey, cfg.SpAccount.FundingPrivateKey,
+		gasInfo, cfg.SpAccount.OperatorPrivateKey,
 		cfg.SpAccount.SealPrivateKey, cfg.SpAccount.ApprovalPrivateKey, cfg.SpAccount.GcPrivateKey, cfg.SpAccount.BlsPrivateKey)
 	if err != nil {
 		return err
