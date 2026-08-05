@@ -2291,12 +2291,7 @@ func (client *MocaChainSignClient) broadcastTxWithSequenceRetry(ctx context.Cont
 func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *client.MocaClient,
 	msgs []sdk.Msg, txOpt *ctypes.TxOption, opts ...grpc.CallOption,
 ) (string, uint64, error) {
-	nonce, err := getCosmosNonceFn(gnfdClient, ctx)
-	if err != nil {
-		return "", 0, errors.Wrap(err, "failed to get nonce on chain")
-	}
-	txOpt.Nonce = nonce
-
+	nonce := txOpt.Nonce
 	hash, err := client.broadcastTxOnce(ctx, gnfdClient, msgs, txOpt, opts...)
 	return hash, nonce, err
 }

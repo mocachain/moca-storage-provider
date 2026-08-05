@@ -119,6 +119,30 @@ func TestBroadcastTxWithSequenceRetryUsesCachedNonceOnFirstAttempt(t *testing.T)
 	require.Zero(t, nonceQueries)
 }
 
+func TestBroadcastTxUsesProvidedNonceWithoutQuery(t *testing.T) {
+	restoreBroadcastRetrySeams(t)
+	nonceQueries := 0
+	getCosmosNonceFn = func(_ *client.MocaClient, _ context.Context) (uint64, error) {
+		nonceQueries++
+		return 17, nil
+	}
+	var broadcastNonce uint64
+	broadcastCosmosTxFn = func(_ *client.MocaClient, _ context.Context, _ []sdk.Msg, txOpt *ctypes.TxOption, _ ...grpc.CallOption) (*tx.BroadcastTxResponse, error) {
+		broadcastNonce = txOpt.Nonce
+		return successfulBroadcastResponse("ABC123"), nil
+	}
+
+	hash, nonce, err := (&MocaChainSignClient{}).broadcastTx(
+		context.Background(), nil, nil, &ctypes.TxOption{Nonce: 9},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "ABC123", hash)
+	require.Equal(t, uint64(9), nonce)
+	require.Equal(t, uint64(9), broadcastNonce)
+	require.Zero(t, nonceQueries)
+}
+
 func TestBroadcastTxWithSequenceRetryRefreshesAfterMismatch(t *testing.T) {
 	restoreBroadcastRetrySeams(t)
 	nonceCache := uint64(7)
