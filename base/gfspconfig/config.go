@@ -1,6 +1,8 @@
 package gfspconfig
 
 import (
+	"fmt"
+
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsplimit"
@@ -68,6 +70,14 @@ type GfSpConfig struct {
 	Manager              ManagerConfig
 	GC                   GCConfig
 	Quota                QuotaConfig
+}
+
+// Validate checks configuration values that are invalid for every application mode.
+func (cfg *GfSpConfig) Validate() error {
+	if cfg.SpAccount.FundingPrivateKey != "" {
+		return fmt.Errorf("FundingPrivateKey is not supported; the signer uses OperatorPrivateKey for funding operations")
+	}
+	return nil
 }
 
 // GRPCTLSConfig defines the mutual TLS files used by internal gRPC clients and servers.
@@ -176,7 +186,7 @@ type ChainConfig struct {
 type SpAccountConfig struct {
 	SpOperatorAddress  string `comment:"required"`
 	OperatorPrivateKey string `comment:"required"`
-	FundingPrivateKey  string `comment:"optional"`
+	FundingPrivateKey  string `toml:",omitempty" comment:"deprecated; must be empty"`
 	SealPrivateKey     string `comment:"required"`
 	ApprovalPrivateKey string `comment:"required"`
 	GcPrivateKey       string `comment:"required"`
