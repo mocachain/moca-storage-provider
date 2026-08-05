@@ -3,6 +3,12 @@ package signer
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"runtime"
+	"sort"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,6 +19,80 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
+
+func TestCosmosSequenceRetryCallSites(t *testing.T) {
+	expectedCaches := map[string]string{
+		"SealObject":                  "sealAccNonce",
+		"RejectUnSealObject":          "sealAccNonce",
+		"CreateGlobalVirtualGroup":    "operatorAccNonce",
+		"CompleteMigrateBucket":       "operatorAccNonce",
+		"SwapOut":                     "operatorAccNonce",
+		"CompleteSwapOut":             "operatorAccNonce",
+		"SPExit":                      "operatorAccNonce",
+		"CompleteSPExit":              "operatorAccNonce",
+		"RejectMigrateBucket":         "operatorAccNonce",
+		"Deposit":                     "operatorAccNonce",
+		"DeleteGlobalVirtualGroup":    "operatorAccNonce",
+		"DelegateCreateObject":        "operatorAccNonce",
+		"DelegateUpdateObjectContent": "operatorAccNonce",
+		"ReserveSwapIn":               "operatorAccNonce",
+		"CompleteSwapIn":              "operatorAccNonce",
+		"CancelSwapIn":                "operatorAccNonce",
+		"SealObjectV2":                "sealAccNonce",
+	}
+	allowedLegacy := map[string]bool{
+		"DiscontinueBucket": true,
+		"UpdateSPPrice":     true,
+	}
+
+	_, currentFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	sourcePath := filepath.Join(filepath.Dir(currentFile), "signer_client.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), sourcePath, nil, 0)
+	require.NoError(t, err)
+
+	seen := make(map[string]bool)
+	var legacyCallers []string
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch selector.Sel.Name {
+			case "broadcastTx":
+				if !allowedLegacy[function.Name.Name] {
+					legacyCallers = append(legacyCallers, function.Name.Name)
+				}
+			case "broadcastTxWithSequenceRetry":
+				expectedCache, expected := expectedCaches[function.Name.Name]
+				require.Truef(t, expected, "unexpected retry helper call in %s", function.Name.Name)
+				require.Len(t, call.Args, 5, "retry helper call in %s", function.Name.Name)
+				cachePointer, ok := call.Args[4].(*ast.UnaryExpr)
+				require.Truef(t, ok && cachePointer.Op == token.AND, "retry helper cache in %s must be a pointer", function.Name.Name)
+				cache, ok := cachePointer.X.(*ast.SelectorExpr)
+				require.Truef(t, ok, "retry helper cache in %s must select a client field", function.Name.Name)
+				require.Equal(t, expectedCache, cache.Sel.Name, "wrong retry helper cache in %s", function.Name.Name)
+				seen[function.Name.Name] = true
+			}
+			return true
+		})
+	}
+
+	sort.Strings(legacyCallers)
+	require.Empty(t, legacyCallers, "Cosmos callers still using legacy broadcastTx: %v", legacyCallers)
+	for function := range expectedCaches {
+		require.Truef(t, seen[function], "%s does not use broadcastTxWithSequenceRetry", function)
+	}
+}
 
 func TestBroadcastTxWithSequenceRetryUsesCachedNonceOnFirstAttempt(t *testing.T) {
 	restoreBroadcastRetrySeams(t)
