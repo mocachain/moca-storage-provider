@@ -2542,6 +2542,30 @@ func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClie
 	return nonce, nil
 }
 
+func (client *MocaChainSignClient) broadcastTxWithSequenceRetry(ctx context.Context, gnfdClient *client.MocaClient,
+	msgs []sdk.Msg, txOpt *ctypes.TxOption, nonceCache *uint64, opts ...grpc.CallOption,
+) (string, uint64, error) {
+	var err error
+	for attempt := 0; attempt < BroadcastTxRetry; attempt++ {
+		nonce := *nonceCache
+		txOpt.Nonce = nonce
+		hash, broadcastErr := client.broadcastTxOnce(ctx, gnfdClient, msgs, txOpt, opts...)
+		if broadcastErr == nil {
+			return hash, nonce, nil
+		}
+		err = broadcastErr
+		if !errors.IsOf(err, sdkErrors.ErrWrongSequence) || attempt == BroadcastTxRetry-1 {
+			return "", nonce, err
+		}
+		refreshed, refreshErr := getCosmosNonceFn(gnfdClient, ctx)
+		if refreshErr != nil {
+			return "", nonce, errors.Wrap(refreshErr, "failed to get nonce on chain")
+		}
+		*nonceCache = refreshed
+	}
+	return "", *nonceCache, err
+}
+
 func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *client.MocaClient,
 	msgs []sdk.Msg, txOpt *ctypes.TxOption, opts ...grpc.CallOption,
 ) (string, uint64, error) {
@@ -2551,20 +2575,27 @@ func (client *MocaChainSignClient) broadcastTx(ctx context.Context, gnfdClient *
 	}
 	txOpt.Nonce = nonce
 
+	hash, err := client.broadcastTxOnce(ctx, gnfdClient, msgs, txOpt, opts...)
+	return hash, nonce, err
+}
+
+func (client *MocaChainSignClient) broadcastTxOnce(ctx context.Context, gnfdClient *client.MocaClient,
+	msgs []sdk.Msg, txOpt *ctypes.TxOption, opts ...grpc.CallOption,
+) (string, error) {
 	resp, err := broadcastCosmosTxFn(gnfdClient, ctx, msgs, txOpt, opts...)
 	if err != nil {
 		if strings.Contains(err.Error(), "account sequence mismatch") {
-			return "", nonce, sdkErrors.ErrWrongSequence
+			return "", sdkErrors.ErrWrongSequence
 		}
-		return "", nonce, errors.Wrap(err, "failed to broadcast tx with moca client")
+		return "", errors.Wrap(err, "failed to broadcast tx with moca client")
 	}
 	if resp.TxResponse.Code == sdkErrors.ErrWrongSequence.ABCICode() {
-		return "", nonce, sdkErrors.ErrWrongSequence
+		return "", sdkErrors.ErrWrongSequence
 	}
 	if resp.TxResponse.Code != 0 {
-		return "", nonce, fmt.Errorf("failed to broadcast tx, resp code: %d, code space: %s", resp.TxResponse.Code, resp.TxResponse.Codespace)
+		return "", fmt.Errorf("failed to broadcast tx, resp code: %d, code space: %s", resp.TxResponse.Code, resp.TxResponse.Codespace)
 	}
-	return resp.TxResponse.TxHash, nonce, nil
+	return resp.TxResponse.TxHash, nil
 }
 
 func (svc *MocaChainSignClient) waitForTransactionReceipt(ctx context.Context, txHash ethcmn.Hash) (*types.Receipt, error) {
