@@ -24,6 +24,7 @@ func TestCosmosSequenceRetryCallSites(t *testing.T) {
 	expectedCaches := map[string]string{
 		"SealObject":                  "sealAccNonce",
 		"RejectUnSealObject":          "sealAccNonce",
+		"DiscontinueBucket":           "gcAccNonce",
 		"CreateGlobalVirtualGroup":    "operatorAccNonce",
 		"CompleteMigrateBucket":       "operatorAccNonce",
 		"SwapOut":                     "operatorAccNonce",
@@ -39,10 +40,7 @@ func TestCosmosSequenceRetryCallSites(t *testing.T) {
 		"CompleteSwapIn":              "operatorAccNonce",
 		"CancelSwapIn":                "operatorAccNonce",
 		"SealObjectV2":                "sealAccNonce",
-	}
-	allowedLegacy := map[string]bool{
-		"DiscontinueBucket": true,
-		"UpdateSPPrice":     true,
+		"UpdateSPPrice":               "operatorAccNonce",
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)
@@ -69,9 +67,7 @@ func TestCosmosSequenceRetryCallSites(t *testing.T) {
 			}
 			switch selector.Sel.Name {
 			case "broadcastTx":
-				if !allowedLegacy[function.Name.Name] {
-					legacyCallers = append(legacyCallers, function.Name.Name)
-				}
+				legacyCallers = append(legacyCallers, function.Name.Name)
 			case "broadcastTxWithSequenceRetry":
 				expectedCache, expected := expectedCaches[function.Name.Name]
 				require.Truef(t, expected, "unexpected retry helper call in %s", function.Name.Name)

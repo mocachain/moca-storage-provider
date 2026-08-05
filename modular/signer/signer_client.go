@@ -558,35 +558,22 @@ func (client *MocaChainSignClient) DiscontinueBucket(ctx context.Context, scope 
 
 	client.gcLock.Lock()
 	defer client.gcLock.Unlock()
-	nonce := client.gcAccNonce
 
 	msgDiscontinueBucket := storagetypes.NewMsgDiscontinueBucket(km.GetAddr(),
 		discontinueBucket.BucketName, discontinueBucket.Reason)
 	mode := tx.BroadcastMode_BROADCAST_MODE_SYNC
 	txOpt := &ctypes.TxOption{ // allow simulation here to save gas cost
-		Mode:  &mode,
-		Nonce: nonce,
+		Mode: &mode,
 	}
 
-	txHash, nonce, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgDiscontinueBucket}, txOpt)
-	if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
-		// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
-		nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
-		if nonceErr != nil {
-			log.CtxErrorw(ctx, "failed to get gc account nonce", "error", nonceErr)
-			ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to get gc account nonce, error: %v", nonceErr))
-			return "", ErrDiscontinueBucketOnChain
-		}
-		client.gcAccNonce = nonce
-	}
-
-	// failed to broadcast tx
+	txHash, nonce, err := client.broadcastTxWithSequenceRetry(
+		ctx, client.mocaClients[scope], []sdk.Msg{msgDiscontinueBucket}, txOpt, &client.gcAccNonce,
+	)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to broadcast discontinue bucket", "error", err, "discontinue_bucket", msgDiscontinueBucket.String())
 		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to broadcast discontinue bucket, error: %v", err))
 		return "", ErrDiscontinueBucketOnChain
 	}
-	// update nonce when tx is successful submitted
 	client.gcAccNonce = nonce + 1
 	return txHash, nil
 }
@@ -956,7 +943,6 @@ func (client *MocaChainSignClient) UpdateSPPrice(ctx context.Context, scope Sign
 
 	client.opLock.Lock()
 	defer client.opLock.Unlock()
-	nonce := client.operatorAccNonce
 
 	msgUpdateStorageSPPrice := &sptypes.MsgUpdateSpStoragePrice{
 		SpAddress:     km.GetAddr().String(),
@@ -969,21 +955,11 @@ func (client *MocaChainSignClient) UpdateSPPrice(ctx context.Context, scope Sign
 		Mode:      &mode,
 		GasLimit:  client.gasInfo[UpdateSPPrice].GasLimit,
 		FeeAmount: client.gasInfo[UpdateSPPrice].FeeAmount,
-		Nonce:     nonce,
 	}
 
-	txHash, nonce, err := client.broadcastTx(ctx, client.mocaClients[scope], []sdk.Msg{msgUpdateStorageSPPrice}, txOpt)
-	if errors.IsOf(err, sdkErrors.ErrWrongSequence) {
-		// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-		nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
-		if nonceErr != nil {
-			log.CtxErrorw(ctx, "failed to get approval account nonce", "error", err)
-			ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to get approval account nonce, error: %v", err))
-			return "", ErrUpdateSPPriceOnChain
-		}
-		client.operatorAccNonce = nonce
-	}
-	// failed to broadcast tx
+	txHash, nonce, err := client.broadcastTxWithSequenceRetry(
+		ctx, client.mocaClients[scope], []sdk.Msg{msgUpdateStorageSPPrice}, txOpt, &client.operatorAccNonce,
+	)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to broadcast update sp price msg", "error", err, "update_sp_price",
 			msgUpdateStorageSPPrice.String())
@@ -991,7 +967,6 @@ func (client *MocaChainSignClient) UpdateSPPrice(ctx context.Context, scope Sign
 		return "", ErrUpdateSPPriceOnChain
 	}
 
-	// update nonce when tx is successfully submitted
 	client.operatorAccNonce = nonce + 1
 	return txHash, nil
 }
