@@ -6,10 +6,26 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 
 	storeconfig "github.com/mocachain/moca-storage-provider/store/config"
 )
+
+func TestGfSpConfig_OmitsEmptyFundingPrivateKeyWhenSerialized(t *testing.T) {
+	bz, err := toml.Marshal(&GfSpConfig{})
+
+	assert.NoError(t, err)
+	assert.NotContains(t, string(bz), "FundingPrivateKey")
+}
+
+func TestGfSpConfig_ParsesLegacyFundingPrivateKey(t *testing.T) {
+	var cfg GfSpConfig
+	err := toml.Unmarshal([]byte("[SpAccount]\nFundingPrivateKey = 'legacy-key'\n"), &cfg)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "legacy-key", cfg.SpAccount.FundingPrivateKey)
+}
 
 var mockErr = errors.New("mock error")
 
