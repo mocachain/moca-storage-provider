@@ -68,6 +68,33 @@ func TestCreateTxOpts_RejectsGasPriceAboveConfiguredLimit(t *testing.T) {
 	require.Nil(t, txOpts)
 }
 
+func TestCreateTxOpts_RejectsUnconfiguredGasPriceLimit(t *testing.T) {
+	server := newGasPriceServer(t, "0x2a", false)
+	client, err := ethclient.Dial(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	tests := []struct {
+		name        string
+		maxGasPrice *big.Int
+	}{
+		{name: "nil", maxGasPrice: nil},
+		{name: "zero", maxGasPrice: big.NewInt(0)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			txOpts, err := CreateTxOpts(
+				context.Background(), client, testPrivateKey(t), big.NewInt(5151),
+				12_000, 9, test.maxGasPrice,
+			)
+			require.ErrorContains(t, err, "max evm gas price is not configured")
+			require.NotContains(t, err.Error(), "exceeds")
+			require.Nil(t, txOpts)
+		})
+	}
+}
+
 func TestCreateTxOpts_AcceptsDefaultChainGasPrice(t *testing.T) {
 	server := newGasPriceServer(t, "0x4a817c800", false) // 20,000,000,000
 	client, err := ethclient.Dial(server.URL)

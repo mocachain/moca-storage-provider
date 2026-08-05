@@ -31,8 +31,11 @@ func CreateTxOpts(ctx context.Context, client *ethclient.Client, privateKey *ecd
 	if err != nil {
 		return nil, err
 	}
-	if maxGasPrice == nil || maxGasPrice.Sign() <= 0 || gasPrice.Cmp(maxGasPrice) > 0 {
-		return nil, fmt.Errorf("suggested gas price %s exceeds configured maximum %v", gasPrice, maxGasPrice)
+	if maxGasPrice == nil || maxGasPrice.Sign() <= 0 {
+		return nil, fmt.Errorf("max evm gas price is not configured (got %v)", maxGasPrice)
+	}
+	if gasPrice.Cmp(maxGasPrice) > 0 {
+		return nil, fmt.Errorf("suggested gas price %s exceeds configured maximum %s", gasPrice, maxGasPrice)
 	}
 	txOpts.GasPrice = gasPrice
 

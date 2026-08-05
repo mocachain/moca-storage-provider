@@ -58,7 +58,10 @@ func LoadConfig(file string, cfg *gfspconfig.GfSpConfig) error {
 	if err != nil {
 		return err
 	}
-	return toml.Unmarshal(bz, cfg)
+	if err := toml.Unmarshal(bz, cfg); err != nil {
+		return err
+	}
+	return cfg.Validate()
 }
 
 // MakeEnv inits storage provider runtime environment.
