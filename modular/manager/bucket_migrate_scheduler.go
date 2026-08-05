@@ -3,7 +3,6 @@ package manager
 import (
 	"container/list"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -217,10 +216,10 @@ func (plan *BucketMigrateExecutePlan) sendCompleteMigrateBucketTx(migrateExecute
 		aggBlsSig, getBlsError := plan.getBlsAggregateSigForBucketMigration(context.Background(), migrateGVGUnit)
 		if getBlsError != nil {
 			log.Errorw("failed to get bls aggregate signature", "error", getBlsError)
-			return err
+			return getBlsError
 		}
 		vgfID = migrateGVGUnit.DestGVG.GetFamilyId()
-		log.Infow("get bls aggregate signature", "bucket_id", bucket.BucketInfo.Id, "migrateGVGUnit", migrateGVGUnit, "aggBlsSig", hex.EncodeToString(aggBlsSig))
+		log.Infow("get bls aggregate signature", "bucket_id", bucket.BucketInfo.Id, "migrateGVGUnit", migrateGVGUnit)
 		gvgMappings = append(gvgMappings, &storagetypes.GVGMapping{
 			SrcGlobalVirtualGroupId: migrateGVGUnit.SrcGVG.GetId(),
 			DstGlobalVirtualGroupId: migrateGVGUnit.DestGVGID, SecondarySpBlsSignature: aggBlsSig,
@@ -231,16 +230,16 @@ func (plan *BucketMigrateExecutePlan) sendCompleteMigrateBucketTx(migrateExecute
 		Operator:   plan.manager.baseApp.OperatorAddress(),
 		BucketName: bucket.BucketInfo.GetBucketName(), GvgMappings: gvgMappings, GlobalVirtualGroupFamilyId: vgfID,
 	}
-	log.Infow("before sent complete migrate bucket msg to chain", "msg", migrateBucket, "gvgUnitMap", plan.gvgUnitMap)
+	log.Infow("before sent complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID)
 	txHash, txErr := plan.manager.baseApp.GfSpClient().CompleteMigrateBucket(context.Background(), migrateBucket)
 	if txErr != nil {
-		log.Errorw("failed to send complete migrate bucket msg to chain", "msg", migrateBucket, "tx_hash", txHash, "err", txErr)
+		log.Errorw("failed to send complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID, "tx_hash", txHash, "err", txErr)
 		return txErr
 	}
 	if err = UpdateBucketMigrationProgress(plan.manager.baseApp, plan.bucketID, storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_SEND_COMPLETE_TX_DONE); err != nil {
 		return err
 	}
-	log.Infow("sent complete migrate bucket msg to chain", "msg", migrateBucket, "tx_hash", txHash)
+	log.Infow("sent complete migrate bucket msg to chain", "bucket_name", migrateBucket.GetBucketName(), "bucket_id", bucket.BucketInfo.Id, "vgf_id", vgfID, "tx_hash", txHash)
 	return nil
 }
 
@@ -378,12 +377,11 @@ func (plan *BucketMigrateExecutePlan) getBlsAggregateSigForBucketMigration(ctx c
 		msg := signDoc.GetBlsSignHash()
 		err = verifySecondarySpBlsSignature(spInfo.BlsKey, sig, msg[:], spInfo.Id)
 		if err != nil {
-			log.Errorw("failed to verify secondary sp bls signature", "error", err, "sp_id", spInfo.Id, "bls_pubkey",
-				hex.EncodeToString(spInfo.BlsKey), "bls_sig", hex.EncodeToString(sig))
+			log.Errorw("failed to verify secondary sp bls signature", "error", err, "sp_id", spInfo.Id)
 			return nil, err
 		}
 		secondarySigs = append(secondarySigs, sig)
-		log.Infow("get secondary sp migration bucket approval", "sp_info", spInfo, "sig", hex.EncodeToString(sig))
+		log.Infow("get secondary sp migration bucket approval", "sp_id", spInfo.Id)
 	}
 	aggBlsSig, err := util.BlsAggregate(secondarySigs)
 	if err != nil {
