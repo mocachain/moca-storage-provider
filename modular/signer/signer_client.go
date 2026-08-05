@@ -124,7 +124,7 @@ type MocaChainSignClient struct {
 }
 
 // NewMocaChainSignClient return the MocaChainSignClient instance
-func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[GasInfoType]GasInfo, operatorPrivateKey, fundingPrivateKey,
+func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[GasInfoType]GasInfo, operatorPrivateKey,
 	sealPrivateKey, approvalPrivateKey, gcPrivateKey string, blsPrivKey string,
 ) (*MocaChainSignClient, error) {
 	// init clients

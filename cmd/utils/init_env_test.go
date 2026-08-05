@@ -2,6 +2,8 @@ package utils
 
 import (
 	"flag"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/urfave/cli/v2"
@@ -15,6 +17,15 @@ func TestMakeGfSpClientRejectsMissingGRPCTLS(t *testing.T) {
 	client, err := MakeGfSpClient(&gfspconfig.GfSpConfig{})
 	require.Nil(t, client)
 	require.ErrorContains(t, err, "GRPCTLS.CACertFile is required")
+}
+
+func TestLoadConfigRejectsLegacyFundingPrivateKey(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[SpAccount]\nFundingPrivateKey = 'legacy-key'\n"), 0o600))
+
+	err := LoadConfig(configPath, &gfspconfig.GfSpConfig{})
+
+	require.ErrorContains(t, err, "FundingPrivateKey is not supported")
 }
 
 // newTestContext builds a cli context with no flag explicitly set, which is what a
