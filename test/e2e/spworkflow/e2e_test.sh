@@ -202,7 +202,6 @@ function normalize_sp_private_keys() {
     with_entries(
       .value |= (
         .OperatorPrivateKey |= pad64 |
-        .FundingPrivateKey |= pad64 |
         .SealPrivateKey |= pad64 |
         .ApprovalPrivateKey |= pad64 |
         .GcPrivateKey |= pad64 |

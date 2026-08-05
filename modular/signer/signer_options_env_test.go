@@ -37,4 +37,13 @@ func TestDefaultSignerOptions_RejectsEmptyPrivateKeyEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultSignerOptions_RejectsFundingPrivateKey(t *testing.T) {
+	cfg := signerConfigWithChain()
+	cfg.SpAccount.FundingPrivateKey = testConfiguredKey
+
+	err := DefaultSignerOptions(&SignModular{}, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FundingPrivateKey is not supported")
+}
+
 const testConfiguredKey = "0f6e0d9c8b7a695847362514f3e2d1c0b9a8978685746352413f2e1d0c9b8a79"
