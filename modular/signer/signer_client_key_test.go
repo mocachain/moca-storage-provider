@@ -43,7 +43,7 @@ func TestCreateTxOpts_RejectsMissingPrivateKey(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	var missing *ecdsa.PrivateKey
-	txOpts, err := CreateTxOpts(context.Background(), client, missing, big.NewInt(5151), 700_000, 9)
+	txOpts, err := CreateTxOpts(context.Background(), client, missing, big.NewInt(5151), 700_000, 9, big.NewInt(42))
 
 	require.Error(t, err)
 	assert.Nil(t, txOpts)
