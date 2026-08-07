@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
@@ -13,8 +14,33 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
+	"github.com/mocachain/moca-storage-provider/core/taskqueue"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 )
+
+func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	m.recoveryQueue = queue
+	m.recoverObjectStats = NewObjectsSegmentsStats()
+	scheduler := &RecoverGVGScheduler{
+		manager:               m,
+		currentBatchObjectIDs: make(map[uint64]struct{}),
+		gvgID:                 1,
+		redundancyIndex:       0,
+	}
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(100), PayloadSize: 1}
+	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
+	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue unavailable")).Times(1)
+
+	queued := scheduler.queueRecoveryObject(objectInfo, storageParams, 10, 1)
+
+	assert.False(t, queued)
+	assert.False(t, m.recoverObjectStats.has(100))
+	_, exists := scheduler.currentBatchObjectIDs[100]
+	assert.False(t, exists)
+}
 
 func TestManageModular_RecoverVGFScheduler(t *testing.T) {
 	m := setup(t)
