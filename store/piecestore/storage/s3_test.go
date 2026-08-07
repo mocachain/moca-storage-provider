@@ -50,6 +50,16 @@ type mockS3Client struct {
 	listObjectsResp  s3.ListObjectsOutput
 }
 
+type trackingReadCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (r *trackingReadCloser) Close() error {
+	r.closed = true
+	return nil
+}
+
 func (m mockS3Client) CreateBucketWithContext(aws.Context, *s3.CreateBucketInput, ...request.Option) (
 	*s3.CreateBucketOutput, error) {
 	if *m.createBucketReq.Bucket == "alreadyCreatedBucket" {
@@ -235,8 +245,9 @@ func TestS3Store_GetObjectSuccess(t *testing.T) {
 
 func TestS3Store_GetObjectRejectsRangeWithWholeObjectChecksum(t *testing.T) {
 	store := setupS3Test(t)
+	body := &trackingReadCloser{Reader: strings.NewReader("s3 get")}
 	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
-		Body: io.NopCloser(strings.NewReader("s3 get")),
+		Body: body,
 		Metadata: map[string]*string{
 			ChecksumAlgo: aws.String("445758184"),
 		},
@@ -245,6 +256,7 @@ func TestS3Store_GetObjectRejectsRangeWithWholeObjectChecksum(t *testing.T) {
 	data, err := store.GetObject(context.TODO(), mockKey, 0, 1)
 	assert.ErrorIs(t, err, ErrRangeChecksumUnavailable)
 	assert.Nil(t, data)
+	assert.True(t, body.closed)
 }
 
 func TestS3Store_PutObjectSuccess(t *testing.T) {
