@@ -109,6 +109,16 @@ func Test_verifyChecksum(t *testing.T) {
 			},
 		},
 		{
+			name:     "accepts a valid unsigned crc32c value",
+			rc:       io.NopCloser(strings.NewReader("hello world")),
+			checksum: "3381945770",
+			wantedResult: &checksumReader{
+				ReadCloser: io.NopCloser(strings.NewReader("hello world")),
+				expected:   3381945770,
+				checksum:   0,
+			},
+		},
+		{
 			name:         "4",
 			rc:           io.NopCloser(strings.NewReader("hello world")),
 			checksum:     "4294967296", // if checksum is out of uint32 range, error will be handled
