@@ -449,6 +449,9 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 	}
 	task.SetSignature(signature)
 
+	childCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	recoveryResults := make(chan bool, secondaryCount)
 	var workers sync.WaitGroup
 	workers.Add(secondaryCount)
 	for ecIdx := 0; ecIdx < secondaryCount; ecIdx++ {
@@ -459,14 +462,27 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 			secondaryEndpoint := secondaryEndpoints[secondaryIndex]
 			// if myself is secondary, bypass to send request to myself
 			if isMyselfSecondary && secondaryEndpoint == executeEndpoint {
+				recoveryResults <- false
 				return
 			}
 			pieceData, recoverErr := e.doRecoveryPiece(ctx, task, secondaryEndpoints[secondaryIndex])
-			if recoverErr == nil {
-				recoveryDataSources[secondaryIndex] = pieceData
-				log.Debugf("get one piece from ", "piece length:%d ", len(pieceData), "secondary sp:", secondaryEndpoints[secondaryIndex])
+			if recoverErr != nil {
+				recoveryResults <- false
+				return
 			}
-		}(ctx, ecIdx)
+			recoveryDataSources[secondaryIndex] = pieceData
+			log.Debugf("get one piece from ", "piece length:%d ", len(pieceData), "secondary sp:", secondaryEndpoints[secondaryIndex])
+			recoveryResults <- true
+		}(childCtx, ecIdx)
+	}
+
+	for completed := 0; completed < secondaryCount; completed++ {
+		if <-recoveryResults {
+			doneTaskNum++
+			if doneTaskNum == minRecoveryPieces {
+				cancel()
+			}
+		}
 	}
 
 	workers.Wait()
@@ -476,7 +492,6 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 		if pieceData == nil {
 			continue
 		}
-		doneTaskNum++
 		if downLoadPieceSize == 0 {
 			downLoadPieceSize = len(pieceData)
 		}

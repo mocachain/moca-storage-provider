@@ -1067,10 +1067,11 @@ func TestExecuteModular_recoverBySecondarySPFailure2(t *testing.T) {
 	assert.Equal(t, ErrRecoveryPieceNotEnough, err)
 }
 
-func TestExecuteModular_recoverBySecondarySPWaitsForWorkersBeforePersisting(t *testing.T) {
+func TestExecuteModular_recoverBySecondarySPCancelsAndJoinsWorkersBeforePersisting(t *testing.T) {
 	e := setup(t)
 	ctrl := gomock.NewController(t)
-	firstReturned := make(chan struct{})
+	secondStarted := make(chan struct{})
+	cancellationObserved := make(chan struct{})
 	releaseSecond := make(chan struct{})
 	persisted := make(chan struct{}, 1)
 	result := make(chan error, 1)
@@ -1084,13 +1085,19 @@ func TestExecuteModular_recoverBySecondarySPWaitsForWorkersBeforePersisting(t *t
 	client.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("signature"), nil).Times(1)
 	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "secondary-1", gomock.Any()).DoAndReturn(
 		func(context.Context, string, coretask.RecoveryPieceTask) (io.ReadCloser, error) {
-			close(firstReturned)
 			return io.NopCloser(strings.NewReader(string(pieceData))), nil
 		}).Times(1)
 	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "secondary-2", gomock.Any()).DoAndReturn(
-		func(context.Context, string, coretask.RecoveryPieceTask) (io.ReadCloser, error) {
-			<-releaseSecond
-			return io.NopCloser(strings.NewReader(string(pieceData))), nil
+		func(ctx context.Context, _ string, _ coretask.RecoveryPieceTask) (io.ReadCloser, error) {
+			close(secondStarted)
+			select {
+			case <-ctx.Done():
+				close(cancellationObserved)
+				<-releaseSecond
+				return nil, ctx.Err()
+			case <-releaseSecond:
+				return nil, context.Canceled
+			}
 		}).Times(1)
 	e.baseApp.SetGfSpClient(client)
 
@@ -1139,19 +1146,39 @@ func TestExecuteModular_recoverBySecondarySPWaitsForWorkersBeforePersisting(t *t
 	go func() { result <- e.recoverBySecondarySP(context.Background(), task, false) }()
 
 	select {
-	case <-firstReturned:
+	case <-secondStarted:
 	case <-time.After(time.Second):
-		t.Fatal("first recovery worker did not return")
+		close(releaseSecond)
+		t.Fatal("second recovery worker did not start")
+	}
+
+	select {
+	case <-cancellationObserved:
+	case <-time.After(time.Second):
+		close(releaseSecond)
+		<-result
+		t.Fatal("remaining recovery worker did not receive cancellation")
 	}
 
 	select {
 	case <-persisted:
-		t.Fatal("recovery persisted data before all workers completed")
-	case <-time.After(100 * time.Millisecond):
+		close(releaseSecond)
+		t.Fatal("recovery persisted data before the canceled worker completed")
+	default:
 	}
 
 	close(releaseSecond)
-	assert.NoError(t, <-result)
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("recovery did not finish after the canceled worker completed")
+	}
+	select {
+	case <-persisted:
+	default:
+		t.Fatal("recovery did not persist the decoded data")
+	}
 }
 
 func TestExecuteModular_getECPieceBySegment(t *testing.T) {
