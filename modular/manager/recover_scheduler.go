@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -763,7 +765,7 @@ func (s *VerifyGVGScheduler) Start() {
 }
 
 func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex int32) (bool, error) {
-	_, err := m.baseApp.GfSpDB().GetObjectIntegrity(object.Id.Uint64(), redundancyIndex)
+	integrityMeta, err := m.baseApp.GfSpDB().GetObjectIntegrity(object.Id.Uint64(), redundancyIndex)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			log.Errorw("failed to verify the integrity, record not exist", "object_id", object.Id)
@@ -771,6 +773,16 @@ func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex
 		}
 		log.Errorw("failed to get object integrity hash", "objectName:", object.ObjectName, "error", err)
 		return false, err
+	}
+	checksumIndex := redundancyIndex + 1
+	if checksumIndex < 0 || int(checksumIndex) >= len(object.GetChecksums()) {
+		log.Errorw("failed to verify the integrity, checksum index out of bounds", "object_id", object.Id, "redundancy_index", redundancyIndex)
+		return false, nil
+	}
+	actualChecksum := hash.GenerateIntegrityHash(integrityMeta.PieceChecksumList)
+	if !bytes.Equal(actualChecksum, object.GetChecksums()[checksumIndex]) {
+		log.Errorw("failed to verify the integrity, checksum mismatch", "object_id", object.Id, "redundancy_index", redundancyIndex)
+		return false, nil
 	}
 	return true, nil
 }
