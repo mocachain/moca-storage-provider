@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
+	"github.com/mocachain/moca-common/go/hash"
 	types0 "github.com/mocachain/moca/v2/x/storage/types"
 	types1 "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,26 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
 )
+
+func TestVerifyIntegrityRejectsMismatchedChainChecksum(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	pieceChecksums := [][]byte{[]byte("piece-checksum")}
+
+	db := spdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&spdb.IntegrityMeta{
+		PieceChecksumList: pieceChecksums,
+	}, nil).Times(1)
+	m.baseApp.SetGfSpDB(db)
+
+	verified, err := verifyIntegrity(m, &types0.ObjectInfo{
+		Id:        sdkmath.NewUint(1),
+		Checksums: [][]byte{nil, hash.GenerateIntegrityHash([][]byte{[]byte("different-checksum")})},
+	}, 0)
+
+	assert.NoError(t, err)
+	assert.False(t, verified)
+}
 
 func TestManageModular_RecoverVGFScheduler(t *testing.T) {
 	m := setup(t)
