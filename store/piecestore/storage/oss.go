@@ -45,7 +45,7 @@ func (o *ossStore) GetObject(ctx context.Context, key string, off, limit int64) 
 			r = fmt.Sprintf("%d-", off)
 		}
 		resp, err = o.bucket.GetObject(key, oss.NormalizedRange(r), oss.RangeBehavior("standard"), oss.GetResponseHeader(&respHeader))
-		if err == nil && respHeader.Get(oss.HTTPHeaderOssMetaPrefix+ChecksumAlgo) != "" {
+		if err == nil && respHeader.Values(oss.HTTPHeaderOssMetaPrefix+ChecksumAlgo) != nil {
 			_ = resp.Close()
 			return nil, ErrRangeChecksumUnavailable
 		}
