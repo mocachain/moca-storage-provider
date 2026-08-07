@@ -10,6 +10,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfsppieceop"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
@@ -275,10 +276,55 @@ func TestHandleDoneReceivePieceTask_Integarty_Mismatch(t *testing.T) {
 	mockSPDB := spdb.NewMockSPDB(ctrl)
 	r.baseApp.SetGfSpDB(mockSPDB)
 	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return([][]byte{{1, 2, 3}}, nil).Times(1)
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(mockTask.GetObjectInfo(), nil).Times(1)
 	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
 	r.baseApp.SetGfSpClient(mockGRPCAPI)
 	_, err := r.HandleDoneReceivePieceTask(context.TODO(), mockTask)
 	assert.NotNil(t, err)
+}
+
+func TestHandleDoneReceivePieceTask_RejectsTaskChecksumThatDiffersFromChain(t *testing.T) {
+	r := setup(t)
+	ctrl := gomock.NewController(t)
+	q := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	r.receiveQueue = q
+	r.baseApp.SetPieceOp(&gfsppieceop.GfSpPieceOp{})
+	q.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	q.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(1)
+
+	pieceChecksums := [][]byte{{1, 2, 3}}
+	taskChecksums := [][]byte{{4, 5, 6}, hash.GenerateIntegrityHash(pieceChecksums)}
+	mockTask := &gfsptask.GfSpReceivePieceTask{
+		Task: &gfsptask.GfSpTask{},
+		ObjectInfo: &storagetypes.ObjectInfo{
+			Id:           sdkmath.NewUint(100),
+			ObjectStatus: storagetypes.OBJECT_STATUS_SEALED,
+			PayloadSize:  100,
+			Checksums:    taskChecksums,
+		},
+		StorageParams: &storagetypes.Params{
+			VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 16 * 1024 * 1024},
+		},
+	}
+	mockSPDB := spdb.NewMockSPDB(ctrl)
+	r.baseApp.SetGfSpDB(mockSPDB)
+	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return(pieceChecksums, nil).Times(1)
+
+	chainChecksums := [][]byte{{4, 5, 6}, []byte("different-chain-integrity")}
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(&storagetypes.ObjectInfo{
+		Id:        sdkmath.NewUint(100),
+		Checksums: chainChecksums,
+	}, nil).Times(1)
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	r.baseApp.SetGfSpClient(mockGRPCAPI)
+
+	_, err := r.HandleDoneReceivePieceTask(context.TODO(), mockTask)
+	assert.ErrorIs(t, err, ErrInvalidDataChecksum)
 }
 
 func TestHandleDoneReceivePieceTask_SignSecondarySealBlsFailed(t *testing.T) {
@@ -309,6 +355,9 @@ func TestHandleDoneReceivePieceTask_SignSecondarySealBlsFailed(t *testing.T) {
 	mockSPDB := spdb.NewMockSPDB(ctrl)
 	r.baseApp.SetGfSpDB(mockSPDB)
 	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return([][]byte{{1, 2, 3}}, nil).Times(1)
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(mockTask.GetObjectInfo(), nil).Times(1)
 	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
 	r.baseApp.SetGfSpClient(mockGRPCAPI)
 	mockGRPCAPI.EXPECT().SignSecondarySealBls(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("failed to sign bls")).Times(1)
@@ -345,6 +394,9 @@ func TestHandleDoneReceivePieceTask_SetObjectIntegrityFailed(t *testing.T) {
 	r.baseApp.SetGfSpDB(mockSPDB)
 	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return([][]byte{{1, 2, 3}}, nil).Times(1)
 	mockSPDB.EXPECT().SetObjectIntegrity(gomock.Any()).Return(fmt.Errorf("failed to set integrity")).Times(1)
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(mockTask.GetObjectInfo(), nil).Times(1)
 	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
 	r.baseApp.SetGfSpClient(mockGRPCAPI)
 	mockGRPCAPI.EXPECT().SignSecondarySealBls(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
@@ -382,6 +434,9 @@ func TestHandleDoneReceivePieceTask_HandleDoneReceivePieceTaskSucceed(t *testing
 	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return([][]byte{{1, 2, 3}}, nil).Times(1)
 	mockSPDB.EXPECT().SetObjectIntegrity(gomock.Any()).Return(nil).Times(1)
 	mockSPDB.EXPECT().DeleteAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any()).Return(fmt.Errorf("failed to delete all piece checksum")).Times(1)
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(mockTask.GetObjectInfo(), nil).Times(1)
 	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
 	r.baseApp.SetGfSpClient(mockGRPCAPI)
 	mockGRPCAPI.EXPECT().SignSecondarySealBls(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
