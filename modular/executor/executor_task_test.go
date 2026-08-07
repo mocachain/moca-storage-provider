@@ -1032,6 +1032,40 @@ func TestExecuteModular_recoverByPrimarySPSuccess(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestExecuteModular_recoverByPrimarySPRejectsInvalidSuccessorChecksum(t *testing.T) {
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	client.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), true).Return(&metadatatypes.VGFInfoBucket{
+		BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
+	}, nil, nil).Times(1)
+	client.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
+	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "endpoint", gomock.Any()).Return(
+		io.NopCloser(strings.NewReader("body")), nil).Times(1)
+	e.baseApp.SetGfSpClient(client)
+
+	con := consensus.NewMockConsensus(ctrl)
+	con.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtual_types.GlobalVirtualGroupFamily{PrimarySpId: 1}, nil).Times(1)
+	con.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{{Id: 1, Endpoint: "endpoint"}}, nil).Times(1)
+	e.baseApp.SetConsensus(con)
+
+	db := corespdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&corespdb.IntegrityMeta{
+		PieceChecksumList: [][]byte{[]byte("invalid-checksum")},
+	}, nil).Times(1)
+	e.baseApp.SetGfSpDB(db)
+
+	task := &gfsptask.GfSpRecoverPieceTask{
+		Task:       &gfsptask.GfSpTask{},
+		ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+	}
+	task.SetBySuccessorSP(true)
+
+	err := e.recoverByPrimarySP(context.TODO(), task)
+	assert.ErrorIs(t, err, ErrRecoveryPieceChecksum)
+}
+
 func TestExecuteModular_recoverBySecondarySPFailure1(t *testing.T) {
 	e := setup(t)
 
