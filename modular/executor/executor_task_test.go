@@ -5,9 +5,11 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/0xPolygon/polygon-edge/bls"
+	"github.com/mocachain/moca-common/go/hash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -1063,6 +1065,93 @@ func TestExecuteModular_recoverBySecondarySPFailure2(t *testing.T) {
 	}
 	err := e.recoverBySecondarySP(context.TODO(), task, true)
 	assert.Equal(t, ErrRecoveryPieceNotEnough, err)
+}
+
+func TestExecuteModular_recoverBySecondarySPWaitsForWorkersBeforePersisting(t *testing.T) {
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+	firstReturned := make(chan struct{})
+	releaseSecond := make(chan struct{})
+	persisted := make(chan struct{}, 1)
+	result := make(chan error, 1)
+	pieceData := []byte("abc")
+
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	client.EXPECT().GetBucketByBucketName(gomock.Any(), mockBucketName, true).Return(
+		&metadatatypes.Bucket{BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)}}, nil).Times(1)
+	client.EXPECT().GetGlobalVirtualGroup(gomock.Any(), uint64(1), uint32(1)).Return(
+		&virtual_types.GlobalVirtualGroup{SecondarySpIds: []uint32{1, 2}}, nil).Times(1)
+	client.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("signature"), nil).Times(1)
+	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "secondary-1", gomock.Any()).DoAndReturn(
+		func(context.Context, string, coretask.RecoveryPieceTask) (io.ReadCloser, error) {
+			close(firstReturned)
+			return io.NopCloser(strings.NewReader(string(pieceData))), nil
+		}).Times(1)
+	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "secondary-2", gomock.Any()).DoAndReturn(
+		func(context.Context, string, coretask.RecoveryPieceTask) (io.ReadCloser, error) {
+			<-releaseSecond
+			return io.NopCloser(strings.NewReader(string(pieceData))), nil
+		}).Times(1)
+	e.baseApp.SetGfSpClient(client)
+
+	con := consensus.NewMockConsensus(ctrl)
+	con.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{
+		{Id: 1, Endpoint: "secondary-1"},
+		{Id: 2, Endpoint: "secondary-2"},
+	}, nil).Times(1)
+	e.baseApp.SetConsensus(con)
+
+	db := corespdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&corespdb.IntegrityMeta{
+		PieceChecksumList: [][]byte{hash.GenerateChecksum(pieceData)},
+	}, nil).Times(1)
+	e.baseApp.SetGfSpDB(db)
+
+	pieceOp := piecestore.NewMockPieceOp(ctrl)
+	pieceOp.EXPECT().SegmentPieceSize(uint64(3), uint32(0), uint64(3)).Return(int64(3)).Times(1)
+	pieceOp.EXPECT().SegmentPieceKey(uint64(1), uint32(0), int64(1)).Return("recovered-piece").Times(1)
+	e.baseApp.SetPieceOp(pieceOp)
+
+	pieceStore := piecestore.NewMockPieceStore(ctrl)
+	pieceStore.EXPECT().PutPiece(gomock.Any(), "recovered-piece", pieceData).DoAndReturn(
+		func(context.Context, string, []byte) error {
+			persisted <- struct{}{}
+			return nil
+		}).Times(1)
+	e.baseApp.SetPieceStore(pieceStore)
+
+	task := &gfsptask.GfSpRecoverPieceTask{
+		Task: &gfsptask.GfSpTask{},
+		ObjectInfo: &storagetypes.ObjectInfo{
+			Id:                  sdkmath.NewUint(1),
+			BucketName:          mockBucketName,
+			LocalVirtualGroupId: 1,
+			PayloadSize:         uint64(len(pieceData)),
+			Version:             1,
+		},
+		StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{
+			MaxSegmentSize:          uint64(len(pieceData)),
+			RedundantDataChunkNum:   1,
+			RedundantParityChunkNum: 1,
+		}},
+	}
+
+	go func() { result <- e.recoverBySecondarySP(context.Background(), task, false) }()
+
+	select {
+	case <-firstReturned:
+	case <-time.After(time.Second):
+		t.Fatal("first recovery worker did not return")
+	}
+
+	select {
+	case <-persisted:
+		t.Fatal("recovery persisted data before all workers completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseSecond)
+	assert.NoError(t, <-result)
 }
 
 func TestExecuteModular_getECPieceBySegment(t *testing.T) {
