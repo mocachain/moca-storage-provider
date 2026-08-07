@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
@@ -15,7 +16,28 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"gorm.io/gorm"
 )
+
+func TestVerifyIntegrityAcceptsMatchingChainChecksum(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	pieceChecksums := [][]byte{[]byte("piece-checksum")}
+
+	db := spdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&spdb.IntegrityMeta{
+		PieceChecksumList: pieceChecksums,
+	}, nil).Times(1)
+	m.baseApp.SetGfSpDB(db)
+
+	verified, err := verifyIntegrity(m, &types0.ObjectInfo{
+		Id:        sdkmath.NewUint(1),
+		Checksums: [][]byte{nil, hash.GenerateIntegrityHash(pieceChecksums)},
+	}, 0)
+
+	assert.NoError(t, err)
+	assert.True(t, verified)
+}
 
 func TestVerifyIntegrityRejectsMismatchedChainChecksum(t *testing.T) {
 	m := setup(t)
@@ -35,6 +57,73 @@ func TestVerifyIntegrityRejectsMismatchedChainChecksum(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.False(t, verified)
+}
+
+func TestVerifyIntegrityRejectsMissingIntegrityMetadata(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+
+	db := spdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
+	m.baseApp.SetGfSpDB(db)
+
+	verified, err := verifyIntegrity(m, &types0.ObjectInfo{Id: sdkmath.NewUint(1)}, 0)
+
+	assert.NoError(t, err)
+	assert.False(t, verified)
+}
+
+func TestVerifyIntegrityPropagatesDatabaseErrors(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	dbErr := errors.New("database unavailable")
+
+	db := spdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(nil, dbErr).Times(1)
+	m.baseApp.SetGfSpDB(db)
+
+	verified, err := verifyIntegrity(m, &types0.ObjectInfo{Id: sdkmath.NewUint(1)}, 0)
+
+	assert.ErrorIs(t, err, dbErr)
+	assert.False(t, verified)
+}
+
+func TestVerifyIntegrityRejectsInvalidChecksumIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		redundancyIndex int32
+		checksums       [][]byte
+	}{
+		{
+			name:            "lower bound",
+			redundancyIndex: -2,
+			checksums:       [][]byte{hash.GenerateIntegrityHash([][]byte{[]byte("piece-checksum")})},
+		},
+		{
+			name:            "upper bound",
+			redundancyIndex: 0,
+			checksums:       [][]byte{hash.GenerateIntegrityHash([][]byte{[]byte("piece-checksum")})},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := setup(t)
+			ctrl := gomock.NewController(t)
+
+			db := spdb.NewMockSPDB(ctrl)
+			db.EXPECT().GetObjectIntegrity(uint64(1), tc.redundancyIndex).Return(&spdb.IntegrityMeta{
+				PieceChecksumList: [][]byte{[]byte("piece-checksum")},
+			}, nil).Times(1)
+			m.baseApp.SetGfSpDB(db)
+
+			verified, err := verifyIntegrity(m, &types0.ObjectInfo{
+				Id:        sdkmath.NewUint(1),
+				Checksums: tc.checksums,
+			}, tc.redundancyIndex)
+
+			assert.NoError(t, err)
+			assert.False(t, verified)
+		})
+	}
 }
 
 func TestManageModular_RecoverVGFScheduler(t *testing.T) {
