@@ -1126,6 +1126,31 @@ func TestExecuteModular_getECPieceBySegment(t *testing.T) {
 	}
 }
 
+func TestExecuteModular_getECPieceBySegment_DataShardBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		redundancyIdx int32
+		want          []byte
+	}{
+		{name: "interior data shard", redundancyIdx: 1, want: []byte("23")},
+		{name: "final data shard", redundancyIdx: 3, want: []byte("67")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := setup(t)
+			ctrl := gomock.NewController(t)
+			pieceOp := piecestore.NewMockPieceOp(ctrl)
+			pieceOp.EXPECT().ECPieceSize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(2)).Times(1)
+			e.baseApp.SetPieceOp(pieceOp)
+
+			piece, err := e.getECPieceBySegment(context.TODO(), tc.redundancyIdx, &storagetypes.ObjectInfo{},
+				&storagetypes.Params{VersionedParams: storagetypes.VersionedParams{RedundantDataChunkNum: 4}}, []byte("01234567"), 0)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, piece)
+		})
+	}
+}
+
 func TestExecuteModular_checkRecoveryChecksum(t *testing.T) {
 	cases := []struct {
 		name         string
