@@ -233,6 +233,20 @@ func TestS3Store_GetObjectSuccess(t *testing.T) {
 	}
 }
 
+func TestS3Store_GetObjectRejectsRangeWithWholeObjectChecksum(t *testing.T) {
+	store := setupS3Test(t)
+	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
+		Body: io.NopCloser(strings.NewReader("s3 get")),
+		Metadata: map[string]*string{
+			ChecksumAlgo: aws.String("445758184"),
+		},
+	}}
+
+	data, err := store.GetObject(context.TODO(), mockKey, 0, 1)
+	assert.ErrorIs(t, err, ErrRangeChecksumUnavailable)
+	assert.Nil(t, data)
+}
+
 func TestS3Store_PutObjectSuccess(t *testing.T) {
 	fr := flate.NewReader(strings.NewReader("test"))
 	defer fr.Close()

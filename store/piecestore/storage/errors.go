@@ -18,4 +18,6 @@ var (
 	ErrUnsupportedMethod = errors.New("unsupported method")
 	// ErrNoPermissionAccessBucket defines deny access bucket error
 	ErrNoPermissionAccessBucket = errors.New("deny access bucket")
+	// ErrRangeChecksumUnavailable defines a range response that cannot be verified with the stored whole-object checksum.
+	ErrRangeChecksumUnavailable = errors.New("range checksum verification unavailable")
 )
