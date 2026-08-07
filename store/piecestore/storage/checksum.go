@@ -58,8 +58,12 @@ func verifyChecksum(rc io.ReadCloser, checksum string) io.ReadCloser {
 	}
 	expected, err := strconv.ParseUint(checksum, 10, 32)
 	if err != nil {
-		log.Errorf("invalid crc32c: %s", checksum)
-		return rc
+		signedExpected, signedErr := strconv.ParseInt(checksum, 10, 32)
+		if signedErr != nil {
+			log.Errorf("invalid crc32c: %s", checksum)
+			return rc
+		}
+		expected = uint64(uint32(signedExpected))
 	}
 	return &checksumReader{rc, uint32(expected), 0}
 }

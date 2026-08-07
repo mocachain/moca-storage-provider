@@ -132,3 +132,28 @@ func Test_verifyChecksum(t *testing.T) {
 		})
 	}
 }
+
+func Test_verifyChecksumReadsValidChecksums(t *testing.T) {
+	cases := []struct {
+		name     string
+		checksum string
+	}{
+		{
+			name:     "unsigned crc32c with high bit set",
+			checksum: "3381945770",
+		},
+		{
+			name:     "legacy signed crc32c with high bit set",
+			checksum: "-913021526",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result := verifyChecksum(io.NopCloser(strings.NewReader("hello world")), tt.checksum)
+			assert.IsType(t, &checksumReader{}, result)
+
+			_, err := io.ReadAll(result)
+			assert.NoError(t, err)
+		})
+	}
+}
