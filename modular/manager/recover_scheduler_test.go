@@ -231,6 +231,16 @@ func TestManageModular_ObjectsSegmentsStats(t *testing.T) {
 	stats.remove(1)
 }
 
+func TestObjectsSegmentsStats_IgnoresLateReportFromEarlierVersion(t *testing.T) {
+	stats := NewObjectsSegmentsStats()
+	stats.put(1, 1, 1)
+	stats.put(1, 2, 1)
+
+	stats.addSegmentRecord(1, 1, true, 0)
+
+	assert.False(t, stats.isObjectProcessed(1, 2))
+}
+
 func TestVerifyGVGScheduler_Start(t *testing.T) {
 	m := setup(t)
 	ctrl := gomock.NewController(t)
