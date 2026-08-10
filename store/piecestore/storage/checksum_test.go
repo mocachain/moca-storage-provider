@@ -109,6 +109,16 @@ func Test_verifyChecksum(t *testing.T) {
 			},
 		},
 		{
+			name:     "accepts a valid unsigned crc32c value",
+			rc:       io.NopCloser(strings.NewReader("hello world")),
+			checksum: "3381945770",
+			wantedResult: &checksumReader{
+				ReadCloser: io.NopCloser(strings.NewReader("hello world")),
+				expected:   3381945770,
+				checksum:   0,
+			},
+		},
+		{
 			name:         "4",
 			rc:           io.NopCloser(strings.NewReader("hello world")),
 			checksum:     "4294967296", // if checksum is out of uint32 range, error will be handled
@@ -119,6 +129,31 @@ func Test_verifyChecksum(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := verifyChecksum(tt.rc, tt.checksum)
 			assert.Equal(t, result, tt.wantedResult)
+		})
+	}
+}
+
+func Test_verifyChecksumReadsValidChecksums(t *testing.T) {
+	cases := []struct {
+		name     string
+		checksum string
+	}{
+		{
+			name:     "unsigned crc32c with high bit set",
+			checksum: "3381945770",
+		},
+		{
+			name:     "legacy signed crc32c with high bit set",
+			checksum: "-913021526",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result := verifyChecksum(io.NopCloser(strings.NewReader("hello world")), tt.checksum)
+			assert.IsType(t, &checksumReader{}, result)
+
+			_, err := io.ReadAll(result)
+			assert.NoError(t, err)
 		})
 	}
 }
