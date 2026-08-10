@@ -1194,6 +1194,29 @@ func TestExecuteModular_checkRecoveryChecksum(t *testing.T) {
 	}
 }
 
+func TestExecuteModular_checkRecoveryChecksum_RejectsOutOfRangeSegmentIndex(t *testing.T) {
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+	db := corespdb.NewMockSPDB(ctrl)
+	e.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(gomock.Any(), gomock.Any()).Return(&corespdb.IntegrityMeta{
+		PieceChecksumList: [][]byte{[]byte("test")},
+	}, nil).Times(1)
+	task := &gfsptask.GfSpRecoverPieceTask{
+		Task: &gfsptask.GfSpTask{},
+		ObjectInfo: &storagetypes.ObjectInfo{
+			ObjectName: "mockObjectName",
+			Id:         sdkmath.NewUint(1),
+		},
+		SegmentIdx: 1,
+	}
+
+	assert.NotPanics(t, func() {
+		err := e.checkRecoveryChecksum(context.TODO(), task, []byte("test"))
+		assert.ErrorIs(t, err, ErrRecoveryPieceChecksum)
+	})
+}
+
 func TestExecuteModular_doRecoveryPiece(t *testing.T) {
 	cases := []struct {
 		name        string
