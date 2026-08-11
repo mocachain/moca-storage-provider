@@ -14,6 +14,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/mocachain/moca-storage-provider/util"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
@@ -128,7 +129,19 @@ func (r *ReceiveModular) HandleDoneReceivePieceTask(ctx context.Context, task ta
 		}
 	}
 
-	expectedIntegrityHash := task.GetObjectInfo().GetChecksums()[task.GetRedundancyIdx()+1]
+	chainObjectInfo, err := r.baseApp.Consensus().QueryObjectInfoByID(ctx,
+		util.Uint64ToString(task.GetObjectInfo().Id.Uint64()))
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to query object info from chain", "task", task, "error", err)
+		return nil, err
+	}
+	checksumIdx := task.GetRedundancyIdx() + 1
+	if chainObjectInfo == nil || checksumIdx < 0 || checksumIdx >= int32(len(chainObjectInfo.GetChecksums())) {
+		log.CtxErrorw(ctx, "invalid checksum index from chain object info", "task", task, "checksum_index", checksumIdx)
+		err = ErrInvalidDataChecksum
+		return nil, ErrInvalidDataChecksum
+	}
+	expectedIntegrityHash := chainObjectInfo.GetChecksums()[checksumIdx]
 	integrityChecksum := hash.GenerateIntegrityHash(pieceChecksums)
 	if !bytes.Equal(expectedIntegrityHash, integrityChecksum) {
 		log.CtxErrorw(ctx, "failed to compare checksum", "task", task, "actual_checksum", integrityChecksum, "expected_checksum", expectedIntegrityHash)
@@ -137,7 +150,7 @@ func (r *ReceiveModular) HandleDoneReceivePieceTask(ctx context.Context, task ta
 	}
 	signTime := time.Now()
 	signature, err := r.baseApp.GfSpClient().SignSecondarySealBls(ctx, task.GetObjectInfo().Id.Uint64(),
-		task.GetGlobalVirtualGroupId(), task.GetObjectInfo().GetChecksums())
+		task.GetGlobalVirtualGroupId(), chainObjectInfo.GetChecksums())
 	metrics.PerfReceivePieceTimeHistogram.WithLabelValues("receive_piece_server_done_sign_time").Observe(time.Since(signTime).Seconds())
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to sign the integrity hash", "task", task, "error", err)
