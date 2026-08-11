@@ -569,11 +569,11 @@ func (e *ExecuteModular) getECPieceBySegment(ctx context.Context, redundancyIdx 
 		return nil, fmt.Errorf("invalid redundancyIdx")
 	}
 	// if it is the data shards of ec-encoded pieces, just get the ec data by offset
-	if redundancyIdx > 0 && redundancyIdx < int32(dataShards)-1 {
+	if redundancyIdx > 0 && redundancyIdx < int32(dataShards) {
 		ECPieceSize := e.baseApp.PieceOp().ECPieceSize(objectInfo.PayloadSize, segmentIdx, params.GetMaxSegmentSize(), params.GetRedundantDataChunkNum())
 
 		startPos := int64(redundancyIdx) * ECPieceSize
-		endPos := int64(redundancyIdx+1)*ECPieceSize - 1
+		endPos := int64(redundancyIdx+1) * ECPieceSize
 		return recoverySegData[startPos:endPos], nil
 	}
 
