@@ -338,28 +338,18 @@ func (s *RecoverGVGScheduler) Start() {
 				break
 			}
 
-			for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
-				task := &gfsptask.GfSpRecoverPieceTask{}
-				task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, s.redundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
-				task.SetBySuccessorSP(true)
-				task.SetGVGID(s.gvgID)
-				err = s.manager.recoveryQueue.Push(task)
-				if err != nil {
-					log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-					if errors.Is(err, ErrRepeatedTask) {
-						continue
-					}
-					if errors.Is(err, gfsptqueue.ErrTaskQueueExceed) {
-						exceedLimit = true
-						break out
-					}
+			if !s.queueRecoveryObject(objectInfo, storageParams, maxSegmentSize, segmentCount) {
+				failedObject := &spdb.RecoverFailedObject{
+					ObjectID:        objectID,
+					VirtualGroupID:  object.Gvg.Id,
+					RedundancyIndex: gvgStats.RedundancyIndex,
 				}
-				log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+				if err = s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(failedObject); err != nil {
+					log.Errorw("failed to record recovery enqueue failure", "object_id", objectID, "error", err)
+				}
+				exceedLimit = true
+				break out
 			}
-			if !s.manager.recoverObjectStats.has(objectID) {
-				s.manager.recoverObjectStats.put(objectID, segmentCount)
-			}
-			s.currentBatchObjectIDs[objectID] = struct{}{}
 		}
 
 		// if exceed the queue limit, wait for a while
@@ -371,6 +361,28 @@ func (s *RecoverGVGScheduler) Start() {
 		// the scheduler will update the StartAfter in recover gvg stats and jump to the next batch of objects to recover
 		s.monitorBatch()
 	}
+}
+
+func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, storageParams *types.Params, maxSegmentSize uint64, segmentCount uint32) bool {
+	for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
+		task := &gfsptask.GfSpRecoverPieceTask{}
+		task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, s.redundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
+		task.SetBySuccessorSP(true)
+		task.SetGVGID(s.gvgID)
+		if err := s.manager.recoveryQueue.Push(task); err != nil {
+			log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
+			if errors.Is(err, ErrRepeatedTask) {
+				continue
+			}
+			return false
+		}
+		log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+	}
+	if !s.manager.recoverObjectStats.has(objectInfo.Id.Uint64()) {
+		s.manager.recoverObjectStats.put(objectInfo.Id.Uint64(), segmentCount)
+	}
+	s.currentBatchObjectIDs[objectInfo.Id.Uint64()] = struct{}{}
+	return true
 }
 
 func (s *RecoverGVGScheduler) monitorBatch() {
