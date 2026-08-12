@@ -178,6 +178,9 @@ func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretas
 		if gvg == nil {
 			return fmt.Errorf("gvg not exist")
 		}
+		if err = validateReplicateCardinality(rTask.GetSecondaryEndpoints(), gvg.GetSecondarySpIds(), secondarySignatures); err != nil {
+			return err
+		}
 		if rTask.GetIsAgentUpload() {
 			objectInfo := rTask.GetObjectInfo()
 			expectCheckSums, makeErr := e.makeCheckSumsForAgentUpload(ctx, rTask.GetObjectInfo(), len(rTask.GetSecondaryEndpoints()), rTask.GetStorageParams())
@@ -270,6 +273,13 @@ func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretas
 			return err
 		}
 	}
+}
+
+func validateReplicateCardinality(endpoints []string, secondarySPIDs []uint32, signatures [][]byte) error {
+	if len(endpoints) != len(secondarySPIDs) || len(endpoints) != len(signatures) {
+		return ErrReplicateIdsOutOfBounds
+	}
+	return nil
 }
 
 func (e *ExecuteModular) doReplicatePiece(ctx context.Context, waitGroup *sync.WaitGroup, rTask coretask.ReplicatePieceTask,

@@ -67,6 +67,12 @@ func TestErrConsensusWithDetail(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestValidateReplicateCardinality_RejectsMismatchedCollections(t *testing.T) {
+	err := validateReplicateCardinality([]string{"secondary-1", "secondary-2"}, []uint32{1}, make([][]byte, 2))
+
+	assert.ErrorIs(t, err, ErrReplicateIdsOutOfBounds)
+}
+
 func TestExecuteModular_HandleSealObjectTask(t *testing.T) {
 	cases := []struct {
 		name      string
