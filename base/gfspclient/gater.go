@@ -100,7 +100,7 @@ func (s *GfSpClient) ReplicatePieceToSecondary(ctx context.Context, endpoint str
 }
 
 func (s *GfSpClient) GetPieceFromECChunks(ctx context.Context, endpoint string, task coretask.RecoveryPieceTask) (io.ReadCloser, error) {
-	req, err := http.NewRequest(http.MethodGet, endpoint+RecoveryObjectPiecePath, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+RecoveryObjectPiecePath, nil)
 	if err != nil {
 		log.CtxErrorw(ctx, "client failed to connect to gateway", "endpoint", endpoint, "error", err)
 		return nil, err

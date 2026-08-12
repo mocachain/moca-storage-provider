@@ -17,8 +17,35 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
+	"github.com/mocachain/moca-storage-provider/core/taskqueue"
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 )
+
+func TestManageModular_HandleDownloadObjectTask_ReturnsPushError(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	m.downloadQueue = queue
+	pushErr := errors.New("queue unavailable")
+	queue.EXPECT().Push(gomock.Any()).Return(pushErr).Times(1)
+
+	err := m.HandleDownloadObjectTask(context.TODO(), &gfsptask.GfSpDownloadObjectTask{})
+
+	assert.ErrorIs(t, err, pushErr)
+}
+
+func TestManageModular_HandleChallengePieceTask_ReturnsPushError(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	m.challengeQueue = queue
+	pushErr := errors.New("queue unavailable")
+	queue.EXPECT().Push(gomock.Any()).Return(pushErr).Times(1)
+
+	err := m.HandleChallengePieceTask(context.TODO(), &gfsptask.GfSpChallengePieceTask{})
+
+	assert.ErrorIs(t, err, pushErr)
+}
 
 func TestManageModular_HandleCreateUploadObjectTask(t *testing.T) {
 	m := setup(t)

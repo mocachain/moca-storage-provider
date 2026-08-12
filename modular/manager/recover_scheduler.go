@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -338,28 +340,18 @@ func (s *RecoverGVGScheduler) Start() {
 				break
 			}
 
-			for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
-				task := &gfsptask.GfSpRecoverPieceTask{}
-				task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, s.redundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
-				task.SetBySuccessorSP(true)
-				task.SetGVGID(s.gvgID)
-				err = s.manager.recoveryQueue.Push(task)
-				if err != nil {
-					log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-					if errors.Is(err, ErrRepeatedTask) {
-						continue
-					}
-					if errors.Is(err, gfsptqueue.ErrTaskQueueExceed) {
-						exceedLimit = true
-						break out
-					}
+			if !s.queueRecoveryObject(objectInfo, storageParams, maxSegmentSize, segmentCount) {
+				failedObject := &spdb.RecoverFailedObject{
+					ObjectID:        objectID,
+					VirtualGroupID:  object.Gvg.Id,
+					RedundancyIndex: gvgStats.RedundancyIndex,
 				}
-				log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+				if err = s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(failedObject); err != nil {
+					log.Errorw("failed to record recovery enqueue failure", "object_id", objectID, "error", err)
+				}
+				exceedLimit = true
+				break out
 			}
-			if !s.manager.recoverObjectStats.has(objectID) {
-				s.manager.recoverObjectStats.put(objectID, segmentCount)
-			}
-			s.currentBatchObjectIDs[objectID] = struct{}{}
 		}
 
 		// if exceed the queue limit, wait for a while
@@ -371,6 +363,28 @@ func (s *RecoverGVGScheduler) Start() {
 		// the scheduler will update the StartAfter in recover gvg stats and jump to the next batch of objects to recover
 		s.monitorBatch()
 	}
+}
+
+func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, storageParams *types.Params, maxSegmentSize uint64, segmentCount uint32) bool {
+	for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
+		task := &gfsptask.GfSpRecoverPieceTask{}
+		task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, s.redundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
+		task.SetBySuccessorSP(true)
+		task.SetGVGID(s.gvgID)
+		if err := s.manager.recoveryQueue.Push(task); err != nil {
+			log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
+			if errors.Is(err, ErrRepeatedTask) {
+				continue
+			}
+			return false
+		}
+		log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+	}
+	if !s.manager.recoverObjectStats.has(objectInfo.Id.Uint64()) {
+		s.manager.recoverObjectStats.put(objectInfo.Id.Uint64(), segmentCount)
+	}
+	s.currentBatchObjectIDs[objectInfo.Id.Uint64()] = struct{}{}
+	return true
 }
 
 func (s *RecoverGVGScheduler) monitorBatch() {
@@ -763,7 +777,7 @@ func (s *VerifyGVGScheduler) Start() {
 }
 
 func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex int32) (bool, error) {
-	_, err := m.baseApp.GfSpDB().GetObjectIntegrity(object.Id.Uint64(), redundancyIndex)
+	integrityMeta, err := m.baseApp.GfSpDB().GetObjectIntegrity(object.Id.Uint64(), redundancyIndex)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			log.Errorw("failed to verify the integrity, record not exist", "object_id", object.Id)
@@ -771,6 +785,16 @@ func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex
 		}
 		log.Errorw("failed to get object integrity hash", "objectName:", object.ObjectName, "error", err)
 		return false, err
+	}
+	checksumIndex := redundancyIndex + 1
+	if checksumIndex < 0 || int(checksumIndex) >= len(object.GetChecksums()) {
+		log.Errorw("failed to verify the integrity, checksum index out of bounds", "object_id", object.Id, "redundancy_index", redundancyIndex)
+		return false, nil
+	}
+	actualChecksum := hash.GenerateIntegrityHash(integrityMeta.PieceChecksumList)
+	if !bytes.Equal(actualChecksum, object.GetChecksums()[checksumIndex]) {
+		log.Errorw("failed to verify the integrity, checksum mismatch", "object_id", object.Id, "redundancy_index", redundancyIndex)
+		return false, nil
 	}
 	return true, nil
 }
