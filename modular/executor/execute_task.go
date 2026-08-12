@@ -592,7 +592,13 @@ func (e *ExecuteModular) checkRecoveryChecksum(ctx context.Context, task coretas
 			task.GetObjectInfo().ObjectName + ",error: " + err.Error())
 	}
 
-	expectedHash := integrityMeta.PieceChecksumList[task.GetSegmentIdx()]
+	segmentIdx := task.GetSegmentIdx()
+	if segmentIdx >= uint32(len(integrityMeta.PieceChecksumList)) {
+		log.CtxErrorw(ctx, "recovery segment index out of checksum bounds", "object_name", task.GetObjectInfo().ObjectName,
+			"segment_idx", segmentIdx, "checksum_count", len(integrityMeta.PieceChecksumList))
+		return ErrRecoveryPieceChecksum
+	}
+	expectedHash := integrityMeta.PieceChecksumList[segmentIdx]
 	if !bytes.Equal(recoveryChecksum, expectedHash) {
 		log.CtxErrorw(ctx, "check integrity hash of recovery data err", "objectName:", task.GetObjectInfo().ObjectName,
 			"expected value", hex.EncodeToString(expectedHash), "actual value", recoveryChecksum, "error", ErrRecoveryPieceChecksum)
