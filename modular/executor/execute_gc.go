@@ -260,6 +260,14 @@ func (e *ExecuteModular) HandleGCObjectTask(ctx context.Context, task coretask.G
 				"task_current_gc_block_id", task.GetCurrentBlockNumber())
 			continue
 		}
+		if _, queryErr := e.baseApp.Consensus().QueryObjectInfoByID(ctx, util.Uint64ToString(currentGCObjectID)); queryErr == nil {
+			log.CtxInfow(ctx, "skip gc object that still exists on chain", "object_id", currentGCObjectID)
+			continue
+		} else if !strings.Contains(queryErr.Error(), "No such object") {
+			err = queryErr
+			log.CtxErrorw(ctx, "failed to confirm object deletion on chain", "object_id", currentGCObjectID, "error", queryErr)
+			return
+		}
 		segmentPieceKeyPrefix := fmt.Sprintf("s%d_", currentGCObjectID)
 		deletedSize, deleteErr := e.baseApp.PieceStore().DeletePiecesByPrefix(ctx, segmentPieceKeyPrefix)
 		log.CtxDebugw(ctx, "delete the primary sp pieces", "object_info", objectInfo,
