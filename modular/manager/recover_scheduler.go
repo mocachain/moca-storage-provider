@@ -11,7 +11,6 @@ import (
 
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
-	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
@@ -574,31 +573,8 @@ func (s *RecoverFailedObjectScheduler) Start() {
 				continue
 			}
 
-			for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
-				_, err := s.manager.baseApp.GfSpDB().GetReplicatePieceChecksum(objectInfo.Id.Uint64(), segmentIdx, o.RedundancyIndex)
-				if err == nil {
-					log.Infow("piece is already recovered,", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-					continue
-				}
-				if err != gorm.ErrRecordNotFound {
-					log.Infow("failed to get piece hash fro DB", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-					break out
-				}
-				task := &gfsptask.GfSpRecoverPieceTask{}
-				task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, o.RedundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
-				task.SetBySuccessorSP(true)
-				task.SetGVGID(o.VirtualGroupID)
-				err = s.manager.recoveryQueue.Push(task)
-				if err != nil {
-					log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-					if errors.Is(err, ErrRepeatedTask) {
-						continue
-					}
-					if errors.Is(err, gfsptqueue.ErrTaskQueueExceed) {
-						break out
-					}
-				}
-				log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+			if !s.queueFailedObjectRecovery(objectInfo, storageParams, o, maxSegmentSize, segmentCount) {
+				break out
 			}
 			o.RetryTime++
 			err = s.manager.baseApp.GfSpDB().UpdateRecoverFailedObject(o)
@@ -608,6 +584,38 @@ func (s *RecoverFailedObjectScheduler) Start() {
 			}
 		}
 	}
+}
+
+// queueFailedObjectRecovery re-queues the recovery tasks for a previously failed
+// object's segments that have not been recovered yet. It returns false if any
+// segment could not be verified or enqueued, so the caller leaves the object's
+// retry count untouched and re-attempts the whole object again on the next pass,
+// instead of treating a partial, failed attempt as a completed one.
+func (s *RecoverFailedObjectScheduler) queueFailedObjectRecovery(objectInfo *types.ObjectInfo, storageParams *types.Params, o *spdb.RecoverFailedObject, maxSegmentSize uint64, segmentCount uint32) bool {
+	for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
+		_, err := s.manager.baseApp.GfSpDB().GetReplicatePieceChecksum(objectInfo.Id.Uint64(), segmentIdx, o.RedundancyIndex)
+		if err == nil {
+			log.Infow("piece is already recovered,", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+			continue
+		}
+		if err != gorm.ErrRecordNotFound {
+			log.Infow("failed to get piece hash from DB", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
+			return false
+		}
+		task := &gfsptask.GfSpRecoverPieceTask{}
+		task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, o.RedundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
+		task.SetBySuccessorSP(true)
+		task.SetGVGID(o.VirtualGroupID)
+		if err := s.manager.recoveryQueue.Push(task); err != nil {
+			log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
+			if errors.Is(err, ErrRepeatedTask) {
+				continue
+			}
+			return false
+		}
+		log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
+	}
+	return true
 }
 
 // VerifyGVGScheduler Verify that objects in GVG are recovered successfully or not.
