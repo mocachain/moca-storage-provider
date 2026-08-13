@@ -44,6 +44,52 @@ func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *tes
 	assert.False(t, exists)
 }
 
+func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_RegistersCurrentVersion(t *testing.T) {
+	m := setup(t)
+	m.recoverObjectStats = NewObjectsSegmentsStats()
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(300), Version: 2, PayloadSize: 1}
+
+	scheduler.seedFailedObjectStats(objectInfo, 3)
+
+	// Without seeding, isRecoverFailed's absent-key branch always reports true
+	// regardless of what actually happened. A real entry starts as "not
+	// failed" until a segment actually fails.
+	assert.True(t, m.recoverObjectStats.has(300, 2))
+	assert.False(t, m.recoverObjectStats.isRecoverFailed(300, 2))
+
+	// A failure reported for this object now resolves against its own version
+	// instead of being invisible to it.
+	m.recoverObjectStats.addSegmentRecord(300, 2, false, 0)
+	m.recoverObjectStats.addSegmentRecord(300, 2, true, 1)
+	m.recoverObjectStats.addSegmentRecord(300, 2, true, 2)
+	assert.True(t, m.recoverObjectStats.isRecoverFailed(300, 2))
+
+	// A report for a different version of the same object must not resolve
+	// against this entry.
+	assert.False(t, m.recoverObjectStats.has(300, 3))
+}
+
+func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_DoesNotResetInProgressEntry(t *testing.T) {
+	m := setup(t)
+	m.recoverObjectStats = NewObjectsSegmentsStats()
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(301), Version: 1, PayloadSize: 1}
+
+	scheduler.seedFailedObjectStats(objectInfo, 2)
+	m.recoverObjectStats.addSegmentRecord(301, 1, true, 0)
+
+	// A later pass over the same still-pending row (e.g. the next scheduler
+	// tick, before this object's segments have all reported back) must not
+	// wipe out progress already recorded for it.
+	scheduler.seedFailedObjectStats(objectInfo, 2)
+
+	assert.False(t, m.recoverObjectStats.isObjectProcessed(301, 1))
+	m.recoverObjectStats.addSegmentRecord(301, 1, true, 1)
+	assert.True(t, m.recoverObjectStats.isObjectProcessed(301, 1))
+	assert.False(t, m.recoverObjectStats.isRecoverFailed(301, 1))
+}
+
 func TestVerifyIntegrityAcceptsMatchingChainChecksum(t *testing.T) {
 	m := setup(t)
 	ctrl := gomock.NewController(t)
