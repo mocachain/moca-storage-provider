@@ -683,6 +683,37 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 			},
 		},
 		{
+			name: "skips ec deletion when secondary list is empty",
+			task: &gfsptask.GfSpGCObjectTask{
+				Task:               &gfsptask.GfSpTask{},
+				CurrentBlockNumber: 0,
+			},
+			fn: func() *ExecuteModular {
+				e := setup(t)
+				ctrl := gomock.NewController(t)
+				objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}
+				client := gfspclient.NewMockGfSpClientAPI(ctrl)
+				client.EXPECT().ListDeletedObjectsByBlockNumberRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return([]*metadatatypes.Object{{ObjectInfo: objectInfo}}, uint64(0), nil).Times(1)
+				client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+				client.EXPECT().GetBucketInfoByBucketName(gomock.Any(), gomock.Any()).Return(&metadatatypes.Bucket{
+					BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
+				}, nil).Times(1)
+				client.EXPECT().GetGlobalVirtualGroup(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+					&virtual_types.GlobalVirtualGroup{}, nil).Times(1)
+				e.baseApp.SetGfSpClient(client)
+
+				chain := consensus.NewMockConsensus(ctrl)
+				chain.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				e.baseApp.SetConsensus(chain)
+
+				pieceStore := piecestore.NewMockPieceStore(ctrl)
+				pieceStore.EXPECT().DeletePiecesByPrefix(gomock.Any(), "s1_").Return(uint64(0), nil).Times(1)
+				e.baseApp.SetPieceStore(pieceStore)
+				return e
+			},
+		},
+		{
 			name: "succeed to gc an object",
 			task: &gfsptask.GfSpGCObjectTask{
 				Task:               &gfsptask.GfSpTask{},
