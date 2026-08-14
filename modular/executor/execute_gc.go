@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -298,13 +297,7 @@ func (e *ExecuteModular) HandleGCObjectTask(ctx context.Context, task coretask.G
 				}
 			}
 		} else {
-			// if failed to get secondary sps, check the current sp
-			deletedSize, deleteErr = e.baseApp.PieceStore().DeletePiecesByPrefix(ctx, ECPieceKeyPrefix)
-			log.CtxDebugw(ctx, "delete the sp pieces by prefix in current sp when secondary sp not found",
-				"object_info", objectInfo, "piece_key_prefix", ECPieceKeyPrefix, "deletedSize", deletedSize, "error", deleteErr)
-
-			// signal as delete any integrity meta related with the object
-			redundancyIndex = math.MaxInt32
+			log.CtxErrorw(ctx, "skip gc ec pieces because the secondary sp list is empty", "object_id", currentGCObjectID)
 		}
 
 		// ignore this delete api error, TODO: refine gc workflow by enrich metadata index
