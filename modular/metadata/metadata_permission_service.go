@@ -558,11 +558,11 @@ func (r *MetadataModular) verifySwapOut(ctx context.Context, gvgID uint32, dstSp
 
 	event, err = r.baseApp.GfBsDB().GetEventSwapOutByGvgID(gvgID)
 	if err != nil {
-		log.CtxErrorw(ctx, "failed to get migration bucket event by bucket id", "error", err)
+		log.CtxErrorw(ctx, "failed to get swap out event by gvg id", "error", err)
 		return permtypes.EFFECT_DENY, err
 	}
 
-	if event.SuccessorSpId != dstSpID {
+	if event == nil || event.SuccessorSpId != dstSpID {
 		return permtypes.EFFECT_DENY, nil
 	}
 
