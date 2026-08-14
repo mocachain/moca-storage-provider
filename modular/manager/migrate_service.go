@@ -189,6 +189,7 @@ func (m *ManageModular) NotifyPostMigrateBucketAndRecoupQuota(ctx context.Contex
 			}
 			if err = m.baseApp.GfSpDB().UpdateBucketMigrationRecoupQuota(bucketID, extraQuota, int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_MIGRATION_FINISHED)); err != nil {
 				log.CtxErrorw(ctx, "failed to update bucket migrate progress recoup quota", "error", err)
+				return latestQuota, err
 			}
 		}
 		log.CtxDebugw(ctx, "succeed to recoup extra quota to user", "extra_quote", extraQuota, "bucket_id", bucketID)
