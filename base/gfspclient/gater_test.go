@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
@@ -123,6 +125,46 @@ func TestGfSpClient_GetPieceFromECChunks(t *testing.T) {
 				assert.Nil(t, result)
 			}
 		})
+	}
+}
+
+func TestGfSpClient_GetPieceFromECChunksHonorsContextCancellation(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		select {
+		case <-r.Context().Done():
+		case <-releaseHandler:
+		}
+	}))
+	defer func() {
+		close(releaseHandler)
+		server.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		body, err := mockBufClient().GetPieceFromECChunks(ctx, server.URL, &gfsptask.GfSpRecoverPieceTask{})
+		if body != nil {
+			body.Close()
+		}
+		result <- err
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("recovery request did not reach the server")
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("recovery request did not stop after context cancellation")
 	}
 }
 
