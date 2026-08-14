@@ -2,9 +2,9 @@ package p2pnode
 
 import (
 	"context"
-	"io"
+	"time"
 
-	"github.com/cosmos/gogoproto/proto"
+	ggio "github.com/cosmos/gogoproto/io"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -33,18 +33,17 @@ func (n *Node) onPing(s network.Stream) {
 		}
 	}()
 	ping := &gfspp2p.GfSpPing{}
-	buf, err := io.ReadAll(s)
-	if err != nil {
+	if err = s.SetReadDeadline(time.Now().Add(P2PStreamReadTimeout)); err != nil {
+		log.Errorw("failed to set read deadline for ping stream", "error", err)
+		s.Reset()
+		return
+	}
+	if err = ggio.NewFullReader(s, MaxP2PMessageSize).ReadMsg(ping); err != nil {
 		log.Errorw("failed to read ping msg from stream", "error", err)
 		s.Reset()
 		return
 	}
 	s.Close()
-	err = proto.Unmarshal(buf, ping)
-	if err != nil {
-		log.Errorw("failed to unmarshal ping msg", "error", err)
-		return
-	}
 
 	// log.Debugf("%s received ping request from %s. Message: %s", s.Conn().LocalPeer(), s.Conn().RemotePeer(), ping.String())
 
@@ -108,18 +107,17 @@ func (n *Node) onPong(s network.Stream) {
 		}
 	}()
 	pong := &gfspp2p.GfSpPong{}
-	buf, err := io.ReadAll(s)
-	if err != nil {
+	if err = s.SetReadDeadline(time.Now().Add(P2PStreamReadTimeout)); err != nil {
+		log.Errorw("failed to set read deadline for pong stream", "error", err)
+		s.Reset()
+		return
+	}
+	if err = ggio.NewFullReader(s, MaxP2PMessageSize).ReadMsg(pong); err != nil {
 		log.Errorw("failed to read pong msg from stream", "error", err)
 		s.Reset()
 		return
 	}
 	s.Close()
-	err = proto.Unmarshal(buf, pong)
-	if err != nil {
-		log.Errorw("failed to unmarshal ping msg", "error", err)
-		return
-	}
 
 	// log.Debugf("%s received pong request from %s.", s.Conn().LocalPeer(), s.Conn().RemotePeer())
 
@@ -130,6 +128,12 @@ func (n *Node) onPong(s network.Stream) {
 	}
 	n.peers.AddPeer(peerID, pong.SpOperatorAddress, s.Conn().RemoteMultiaddr())
 
+	// pong.Nodes is third-party gossip: addresses the remote peer merely
+	// claims to know about, not addresses we've directly verified over a
+	// signed connection the way peerID's own address just was above. Store
+	// them with a bounded TTL rather than peerstore.PermanentAddrTTL, so an
+	// entry seeded by a malicious or buggy peer ages out instead of
+	// accumulating in the peerstore forever.
 	for _, node := range pong.Nodes {
 		pID, err := peer.Decode(node.NodeId)
 		if err != nil {
@@ -143,7 +147,7 @@ func (n *Node) onPong(s network.Stream) {
 			}
 			addrs = append(addrs, addr)
 		}
-		n.node.Peerstore().AddAddrs(pID, addrs, peerstore.PermanentAddrTTL)
-		// log.Debugw("receive node from remote and permanent", "remote_node", s.Conn().RemotePeer(), "node_id", pID)
+		n.node.Peerstore().AddAddrs(pID, addrs, peerstore.AddressTTL)
+		// log.Debugw("receive node from remote", "remote_node", s.Conn().RemotePeer(), "node_id", pID)
 	}
 }
