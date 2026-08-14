@@ -301,10 +301,8 @@ func (e *ExecuteModular) HandleGCObjectTask(ctx context.Context, task coretask.G
 		}
 
 		// ignore this delete api error, TODO: refine gc workflow by enrich metadata index
-		if redundancyIndex >= 0 {
-			deleteErr = e.baseApp.GfSpDB().DeleteObjectIntegrity(objectInfo.Id.Uint64(), redundancyIndex)
-			log.CtxDebugw(ctx, "delete the object integrity meta", "object_info", objectInfo, "error", deleteErr)
-		}
+		deleteErr = e.baseApp.GfSpDB().DeleteObjectIntegrity(objectInfo.Id.Uint64(), redundancyIndex)
+		log.CtxDebugw(ctx, "delete the object integrity meta", "object_info", objectInfo, "error", deleteErr)
 		task.SetCurrentBlockNumber(currentGCBlockID)
 		task.SetLastDeletedObjectId(currentGCObjectID)
 		metrics.GCObjectCounter.WithLabelValues(e.Name()).Inc()

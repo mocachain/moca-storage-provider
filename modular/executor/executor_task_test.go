@@ -705,11 +705,16 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				chain := consensus.NewMockConsensus(ctrl)
 				chain.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(chain)
 
 				pieceStore := piecestore.NewMockPieceStore(ctrl)
 				pieceStore.EXPECT().DeletePiecesByPrefix(gomock.Any(), "s1_").Return(uint64(0), nil).Times(1)
 				e.baseApp.SetPieceStore(pieceStore)
+
+				db := corespdb.NewMockSPDB(ctrl)
+				db.EXPECT().DeleteObjectIntegrity(uint64(1), int32(piecestore.PrimarySPRedundancyIndex)).Return(nil).Times(1)
+				e.baseApp.SetGfSpDB(db)
 				return e
 			},
 		},
