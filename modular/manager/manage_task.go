@@ -848,7 +848,7 @@ func (m *ManageModular) HandleRecoverPieceTask(ctx context.Context, task task.Re
 
 		if task.BySuccessorSP() {
 			objectID := task.GetObjectInfo().Id.Uint64()
-			m.recoverObjectStats.addSegmentRecord(objectID, true, task.GetSegmentIdx())
+			m.recoverObjectStats.addSegmentRecord(objectID, task.GetObjectInfo().Version, true, task.GetSegmentIdx())
 			return nil
 		}
 	}
@@ -895,8 +895,8 @@ func (m *ManageModular) handleFailedRecoverPieceTask(ctx context.Context, handle
 
 		if handleTask.BySuccessorSP() {
 			objectID := handleTask.GetObjectInfo().Id.Uint64()
-			m.recoverObjectStats.addSegmentRecord(objectID, false, handleTask.GetSegmentIdx())
-			if m.recoverObjectStats.isRecoverFailed(objectID) {
+			m.recoverObjectStats.addSegmentRecord(objectID, handleTask.GetObjectInfo().Version, false, handleTask.GetSegmentIdx())
+			if m.recoverObjectStats.isRecoverFailed(objectID, handleTask.GetObjectInfo().Version) {
 				object := &spdb.RecoverFailedObject{
 					ObjectID:        handleTask.GetObjectInfo().Id.Uint64(),
 					VirtualGroupID:  handleTask.GetGVGID(),
