@@ -28,7 +28,7 @@ func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *tes
 	m.recoverObjectStats = NewObjectsSegmentsStats()
 	scheduler := &RecoverGVGScheduler{
 		manager:               m,
-		currentBatchObjectIDs: make(map[uint64]struct{}),
+		currentBatchObjectIDs: make(map[objectVersion]struct{}),
 		gvgID:                 1,
 		redundancyIndex:       0,
 	}
@@ -39,8 +39,8 @@ func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *tes
 	queued := scheduler.queueRecoveryObject(objectInfo, storageParams, 10, 1)
 
 	assert.False(t, queued)
-	assert.False(t, m.recoverObjectStats.has(100))
-	_, exists := scheduler.currentBatchObjectIDs[100]
+	assert.False(t, m.recoverObjectStats.has(100, objectInfo.Version))
+	_, exists := scheduler.currentBatchObjectIDs[objectVersion{objectID: 100, version: objectInfo.Version}]
 	assert.False(t, exists)
 }
 
@@ -219,16 +219,26 @@ func TestManageModular_RecoverVGFScheduler1(t *testing.T) {
 
 func TestManageModular_ObjectsSegmentsStats(t *testing.T) {
 	stats := NewObjectsSegmentsStats()
-	stats.put(1, 1)
-	has := stats.has(1)
+	stats.put(1, 1, 1)
+	has := stats.has(1, 1)
 	assert.Equal(t, true, has)
-	stats.addSegmentRecord(1, true, 1)
-	stats.addSegmentRecord(1, false, 1)
-	l := stats.isObjectProcessed(1)
+	stats.addSegmentRecord(1, 1, true, 1)
+	stats.addSegmentRecord(1, 1, false, 1)
+	l := stats.isObjectProcessed(1, 1)
 	assert.Equal(t, true, l)
-	isFailed := stats.isRecoverFailed(1)
+	isFailed := stats.isRecoverFailed(1, 1)
 	assert.Equal(t, false, isFailed)
-	stats.remove(1)
+	stats.remove(1, 1)
+}
+
+func TestObjectsSegmentsStats_IgnoresLateReportFromEarlierVersion(t *testing.T) {
+	stats := NewObjectsSegmentsStats()
+	stats.put(1, 1, 1)
+	stats.put(1, 2, 1)
+
+	stats.addSegmentRecord(1, 1, true, 0)
+
+	assert.False(t, stats.isObjectProcessed(1, 2))
 }
 
 func TestVerifyGVGScheduler_Start(t *testing.T) {
