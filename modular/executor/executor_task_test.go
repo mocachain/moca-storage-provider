@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -564,6 +565,24 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 			},
 		},
 		{
+			name: "skips deletion when object still exists on chain",
+			task: &gfsptask.GfSpGCObjectTask{Task: &gfsptask.GfSpTask{}},
+			fn: func() *ExecuteModular {
+				e := setup(t)
+				ctrl := gomock.NewController(t)
+				objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}
+				client := gfspclient.NewMockGfSpClientAPI(ctrl)
+				client.EXPECT().ListDeletedObjectsByBlockNumberRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]*metadatatypes.Object{{ObjectInfo: objectInfo}}, uint64(0), nil)
+				client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil)
+				e.baseApp.SetGfSpClient(client)
+				chain := consensus.NewMockConsensus(ctrl)
+				chain.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil)
+				chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(objectInfo, nil)
+				e.baseApp.SetConsensus(chain)
+				return e
+			},
+		},
+		{
 			name: "failed to get bucket by bucket name",
 			task: &gfsptask.GfSpGCObjectTask{
 				Task:               &gfsptask.GfSpTask{},
@@ -586,6 +605,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
@@ -623,6 +643,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
@@ -689,6 +710,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
