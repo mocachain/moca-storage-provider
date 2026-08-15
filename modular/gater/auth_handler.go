@@ -29,6 +29,10 @@ const (
 	ExpiryDateFormat          string = time.RFC3339
 	ExpectedEddsaPubKeyLength int    = 64
 	SignedContentV2Pattern           = `(.+) wants you to sign in with your Moca Chain account:\n*(.+)\n*Register your identity public key (.+)\n*URI: (.+)\n*Version: (.+)\n*Chain ID: (.+)\n*Issued At: (.+)\n*Expiration Time: (.+)`
+	// MaxAuthKeyListBodySize bounds a request body that carries a comma separated list
+	// of eddsa public keys. Each key is ExpectedEddsaPubKeyLength hex characters plus a
+	// separator, so this holds well over a hundred of them.
+	MaxAuthKeyListBodySize int = 8 * 1024
 )
 
 type RequestNonceResp struct {
@@ -362,8 +366,11 @@ func (g *GateModular) listUserPublicKeyV2Handler(w http.ResponseWriter, r *http.
 		}
 	}()
 
-	// ignore the error, because the listUserPublicKeyV2 does not need signature
-	reqCtx, _ = NewRequestContext(r, g)
+	// the registered keys of an account are only listed to that account itself
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
 
 	account := reqCtx.request.Header.Get(GnfdUserAddressHeader)
 	domain := reqCtx.request.Header.Get(GnfdOffChainAuthAppDomainHeader)
@@ -372,6 +379,10 @@ func (g *GateModular) listUserPublicKeyV2Handler(w http.ResponseWriter, r *http.
 	if ok := common.IsHexAddress(account); !ok {
 		err = ErrInvalidHeader
 		log.Errorw("failed to check account address", "account_address", account, "error", err)
+		return
+	}
+	if common.HexToAddress(account) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 
@@ -437,14 +448,21 @@ func (g *GateModular) deleteUserPublicKeyV2Handler(w http.ResponseWriter, r *htt
 		log.Errorw("failed to check account address", "account_address", account, "error", err)
 		return
 	}
-	if account != reqCtx.account {
+	if common.HexToAddress(account) != common.HexToAddress(reqCtx.account) {
 		err = ErrNoPermission
+		return
 	}
 
-	data, err := io.ReadAll(r.Body)
+	// read one byte past the limit so that a body sitting exactly on it still fits
+	data, err := io.ReadAll(io.LimitReader(r.Body, int64(MaxAuthKeyListBodySize)+1))
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to read publicKeys from request body", "error", err)
 		err = ErrExceptionStream
+		return
+	}
+	if len(data) > MaxAuthKeyListBodySize {
+		log.CtxErrorw(reqCtx.Context(), "public key list body is too large", "limit", MaxAuthKeyListBodySize)
+		err = ErrRequestBodyTooLarge
 		return
 	}
 
