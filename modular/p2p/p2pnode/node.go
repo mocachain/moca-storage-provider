@@ -60,14 +60,12 @@ func NewNode(baseApp *gfspapp.GfSpBaseApp, privateKey string, address string, bo
 	if len(privateKey) > 0 {
 		priKeyBytes, err := hex.DecodeString(privateKey)
 		if err != nil {
-			log.Errorw("failed to hex decode private key",
-				"priv_key", privateKey, "error", err)
+			log.Errorw("failed to hex decode private key", "error", err)
 			return nil, err
 		}
 		privKey, err = crypto.UnmarshalSecp256k1PrivateKey(priKeyBytes)
 		if err != nil {
-			log.Errorw("failed to unmarshal secp256k1 private key",
-				"priv_key", privateKey, "error", err)
+			log.Errorw("failed to unmarshal secp256k1 private key", "error", err)
 			return nil, err
 		}
 	} else {

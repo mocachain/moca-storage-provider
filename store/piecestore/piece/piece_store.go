@@ -32,7 +32,9 @@ func NewPieceStore(pieceConfig *storage.PieceStoreConfig) (*PieceStore, error) {
 
 // checkConfig checks config if right
 func checkConfig(cfg *storage.PieceStoreConfig) error {
-	overrideConfigFromEnv(cfg)
+	if err := overrideConfigFromEnv(cfg); err != nil {
+		return err
+	}
 	if cfg.Shards > 256 {
 		return fmt.Errorf("too many shards: %d", cfg.Shards)
 	}
@@ -60,10 +62,28 @@ func checkConfig(cfg *storage.PieceStoreConfig) error {
 	return nil
 }
 
-func overrideConfigFromEnv(cfg *storage.PieceStoreConfig) {
-	if val, ok := os.LookupEnv(storage.BucketURL); ok {
-		cfg.Store.BucketURL = val
+// overrideConfigFromEnv lets a deployment inject the bucket URL through the
+// environment when the configuration leaves it unset. It never silently
+// replaces a configured backend, because that would redirect every piece read
+// and write to another endpoint without any trace of where the value came from.
+func overrideConfigFromEnv(cfg *storage.PieceStoreConfig) error {
+	val, ok := os.LookupEnv(storage.BucketURL)
+	if !ok {
+		return nil
 	}
+	if val == "" {
+		return fmt.Errorf("env %s is set but empty", storage.BucketURL)
+	}
+	if cfg.Store.BucketURL == "" {
+		cfg.Store.BucketURL = val
+		log.Infow("bucket url is taken from the environment", "env", storage.BucketURL)
+		return nil
+	}
+	if cfg.Store.BucketURL != val {
+		return fmt.Errorf("env %s conflicts with the configured PieceStore.Store.BucketURL, "+
+			"remove one of them", storage.BucketURL)
+	}
+	return nil
 }
 
 func createStorage(cfg storage.PieceStoreConfig) (storage.ObjectStorage, error) {

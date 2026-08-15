@@ -1,7 +1,9 @@
 package gfspapp
 
 import (
+	"fmt"
 	"math"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -584,10 +586,32 @@ func DefaultGfSpPProfOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error 
 		if cfg.Monitor.PProfHTTPAddress == "" {
 			cfg.Monitor.PProfHTTPAddress = DefaultPProfAddress
 		}
+		if err := checkPProfLoopbackAddress(cfg.Monitor.PProfHTTPAddress); err != nil {
+			return err
+		}
 		app.pprof = pprof.NewPProf(cfg.Monitor.PProfHTTPAddress)
 		app.RegisterServices(app.pprof)
 	}
 	return nil
+}
+
+// checkPProfLoopbackAddress rejects a pprof listen address that is reachable off the host.
+// The pprof endpoints expose heap and goroutine dumps and allow any caller to
+// start an expensive profile, so they must never be published on a routable
+// interface; reach them through a port forward or an ssh tunnel instead.
+func checkPProfLoopbackAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid pprof address %q: %w", address, err)
+	}
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("pprof address %q is not a loopback address, bind it to localhost or set DisablePProf", address)
 }
 
 func DefaultGfSpProbeOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error {

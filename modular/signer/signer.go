@@ -2,7 +2,6 @@ package signer
 
 import (
 	"context"
-	"encoding/hex"
 	"net/http"
 
 	sdkmath "cosmossdk.io/math"
@@ -123,7 +122,7 @@ func (s *SignModular) SignSecondarySealBls(ctx context.Context, objectID uint64,
 	if err != nil {
 		return nil, err
 	}
-	log.Debugw("bls signature", "len", len(sig), "object_id", objectID, "gvg_id", gvgId, "sign_doc", hex.EncodeToString(msg[:]), "pub_key", hex.EncodeToString(s.client.blsKm.PubKey().Bytes()), "sig", hex.EncodeToString(sig))
+	log.Debugw("bls signature", "len", len(sig), "object_id", objectID, "gvg_id", gvgId)
 	return sig, nil
 }
 

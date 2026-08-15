@@ -72,7 +72,9 @@ func MakeEnv(ctx *cli.Context, cfg *gfspconfig.GfSpConfig) error {
 // initLog inits the log configuration from config file and command flags.
 func initLog(ctx *cli.Context, cfg *gfspconfig.GfSpConfig) error {
 	if cfg.Log.Level == "" {
-		cfg.Log.Level = "debug"
+		// a config file without a log level is the normal production case, it must
+		// land on the documented flag default rather than on debug
+		cfg.Log.Level = LogLevelFlag.Value
 	}
 	if cfg.Log.Path == "" {
 		cfg.Log.Path = "./moca-sp.log"
