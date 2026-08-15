@@ -2175,6 +2175,10 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if err = g.checkStatusAllowed(reqCtx.Account()); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refused to serve sp status", "account", reqCtx.Account())
+		return
+	}
 
 	status, err = g.baseApp.GfSpClient().GetStatus(reqCtx.Context())
 	if err != nil {
@@ -2192,6 +2196,22 @@ func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
 	w.Write(b.Bytes())
+}
+
+// checkStatusAllowed reports whether the account may read the operational status.
+// The status carries this SP's blocksyncer, manager, executor and gc state, so it is
+// restricted to the configured operator accounts rather than to anyone who can sign.
+func (g *GateModular) checkStatusAllowed(account string) error {
+	if _, ok := g.statusAllowedAccounts[strings.ToLower(account)]; !ok {
+		return ErrNoPermission
+	}
+	return nil
+}
+
+func (g *GateModular) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(ContentTypeHeader, ContentTypeJSONHeaderValue)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // getUserGroupsHandler get groups info by a user address
