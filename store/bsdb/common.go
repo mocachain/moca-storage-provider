@@ -145,7 +145,14 @@ func PossibleValuesForAction(targetAction permtypes.ActionType) []int {
 		maxVal |= 1 << val
 	}
 
-	targetBit := 1 << targetAction
+	// the bit position and the action type are two different numbers - ACTION_TYPE_ALL
+	// is 99 and sits in bit 0 - so the bit has to come from the map, not from the enum.
+	// An action with no bit assigned selects nothing rather than falling back to bit 0.
+	bit, ok := ActionTypeMap[targetAction]
+	if !ok {
+		return nil
+	}
+	targetBit := 1 << bit
 
 	var results []int
 	for i := 0; i <= maxVal; i++ {
