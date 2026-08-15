@@ -27,7 +27,7 @@ const ObjectsNumberOfShards = 64
 // The function returns a slice of ListObjectsResult, which contains information about the objects and their types (object or common_prefix).
 // If there is a delimiter specified, the function will group objects that share a common prefix and return them as common_prefix in the result.
 // If the delimiter is empty, the function will return all objects without grouping them by a common prefix.
-func (b *BsDBImpl) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved bool) ([]*ListObjectsResult, error) {
+func (b *BsDBImpl) ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved, includePrivate bool) ([]*ListObjectsResult, error) {
 	var (
 		err     error
 		limit   int
@@ -52,7 +52,7 @@ func (b *BsDBImpl) ListObjectsByBucketName(bucketName, continuationToken, prefix
 	// 2. Find common prefixes based on the delimiter
 	// 3. Limit results
 	if delimiter != "" {
-		results, err = b.ListObjects(bucketName, continuationToken, prefix, maxKeys)
+		results, err = b.ListObjects(bucketName, continuationToken, prefix, maxKeys, includePrivate)
 	} else {
 		// If delimiter is not specified, retrieve objects directly
 
@@ -61,6 +61,9 @@ func (b *BsDBImpl) ListObjectsByBucketName(bucketName, continuationToken, prefix
 		}
 		if prefix != "" {
 			filters = append(filters, PrefixFilter(prefix))
+		}
+		if !includePrivate {
+			filters = append(filters, PublicReadOnlyFilter(bucketName))
 		}
 
 		if includeRemoved {
