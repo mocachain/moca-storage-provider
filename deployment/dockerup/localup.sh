@@ -134,7 +134,8 @@ function make_config() {
     #sed -i -e "s/DisableProbe = false/DisableProbe = true/" config.toml
     metrics_address="0.0.0.0:"$((SP_START_PORT + 367))
     sed -i -e "s/MetricsHTTPAddress = '.*'/MetricsHTTPAddress = '${metrics_address}'/g" config.toml
-    pprof_address="0.0.0.0:"$((SP_START_PORT + 368))
+    # pprof exposes heap and goroutine dumps, keep it on the loopback interface
+    pprof_address="127.0.0.1:"$((SP_START_PORT + 368))
     sed -i -e "s/PProfHTTPAddress = '.*'/PProfHTTPAddress = '${pprof_address}'/g" config.toml
     probe_address="0.0.0.0:"$((SP_START_PORT + 369))
     sed -i -e "s/ProbeHTTPAddress = '.*'/ProbeHTTPAddress = '${probe_address}'/g" config.toml

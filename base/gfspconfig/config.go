@@ -74,16 +74,41 @@ func (cfg *GfSpConfig) Apply(opts ...Option) error {
 	return nil
 }
 
-// String returns the detail GfSp configuration.
+// redactedValue replaces secret values when rendering the configuration.
+const redactedValue = "[REDACTED]"
+
+// String returns the detail GfSp configuration, every secret value is redacted
+// because the rendered configuration is written to the log on startup.
 func (cfg *GfSpConfig) String() string {
-	customize := cfg.Customize
-	cfg.Customize = nil
-	bz, err := toml.Marshal(cfg)
+	redacted := *cfg
+	redacted.Customize = nil
+	redacted.SpAccount = redactSpAccount(cfg.SpAccount)
+	redacted.P2P.P2PPrivateKey = redactSecret(cfg.P2P.P2PPrivateKey)
+	redacted.SpDB.Passwd = redactSecret(cfg.SpDB.Passwd)
+	redacted.BsDB.Passwd = redactSecret(cfg.BsDB.Passwd)
+	bz, err := toml.Marshal(&redacted)
 	if err != nil {
 		return ""
 	}
-	cfg.Customize = customize
 	return string(bz)
+}
+
+func redactSpAccount(account SpAccountConfig) SpAccountConfig {
+	account.OperatorPrivateKey = redactSecret(account.OperatorPrivateKey)
+	account.FundingPrivateKey = redactSecret(account.FundingPrivateKey)
+	account.SealPrivateKey = redactSecret(account.SealPrivateKey)
+	account.ApprovalPrivateKey = redactSecret(account.ApprovalPrivateKey)
+	account.GcPrivateKey = redactSecret(account.GcPrivateKey)
+	account.BlsPrivateKey = redactSecret(account.BlsPrivateKey)
+	return account
+}
+
+// redactSecret hides a configured secret and keeps an unset one visibly unset.
+func redactSecret(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return redactedValue
 }
 
 type ChainConfig struct {
