@@ -818,13 +818,17 @@ func (m *ManageModular) HandleGCBucketMigrationTask(ctx context.Context, gcBucke
 }
 
 func (m *ManageModular) HandleDownloadObjectTask(ctx context.Context, task task.DownloadObjectTask) error {
-	m.downloadQueue.Push(task)
+	if err := m.downloadQueue.Push(task); err != nil {
+		return err
+	}
 	log.CtxDebugw(ctx, "add download object task to queue")
 	return nil
 }
 
 func (m *ManageModular) HandleChallengePieceTask(ctx context.Context, task task.ChallengePieceTask) error {
-	m.challengeQueue.Push(task)
+	if err := m.challengeQueue.Push(task); err != nil {
+		return err
+	}
 	log.CtxDebugw(ctx, "add challenge piece task to queue")
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/0xPolygon/polygon-edge/bls"
@@ -379,10 +379,8 @@ func (e *ExecuteModular) recoverByPrimarySP(ctx context.Context, task coretask.R
 		return err
 	}
 	// compare integrity hash
-	if !task.BySuccessorSP() {
-		if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(pieceData)); err != nil {
-			return err
-		}
+	if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(pieceData)); err != nil {
+		return err
 	}
 
 	recoveryKey := e.baseApp.PieceOp().ECPieceKey(objectId, segmentIdx, uint32(task.GetEcIdx()), task.GetObjectInfo().GetVersion())
@@ -415,7 +413,6 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 		err                error
 		secondaryEndpoints []string
 		secondaryCount     int
-		totalTaskNum       int32
 		executeEndpoint    string
 		recoveredPieceData []byte
 		recoveryKey        string
@@ -431,14 +428,6 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 	}
 
 	recoveryDataSources := make([][]byte, secondaryCount)
-	doneCh := make(chan bool, secondaryCount)
-	quitCh := make(chan bool)
-
-	totalTaskNum = int32(secondaryCount)
-	if isMyselfSecondary {
-		totalTaskNum = totalTaskNum - 1
-	}
-	downLoadPieceSize := 0
 	segmentSize := e.baseApp.PieceOp().SegmentPieceSize(task.GetObjectInfo().PayloadSize, task.GetSegmentIdx(), maxSegmentSize)
 
 	if isMyselfSecondary {
@@ -460,53 +449,59 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	recoveryResults := make(chan bool, secondaryCount)
+	var workers sync.WaitGroup
+	workers.Add(secondaryCount)
 	for ecIdx := 0; ecIdx < secondaryCount; ecIdx++ {
 		recoveryDataSources[ecIdx] = nil
 		go func(ctx context.Context, secondaryIndex int) {
+			defer workers.Done()
+
 			secondaryEndpoint := secondaryEndpoints[secondaryIndex]
 			// if myself is secondary, bypass to send request to myself
 			if isMyselfSecondary && secondaryEndpoint == executeEndpoint {
-				if atomic.AddInt32(&totalTaskNum, -1) == 0 {
-					quitCh <- true
-				}
+				recoveryResults <- false
 				return
 			}
 			pieceData, recoverErr := e.doRecoveryPiece(ctx, task, secondaryEndpoints[secondaryIndex])
-			if recoverErr == nil {
-				recoveryDataSources[secondaryIndex] = pieceData
-				log.Debugf("get one piece from ", "piece length:%d ", len(pieceData), "secondary sp:", secondaryEndpoints[secondaryIndex])
-				doneCh <- true
-				downLoadPieceSize = len(pieceData)
+			if recoverErr != nil {
+				recoveryResults <- false
+				return
 			}
-			// finish all the task, send signal to quitCh
-			if atomic.AddInt32(&totalTaskNum, -1) == 0 {
-				quitCh <- true
-			}
+			recoveryDataSources[secondaryIndex] = pieceData
+			log.Debugf("get one piece from ", "piece length:%d ", len(pieceData), "secondary sp:", secondaryEndpoints[secondaryIndex])
+			recoveryResults <- true
 		}(childCtx, ecIdx)
 	}
 
-loop:
-	for {
-		select {
-		case <-doneCh:
+	for completed := 0; completed < secondaryCount; completed++ {
+		if <-recoveryResults {
 			doneTaskNum++
-			// it is enough to recovery data with minRecoveryPieces EC data, no need to wait
-			if doneTaskNum >= minRecoveryPieces {
+			if doneTaskNum == minRecoveryPieces {
 				cancel()
-				break loop
-			}
-		case <-quitCh: // all the task finish
-			cancel()
-			if doneTaskNum < minRecoveryPieces { // finish task num not enough
-				log.CtxErrorw(ctx, "get piece from secondary not enough", "get secondary piece num:", doneTaskNum, "error", ErrRecoveryPieceNotEnough)
-				return ErrRecoveryPieceNotEnough
-			}
-			ecTotalSize := int64(uint32(downLoadPieceSize) * dataShards)
-			if ecTotalSize < segmentSize || ecTotalSize > segmentSize+int64(dataShards) {
-				log.CtxErrorw(ctx, "get secondary piece data length error")
-				return ErrRecoveryPieceLength
 			}
 		}
+	}
+
+	workers.Wait()
+
+	downLoadPieceSize := 0
+	for _, pieceData := range recoveryDataSources {
+		if pieceData == nil {
+			continue
+		}
+		if downLoadPieceSize == 0 {
+			downLoadPieceSize = len(pieceData)
+		}
+	}
+	if doneTaskNum < minRecoveryPieces {
+		log.CtxErrorw(ctx, "get piece from secondary not enough", "get secondary piece num:", doneTaskNum, "error", ErrRecoveryPieceNotEnough)
+		return ErrRecoveryPieceNotEnough
+	}
+	ecTotalSize := int64(uint32(downLoadPieceSize) * dataShards)
+	if ecTotalSize < segmentSize || ecTotalSize > segmentSize+int64(dataShards) {
+		log.CtxErrorw(ctx, "get secondary piece data length error")
+		return ErrRecoveryPieceLength
 	}
 
 	recoverySegData, recoverErr := redundancy.DecodeRawSegment(recoveryDataSources, segmentSize, int(dataShards), int(parityShards))
@@ -517,10 +512,8 @@ loop:
 
 	// compare integrity hash
 	if !isMyselfSecondary {
-		if !task.BySuccessorSP() {
-			if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(recoverySegData)); err != nil {
-				return err
-			}
+		if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(recoverySegData)); err != nil {
+			return err
 		}
 		// if the task is generated by primary SP, the recovery key is segment
 		recoveryKey = e.baseApp.PieceOp().SegmentPieceKey(task.GetObjectInfo().Id.Uint64(), task.GetSegmentIdx(), task.GetObjectInfo().GetVersion())
@@ -535,10 +528,8 @@ loop:
 			return err
 		}
 		// compare integrity hash
-		if !task.BySuccessorSP() {
-			if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(recoveredPieceData)); err != nil {
-				return err
-			}
+		if err = e.checkRecoveryChecksum(ctx, task, hash.GenerateChecksum(recoveredPieceData)); err != nil {
+			return err
 		}
 	}
 
@@ -569,11 +560,11 @@ func (e *ExecuteModular) getECPieceBySegment(ctx context.Context, redundancyIdx 
 		return nil, fmt.Errorf("invalid redundancyIdx")
 	}
 	// if it is the data shards of ec-encoded pieces, just get the ec data by offset
-	if redundancyIdx > 0 && redundancyIdx < int32(dataShards)-1 {
+	if redundancyIdx > 0 && redundancyIdx < int32(dataShards) {
 		ECPieceSize := e.baseApp.PieceOp().ECPieceSize(objectInfo.PayloadSize, segmentIdx, params.GetMaxSegmentSize(), params.GetRedundantDataChunkNum())
 
 		startPos := int64(redundancyIdx) * ECPieceSize
-		endPos := int64(redundancyIdx+1)*ECPieceSize - 1
+		endPos := int64(redundancyIdx+1) * ECPieceSize
 		return recoverySegData[startPos:endPos], nil
 	}
 
@@ -595,7 +586,13 @@ func (e *ExecuteModular) checkRecoveryChecksum(ctx context.Context, task coretas
 			task.GetObjectInfo().ObjectName + ",error: " + err.Error())
 	}
 
-	expectedHash := integrityMeta.PieceChecksumList[task.GetSegmentIdx()]
+	segmentIdx := task.GetSegmentIdx()
+	if segmentIdx >= uint32(len(integrityMeta.PieceChecksumList)) {
+		log.CtxErrorw(ctx, "recovery segment index out of checksum bounds", "object_name", task.GetObjectInfo().ObjectName,
+			"segment_idx", segmentIdx, "checksum_count", len(integrityMeta.PieceChecksumList))
+		return ErrRecoveryPieceChecksum
+	}
+	expectedHash := integrityMeta.PieceChecksumList[segmentIdx]
 	if !bytes.Equal(recoveryChecksum, expectedHash) {
 		log.CtxErrorw(ctx, "check integrity hash of recovery data err", "objectName:", task.GetObjectInfo().ObjectName,
 			"expected value", hex.EncodeToString(expectedHash), "actual value", recoveryChecksum, "error", ErrRecoveryPieceChecksum)
