@@ -349,6 +349,8 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 				if task.GetIsAgentUpload() && pieceSize != task.GetObjectInfo().GetPayloadSize() {
 					log.CtxErrorw(ctx, "payload size error", "expected", pieceSize, "actual", task.GetObjectInfo().GetPayloadSize())
 					go u.rejectCreateObject(ctx, task.GetObjectInfo())
+					err = ErrPayloadSize
+					return ErrPayloadSize
 				}
 				integrityHash := hash.GenerateIntegrityHash(pieceChecksumList)
 				if !task.GetIsAgentUpload() && !bytes.Equal(integrityHash, task.GetObjectInfo().GetChecksums()[0]) {
