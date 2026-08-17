@@ -427,6 +427,16 @@ func (m *ManageModular) handleFailedReplicatePieceTask(ctx context.Context, hand
 				log.Errorw("failed to query global virtual group from chain", "gvgID", gvgID, "error", queryErr)
 				return queryErr
 			}
+			// gvg is freshly re-queried and may have drifted since shadowTask's index was
+			// recorded (e.g. a secondary SP swap-out changed the membership), so the index
+			// is not guaranteed to still be in range.
+			if int(shadowTask.GetNotAvailableSpIdx()) >= len(gvg.GetSecondarySpIds()) {
+				log.CtxWarnw(ctx, "not available sp idx is out of range for the current gvg, falling back to a plain retry",
+					"not_available_sp_idx", shadowTask.GetNotAvailableSpIdx(), "gvg_id", gvgID,
+					"secondary_sp_count", len(gvg.GetSecondarySpIds()), "task_info", handleTask.Info())
+				pushErr := m.replicateQueue.Push(handleTask)
+				return pushErr
+			}
 			sspID := gvg.GetSecondarySpIds()[shadowTask.GetNotAvailableSpIdx()]
 			sspJoinGVGs, queryErr := m.baseApp.GfSpClient().ListGlobalVirtualGroupsBySecondarySP(ctx, sspID)
 			if queryErr != nil {

@@ -20,7 +20,6 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
-	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 var (
@@ -136,6 +135,22 @@ func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretas
 
 	log.Debugw("replicate task info", "task_sps", rTask.GetSecondaryEndpoints())
 
+	// Validate cardinality up front, before any piece is replicated: doReplicateECPiece
+	// below indexes the EC-encoded data (sized to replicateCount) by ranging over
+	// rTask.GetSecondaryEndpoints(), so a mismatch between the two must be rejected
+	// before that loop runs - checking only afterward, from doneReplicate, is too late
+	// to prevent the out-of-range index.
+	gvg, err := e.baseApp.GfSpClient().GetGlobalVirtualGroupByGvgID(ctx, rTask.GetGlobalVirtualGroupId())
+	if err != nil {
+		return ErrConsensusWithDetail("query gvg error: " + err.Error())
+	}
+	if gvg == nil {
+		return fmt.Errorf("gvg not exist")
+	}
+	if err = validateReplicateCardinality(rTask.GetSecondaryEndpoints(), gvg.GetSecondarySpIds(), secondarySignatures); err != nil {
+		return err
+	}
+
 	doReplicateECPiece := func(ctx context.Context, segIdx uint32, data [][]byte, errChan chan error) {
 		log.Debug("start to replicate ec piece")
 		for redundancyIdx, sp := range rTask.GetSecondaryEndpoints() {
@@ -170,17 +185,8 @@ func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretas
 	}
 	doneReplicate := func(ctx context.Context) error {
 		log.Debug("start to done replicate")
-		var gvg *virtualgrouptypes.GlobalVirtualGroup
-		gvg, err = e.baseApp.GfSpClient().GetGlobalVirtualGroupByGvgID(ctx, rTask.GetGlobalVirtualGroupId())
-		if err != nil {
-			return ErrConsensusWithDetail("query gvg error: " + err.Error())
-		}
-		if gvg == nil {
-			return fmt.Errorf("gvg not exist")
-		}
-		if err = validateReplicateCardinality(rTask.GetSecondaryEndpoints(), gvg.GetSecondarySpIds(), secondarySignatures); err != nil {
-			return err
-		}
+		// gvg was already fetched and its cardinality validated above, before
+		// replication started; reuse it here rather than querying again.
 		if rTask.GetIsAgentUpload() {
 			objectInfo := rTask.GetObjectInfo()
 			expectCheckSums, makeErr := e.makeCheckSumsForAgentUpload(ctx, rTask.GetObjectInfo(), len(rTask.GetSecondaryEndpoints()), rTask.GetStorageParams())
