@@ -1,7 +1,9 @@
 package gater
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -15,15 +17,19 @@ import (
 	"time"
 
 	"cosmossdk.io/math"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
-	payment_types "github.com/evmos/evmos/v12/x/payment/types"
-	storage_types "github.com/evmos/evmos/v12/x/storage/types"
-	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	commonhttp "github.com/mocachain/moca-common/go/http"
+	"github.com/mocachain/moca-storage-provider/base/gfspapp"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	payment_types "github.com/mocachain/moca/v2/x/payment/types"
+	storage_types "github.com/mocachain/moca/v2/x/storage/types"
+	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 )
@@ -691,7 +697,7 @@ func TestGateModular_GetObjectMetaHandler(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
 				clientMock.EXPECT().GetObjectMeta(gomock.Any(), gomock.Any(), gomock.Any(),
-					gomock.Any()).Return(getOneTestObjectResponse(), nil).Times(1)
+					false).Return(getOneTestObjectResponse(), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -1417,6 +1423,24 @@ func TestGateModular_ListUserPaymentAccountsHandler(t *testing.T) {
 				return true
 			},
 		},
+		{
+			// the header names testAccount, but the request is signed by an unrelated
+			// random key - the handler must bind reqCtx.account (the recovered signer)
+			// to the header instead of trusting the header alone.
+			name: "rejects when header names a different account than the signer",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				g.baseApp.SetGfSpClient(clientMock)
+				return g
+			},
+			request: func() *http.Request {
+				path := fmt.Sprintf("%s%s/?%s", scheme, testDomain, ListUserPaymentAccountsQuery)
+				return signedMismatchedAddressRequest(path)
+			},
+			wantedResult: "no permission",
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1694,6 +1718,27 @@ func TestGateModular_GetUserGroupsHandler(t *testing.T) {
 				assert.Equal(t, 1000, len(res.Groups))
 				return true
 			},
+		},
+		{
+			// the header names testAccount, but the request is signed by an unrelated
+			// random key - the handler must bind reqCtx.account (the recovered signer)
+			// to the header instead of trusting the header alone.
+			name: "rejects when header names a different account than the signer",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				g.baseApp.SetGfSpClient(clientMock)
+				return g
+			},
+			request: func() *http.Request {
+				path := fmt.Sprintf("%s%s/?user-groups", scheme, testDomain)
+				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+				req.Header.Set(GnfdUserAddressHeader, testAccount)
+				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+				return signAsRandomAccount(req)
+			},
+			wantedResult: "no permission",
 		},
 	}
 	for _, tt := range cases {
@@ -2009,6 +2054,24 @@ func TestGateModular_GetUserOwnedGroupsHandler(t *testing.T) {
 				return true
 			},
 		},
+		{
+			// the header names testAccount, but the request is signed by an unrelated
+			// random key - the handler must bind reqCtx.account (the recovered signer)
+			// to the header instead of trusting the header alone.
+			name: "rejects when header names a different account than the signer",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				g.baseApp.SetGfSpClient(clientMock)
+				return g
+			},
+			request: func() *http.Request {
+				path := fmt.Sprintf("%s%s/?owned-groups", scheme, testDomain)
+				return signedMismatchedAddressRequest(path)
+			},
+			wantedResult: "no permission",
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2090,7 +2153,7 @@ func TestGateModular_GetBucketMetaHandler(t *testing.T) {
 				g := setup(t)
 				ctrl := gomock.NewController(t)
 				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
-				clientMock.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), gomock.Any()).Return(getTestVGFInfoBuckets(1)[0], getTestStreamRecord(), nil).Times(1)
+				clientMock.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), false).Return(getTestVGFInfoBuckets(1)[0], getTestStreamRecord(), nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
 				return g
 			},
@@ -2209,6 +2272,27 @@ func TestGateModular_GetUserBucketsHandler(t *testing.T) {
 			},
 			wantedResult: mustMarshalXML(t, &types.GfSpGetUserBucketsResponse{Buckets: getTestVGFInfoBuckets(1)}),
 		},
+		{
+			// the header names testAccount, but the request is signed by an unrelated
+			// random key - the handler must bind reqCtx.account (the recovered signer)
+			// to the header instead of trusting the header alone.
+			name: "rejects when header names a different account than the signer",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				g.baseApp.SetGfSpClient(clientMock)
+				return g
+			},
+			request: func() *http.Request {
+				path := fmt.Sprintf("%s%s/", scheme, testDomain)
+				req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+				req.Header.Set(GnfdUserAddressHeader, testAccount)
+				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+				return signAsRandomAccount(req)
+			},
+			wantedResult: "no permission",
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2225,6 +2309,20 @@ func TestGateModular_GetUserBucketsHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGateModular_healthCheckHandler(t *testing.T) {
+	g := setup(t)
+	router := mux.NewRouter().SkipClean(true)
+	router.Path(HealthCheckPath).Name(healthCheckRouterName).Methods(http.MethodGet).HandlerFunc(g.healthCheckHandler)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, scheme+testDomain+HealthCheckPath, nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, ContentTypeJSONHeaderValue, w.Header().Get(ContentTypeHeader))
+	assert.JSONEq(t, `{"status":"ok"}`, w.Body.String())
 }
 
 func mockListObjectPoliciesRoute(t *testing.T, g *GateModular) *mux.Router {
@@ -2358,6 +2456,13 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 				clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 					gomock.Any(), gomock.Any()).Return(nil, errors.New(`rpc error: code = Unknown desc = {"code_space":"metadata","http_status_code":404,"inner_code":90008,"description":"the specified bucket does not exist"}`)).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				// the caller has to administer the object to reach the rpc at all
+				consensusMock := consensus.NewMockConsensus(ctrl)
+				consensusMock.EXPECT().QueryBucketInfoAndObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+					&storage_types.BucketInfo{BucketName: mockBucketName, Owner: testAccount},
+					&storage_types.ObjectInfo{ObjectName: mockObjectName, Owner: testAccount, Creator: testAccount},
+					nil).Times(1)
+				g.baseApp.SetConsensus(consensusMock)
 				return g
 			},
 			request: func() *http.Request {
@@ -2379,4 +2484,227 @@ func TestGateModular_listObjectPoliciesHandler(t *testing.T) {
 			assert.Equal(t, w.Code, tt.wantedCode)
 		})
 	}
+}
+
+// TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist covers the operational status
+// endpoint. Verifying a signature only establishes that some account made the request;
+// any wallet can do that, so it does not by itself restrict who reads the SP's internal
+// blocksyncer, manager, executor and gc state.
+func TestGetStatusHandlerRefusesAnAccountNotOnTheAllowlist(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower("0x1000000000000000000000000000000000000001"): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerRefusesEveryoneWhenNoAllowlistIsConfigured(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Times(0)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequest(t))
+
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestGetStatusHandlerAllowsAnAccountOnTheAllowlist(t *testing.T) {
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	mockedClient := gfspclient.NewMockGfSpClientAPI(ctrl)
+	mockedClient.EXPECT().GetStatus(gomock.Any()).Return(&types.Status{}, nil).Times(1)
+
+	gateway := &GateModular{env: gfspapp.EnvLocal, domain: testDomain}
+	gateway.baseApp = &gfspapp.GfSpBaseApp{}
+	gateway.baseApp.SetGfSpClient(mockedClient)
+	gateway.statusAllowedAccounts = map[string]struct{}{
+		strings.ToLower(crypto.PubkeyToAddress(accountKey.PublicKey).Hex()): {},
+	}
+
+	recorder := httptest.NewRecorder()
+	serveStatusRequest(t, gateway, recorder, newSignedStatusRequestWithKey(t, accountKey))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func newSignedStatusRequest(t *testing.T) *http.Request {
+	t.Helper()
+	accountKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	return newSignedStatusRequestWithKey(t, accountKey)
+}
+
+func newSignedStatusRequestWithKey(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, StatusPath, nil)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Minute).UTC().Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+// serveStatusRequest routes through mux so that the handler sees the route name the
+// request context authentication depends on.
+func serveStatusRequest(t *testing.T, gateway *GateModular, w http.ResponseWriter, req *http.Request) {
+	t.Helper()
+	router := mux.NewRouter()
+	router.Path(StatusPath).Name(getStatusRouterName).Methods(http.MethodGet).HandlerFunc(gateway.getStatusHandler)
+	router.ServeHTTP(w, req)
+}
+
+func newListObjectPoliciesRequest(t *testing.T, accountKey *ecdsa.PrivateKey) *http.Request {
+	t.Helper()
+	path := fmt.Sprintf("%s%s.%s/%s?%s&%s=1", scheme, mockBucketName, testDomain, mockObjectName,
+		ListObjectPoliciesQuery, VerifyPermissionActionType)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour).Format(ExpiryDateFormat))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), accountKey)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
+func setupObjectPolicyChain(t *testing.T, g *GateModular, ctrl *gomock.Controller, bucketOwner, objectOwner string) *gfspclient.MockGfSpClientAPI {
+	t.Helper()
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QueryBucketInfoAndObjectInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+		&storage_types.BucketInfo{BucketName: mockBucketName, Owner: bucketOwner},
+		&storage_types.ObjectInfo{ObjectName: mockObjectName, Owner: objectOwner, Creator: objectOwner},
+		nil).AnyTimes()
+	g.baseApp.SetConsensus(consensusMock)
+
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	g.baseApp.SetGfSpClient(clientMock)
+	return clientMock
+}
+
+func TestGateModular_listObjectPoliciesHandlerRefusesAStranger(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	strangerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, testAccount, testAccount)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, strangerKey))
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"the principals granted access to an object must not be listable by an unrelated account")
+}
+
+func TestGateModular_listObjectPoliciesHandlerAllowsTheObjectOwner(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	ownerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	owner := crypto.PubkeyToAddress(ownerKey.PublicKey).Hex()
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, testAccount, owner)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*types.Policy{}, nil).Times(1)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, ownerKey))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGateModular_listObjectPoliciesHandlerAllowsTheBucketOwner(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+
+	bucketOwnerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	bucketOwner := crypto.PubkeyToAddress(bucketOwnerKey.PublicKey).Hex()
+
+	clientMock := setupObjectPolicyChain(t, g, ctrl, bucketOwner, testAccount)
+	clientMock.EXPECT().ListObjectPolicies(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*types.Policy{}, nil).Times(1)
+
+	w := httptest.NewRecorder()
+	mockListObjectPoliciesRoute(t, g).ServeHTTP(w, newListObjectPoliciesRequest(t, bucketOwnerKey))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func mockGetUserBucketsCountHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	router.Path("/").Name(getUserBucketsCountRouterName).Methods(http.MethodGet).
+		Queries(GetUserBucketsCountQuery, "").HandlerFunc(g.getUserBucketsCountHandler)
+	return router
+}
+
+// signedMismatchedAddressRequest returns a request whose GnfdUserAddressHeader
+// names testAccount, signed by an unrelated random key - the header names one
+// account while the recovered signer is another, unrelated one.
+func signedMismatchedAddressRequest(path string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+	req.Header.Set(GnfdUserAddressHeader, testAccount)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, time.Now().Add(time.Hour*60).Format(ExpiryDateFormat))
+	return signAsRandomAccount(req)
+}
+
+func TestGateModular_GetUserBucketsCountHandlerRejectsMismatchedAddress(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	path := fmt.Sprintf("%s%s/?%s", scheme, testDomain, GetUserBucketsCountQuery)
+	w := httptest.NewRecorder()
+	mockGetUserBucketsCountHandlerRoute(t, g).ServeHTTP(w, signedMismatchedAddressRequest(path))
+
+	assert.Contains(t, w.Body.String(), "no permission",
+		"a signer must not be able to read another account's bucket count by naming it in the header")
+}
+
+func mockGetBsDBDataInfoHandlerRoute(t *testing.T, g *GateModular) *mux.Router {
+	t.Helper()
+	router := mux.NewRouter().SkipClean(true)
+	router.Path("/").Name(getBsDBDataInfo).Methods(http.MethodGet).Queries(BsDBInfoQuery, "").HandlerFunc(g.getBsDBDataInfoHandler)
+	return router
+}
+
+// getBsDBDataInfoHandler now runs through NewRequestContext (rather than a bare
+// context.Background()) for consistent request lifecycle and logging, like every
+// other metadata handler. It carries no account-scoped data, so it stays in
+// skipAuthRouterNames rather than newly requiring a signature.
+func TestGateModular_GetBsDBDataInfoHandlerAllowsUnauthenticatedAccess(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	clientMock.EXPECT().GetBsDBInfo(gomock.Any(), uint64(10)).
+		Return(&types.GfSpGetBsDBInfoResponse{BlockHeight: 10}, nil).Times(1)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	path := fmt.Sprintf("%s%s/?%s&block_height=10", scheme, testDomain, BsDBInfoQuery)
+	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
+
+	w := httptest.NewRecorder()
+	mockGetBsDBDataInfoHandlerRoute(t, g).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
 }
