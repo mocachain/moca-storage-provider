@@ -507,45 +507,51 @@ func (s *SpDBImpl) GetLatestBucketTraffic(bucketID uint64) (traffic *corespdb.Bu
 
 // UpdateBucketTraffic update the bucket traffic in traffic db with the new traffic
 func (s *SpDBImpl) UpdateBucketTraffic(bucketID uint64, update *corespdb.BucketTraffic) (err error) {
-	var (
-		result      *gorm.DB
-		queryReturn BucketTrafficTable
-		needInsert  = false
-	)
+	// Read and write in the same transaction, with the read row-locked: without
+	// this, two concurrent callers (e.g. a retried bucket-migration quota sync)
+	// can both read the same pre-update row, decide needInsert the same way, and
+	// race each other's write - matching UpdateExtraQuota's pattern above.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var (
+			result      *gorm.DB
+			queryReturn BucketTrafficTable
+			needInsert  = false
+		)
 
-	result = s.db.Where("bucket_id = ? and month = ?", bucketID, update.YearMonth).First(&queryReturn)
+		result = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("bucket_id = ? and month = ?", bucketID, update.YearMonth).First(&queryReturn)
 
-	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		return result.Error
-	}
-	if result.Error != nil {
-		needInsert = errors.Is(result.Error, gorm.ErrRecordNotFound)
-	}
-
-	updateRecord := &BucketTrafficTable{
-		BucketID:              update.BucketID,
-		Month:                 update.YearMonth,
-		FreeQuotaSize:         update.FreeQuotaSize,
-		FreeQuotaConsumedSize: update.FreeQuotaConsumedSize,
-		BucketName:            update.BucketName,
-		ReadConsumedSize:      update.ReadConsumedSize,
-		ChargedQuotaSize:      update.ChargedQuotaSize,
-		ModifiedTime:          time.Now(),
-	}
-
-	if needInsert {
-		result = s.db.Create(updateRecord)
-		if result.Error != nil || result.RowsAffected != 1 {
-			return fmt.Errorf("failed to insert record in bucket traffic table: %s", result.Error)
+		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return result.Error
 		}
-	} else { // update
-		result = s.db.Model(&BucketTrafficTable{}).
-			Where("bucket_id = ? and month = ?", bucketID, update.YearMonth).Updates(updateRecord)
 		if result.Error != nil {
-			return fmt.Errorf("failed to update record in bucket traffic table: %s", result.Error)
+			needInsert = errors.Is(result.Error, gorm.ErrRecordNotFound)
 		}
-	}
-	return nil
+
+		updateRecord := &BucketTrafficTable{
+			BucketID:              update.BucketID,
+			Month:                 update.YearMonth,
+			FreeQuotaSize:         update.FreeQuotaSize,
+			FreeQuotaConsumedSize: update.FreeQuotaConsumedSize,
+			BucketName:            update.BucketName,
+			ReadConsumedSize:      update.ReadConsumedSize,
+			ChargedQuotaSize:      update.ChargedQuotaSize,
+			ModifiedTime:          time.Now(),
+		}
+
+		if needInsert {
+			result = tx.Create(updateRecord)
+			if result.Error != nil || result.RowsAffected != 1 {
+				return fmt.Errorf("failed to insert record in bucket traffic table: %s", result.Error)
+			}
+		} else { // update
+			result = tx.Model(&BucketTrafficTable{}).
+				Where("bucket_id = ? and month = ?", bucketID, update.YearMonth).Updates(updateRecord)
+			if result.Error != nil {
+				return fmt.Errorf("failed to update record in bucket traffic table: %s", result.Error)
+			}
+		}
+		return nil
+	})
 }
 
 // DeleteExpiredBucketTraffic update the bucket traffic in traffic db with the new traffic

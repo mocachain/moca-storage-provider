@@ -618,9 +618,37 @@ func TestSpDBImpl_UpdateBucketTrafficInsertSuccess(t *testing.T) {
 	}
 
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `bucket_traffic` WHERE bucket_id = ?  and month = ? ORDER BY `bucket_traffic`.`bucket_id` LIMIT 1").WithArgs(update.BucketID, update.YearMonth).WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT * FROM `bucket_traffic` WHERE bucket_id = ?  and month = ? ORDER BY `bucket_traffic`.`bucket_id` LIMIT 1 FOR UPDATE").WithArgs(update.BucketID, update.YearMonth).WillReturnError(gorm.ErrRecordNotFound)
 	mock.ExpectExec("INSERT INTO `bucket_traffic` (`bucket_id`,`month`,`bucket_name`,`read_consumed_size`,`free_quota_consumed_size`,`monthly_free_quota_consumed_size`,`free_quota_size`,`charged_quota_size`,`monthly_quota_size`,`modified_time`) VALUES (?,?,?,?,?,?,?,?,?,?)").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	err := s.UpdateBucketTraffic(update.BucketID, update)
+	assert.Nil(t, err)
+}
+
+// TestSpDBImpl_UpdateBucketTrafficUpdateSuccess covers the update path (an
+// existing row for this bucket/month), which the original insert-only test
+// above doesn't exercise, and confirms the read is row-locked within the
+// same transaction as the write.
+func TestSpDBImpl_UpdateBucketTrafficUpdateSuccess(t *testing.T) {
+	update := &corespdb.BucketTraffic{
+		BucketID:              2,
+		YearMonth:             "2023-09",
+		BucketName:            "mockBucketName_t",
+		ReadConsumedSize:      20,
+		FreeQuotaConsumedSize: 20,
+		FreeQuotaSize:         35,
+		ChargedQuotaSize:      40,
+		ModifyTime:            time.Now().Unix() + 100,
+	}
+
+	s, mock := setupDB(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT * FROM `bucket_traffic` WHERE bucket_id = ?  and month = ? ORDER BY `bucket_traffic`.`bucket_id` LIMIT 1 FOR UPDATE").
+		WithArgs(update.BucketID, update.YearMonth).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_id", "month"}).AddRow(update.BucketID, update.YearMonth))
+	mock.ExpectExec("UPDATE `bucket_traffic` SET `bucket_id`=?,`month`=?,`bucket_name`=?,`read_consumed_size`=?,`free_quota_consumed_size`=?,`free_quota_size`=?,`charged_quota_size`=?,`modified_time`=? WHERE bucket_id = ? and month = ?").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	err := s.UpdateBucketTraffic(update.BucketID, update)
