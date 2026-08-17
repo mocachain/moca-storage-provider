@@ -32,6 +32,33 @@ func TestGateModular_notFoundHandler(t *testing.T) {
 	})
 }
 
+// TestGateModular_notFoundHandlerBoundsBodyRead covers a body that never ends
+// (or errors): the read must be capped at MaxNotFoundBodySize rather than
+// draining forever. The mock always fills whatever buffer it's given and
+// never returns EOF or an error on its own - only io.LimitReader capping the
+// requested size to the remaining quota makes this terminate.
+func TestGateModular_notFoundHandlerBoundsBodyRead(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	m := gfspclient.NewMockstdLib(ctrl)
+
+	var totalRequested int
+	m.EXPECT().Read(gomock.Any()).DoAndReturn(func(p []byte) (int, error) {
+		totalRequested += len(p)
+		for i := range p {
+			p[i] = 'a'
+		}
+		return len(p), nil
+	}).AnyTimes()
+
+	g.notFoundHandler(mockResponseWriter{}, &http.Request{
+		Body: io.NopCloser(m),
+	})
+
+	assert.LessOrEqual(t, totalRequested, MaxNotFoundBodySize,
+		"notFoundHandler must not read more than MaxNotFoundBodySize from an unbounded body")
+}
+
 func TestRouters(t *testing.T) {
 	gwRouter := setupRouter(t)
 	cases := []struct {

@@ -97,10 +97,16 @@ const (
 	migrateBucketApprovalAction = "MigrateBucket"
 )
 
+// MaxNotFoundBodySize bounds the diagnostic body read on unmatched requests.
+// This route has no legitimate reason to receive a large body - it exists to
+// log and drain the request, not to process it - so this is a conservative
+// cap rather than a functional protocol limit.
+const MaxNotFoundBodySize = 8 * 1024
+
 // notFoundHandler log not found request info.
 func (g *GateModular) notFoundHandler(w http.ResponseWriter, r *http.Request) {
 	log.Errorw("failed to find the corresponding handler", "method", r.Method, "host", r.Host, "url", r.URL)
-	if _, err := io.ReadAll(r.Body); err != nil {
+	if _, err := io.ReadAll(io.LimitReader(r.Body, MaxNotFoundBodySize)); err != nil {
 		log.Errorw("failed to read the unknown request", "error", err)
 	}
 }

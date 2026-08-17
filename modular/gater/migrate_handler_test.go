@@ -87,6 +87,33 @@ func TestGateModular_notifyMigrateSwapOutHandler(t *testing.T) {
 			wantedResult: "gnfd msg decoding error",
 		},
 		{
+			// mockSwapOutMsgHeader names this SP (mockSelfSPID) as successor, but the
+			// claimed source SP is not in an exiting status - checkSwapOutApproval must
+			// reject this before NotifyMigrateSwapOut is ever called (no EXPECT set up
+			// for it below, so gomock fails the test if the handler still calls it).
+			name: "refuse to notify when swap out authorization fails",
+			fn: func() *GateModular {
+				g := setup(t)
+				ctrl := gomock.NewController(t)
+				clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+				clientMock.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return(false, nil).Times(1)
+				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_IN_SERVICE, mockSwapOutSPID)
+				return g
+			},
+			request: func() *http.Request {
+				path := fmt.Sprintf("%s%s%s", scheme, testDomain, NotifyMigrateSwapOutTaskPath)
+				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
+				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
+				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
+				req.Header.Set(GnfdMigrateSwapOutMsgHeader, mockSwapOutMsgHeader)
+				return req
+			},
+			wantedResult: "no permission",
+		},
+		{
 			name: "failed to notify migrate swap out",
 			fn: func() *GateModular {
 				g := setup(t)
@@ -96,6 +123,7 @@ func TestGateModular_notifyMigrateSwapOutHandler(t *testing.T) {
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().NotifyMigrateSwapOut(gomock.Any(), gomock.Any()).Return(mockErr).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_GRACEFUL_EXITING, mockSwapOutSPID)
 				return g
 			},
 			request: func() *http.Request {
@@ -104,7 +132,7 @@ func TestGateModular_notifyMigrateSwapOutHandler(t *testing.T) {
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
 				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
-				req.Header.Set(GnfdMigrateSwapOutMsgHeader, "7b2273746f726167655f70726f7669646572223a226d6f636b53746f7261676550726f7669646572227d")
+				req.Header.Set(GnfdMigrateSwapOutMsgHeader, mockSwapOutMsgHeader)
 				return req
 			},
 			wantedResult: "failed to notify migrate swap out",
@@ -119,6 +147,7 @@ func TestGateModular_notifyMigrateSwapOutHandler(t *testing.T) {
 					gomock.Any()).Return(false, nil).Times(1)
 				clientMock.EXPECT().NotifyMigrateSwapOut(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 				g.baseApp.SetGfSpClient(clientMock)
+				setupSwapOutChain(t, g, ctrl, sptypes.STATUS_GRACEFUL_EXITING, mockSwapOutSPID)
 				return g
 			},
 			request: func() *http.Request {
@@ -127,7 +156,7 @@ func TestGateModular_notifyMigrateSwapOutHandler(t *testing.T) {
 				validExpiryDateStr := time.Now().Add(time.Hour * 60).Format(ExpiryDateFormat)
 				req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, validExpiryDateStr)
 				req.Header.Set(GnfdAuthorizationHeader, "GNFD1-EDDSA,Signature=48656c6c6f20476f7068657221")
-				req.Header.Set(GnfdMigrateSwapOutMsgHeader, "7b2273746f726167655f70726f7669646572223a226d6f636b53746f7261676550726f7669646572227d")
+				req.Header.Set(GnfdMigrateSwapOutMsgHeader, mockSwapOutMsgHeader)
 				return req
 			},
 			wantedResult: "",

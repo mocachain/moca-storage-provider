@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -261,6 +260,14 @@ func (e *ExecuteModular) HandleGCObjectTask(ctx context.Context, task coretask.G
 				"task_current_gc_block_id", task.GetCurrentBlockNumber())
 			continue
 		}
+		if _, queryErr := e.baseApp.Consensus().QueryObjectInfoByID(ctx, util.Uint64ToString(currentGCObjectID)); queryErr == nil {
+			log.CtxInfow(ctx, "skip gc object that still exists on chain", "object_id", currentGCObjectID)
+			continue
+		} else if !strings.Contains(queryErr.Error(), "No such object") {
+			err = queryErr
+			log.CtxErrorw(ctx, "failed to confirm object deletion on chain", "object_id", currentGCObjectID, "error", queryErr)
+			return
+		}
 		segmentPieceKeyPrefix := fmt.Sprintf("s%d_", currentGCObjectID)
 		deletedSize, deleteErr := e.baseApp.PieceStore().DeletePiecesByPrefix(ctx, segmentPieceKeyPrefix)
 		log.CtxDebugw(ctx, "delete the primary sp pieces", "object_info", objectInfo,
@@ -290,13 +297,7 @@ func (e *ExecuteModular) HandleGCObjectTask(ctx context.Context, task coretask.G
 				}
 			}
 		} else {
-			// if failed to get secondary sps, check the current sp
-			deletedSize, deleteErr = e.baseApp.PieceStore().DeletePiecesByPrefix(ctx, ECPieceKeyPrefix)
-			log.CtxDebugw(ctx, "delete the sp pieces by prefix in current sp when secondary sp not found",
-				"object_info", objectInfo, "piece_key_prefix", ECPieceKeyPrefix, "deletedSize", deletedSize, "error", deleteErr)
-
-			// signal as delete any integrity meta related with the object
-			redundancyIndex = math.MaxInt32
+			log.CtxErrorw(ctx, "skip gc ec pieces because the secondary sp list is empty", "object_id", currentGCObjectID)
 		}
 
 		// ignore this delete api error, TODO: refine gc workflow by enrich metadata index

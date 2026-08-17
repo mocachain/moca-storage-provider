@@ -44,6 +44,92 @@ func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *tes
 	assert.False(t, exists)
 }
 
+func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_DoesNotFallThroughOnEnqueueError(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	m.recoveryQueue = queue
+	db := spdb.NewMockSPDB(ctrl)
+	m.baseApp.SetGfSpDB(db)
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(200), PayloadSize: 1}
+	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
+	failedObject := &spdb.RecoverFailedObject{ObjectID: 200, VirtualGroupID: 1, RedundancyIndex: 0}
+
+	db.EXPECT().GetReplicatePieceChecksum(uint64(200), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
+	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue unavailable")).Times(1)
+
+	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
+
+	assert.False(t, queued)
+}
+
+func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueueExceededAlsoFails(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	m.recoveryQueue = queue
+	db := spdb.NewMockSPDB(ctrl)
+	m.baseApp.SetGfSpDB(db)
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(201), PayloadSize: 1}
+	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
+	failedObject := &spdb.RecoverFailedObject{ObjectID: 201, VirtualGroupID: 1, RedundancyIndex: 0}
+
+	db.EXPECT().GetReplicatePieceChecksum(uint64(201), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
+	queue.EXPECT().Push(gomock.Any()).Return(gfsptqueue.ErrTaskQueueExceed).Times(1)
+
+	// A capacity error is not the object's fault either: it must not be reported
+	// as a successful enqueue, same as any other push failure.
+	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
+
+	assert.False(t, queued)
+}
+
+func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_SkipsAlreadyRecoveredSegments(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	m.recoveryQueue = queue
+	db := spdb.NewMockSPDB(ctrl)
+	m.baseApp.SetGfSpDB(db)
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(202), PayloadSize: 1}
+	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
+	failedObject := &spdb.RecoverFailedObject{ObjectID: 202, VirtualGroupID: 1, RedundancyIndex: 0}
+
+	// segment already has a recorded checksum: already recovered, must not be re-pushed.
+	db.EXPECT().GetReplicatePieceChecksum(uint64(202), uint32(0), int32(0)).Return([]byte("checksum"), nil).Times(1)
+
+	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
+
+	assert.True(t, queued)
+}
+
+func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueuesUnrecoveredSegments(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	m.recoveryQueue = queue
+	db := spdb.NewMockSPDB(ctrl)
+	m.baseApp.SetGfSpDB(db)
+	scheduler := &RecoverFailedObjectScheduler{manager: m}
+
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(203), PayloadSize: 1}
+	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
+	failedObject := &spdb.RecoverFailedObject{ObjectID: 203, VirtualGroupID: 1, RedundancyIndex: 0}
+
+	db.EXPECT().GetReplicatePieceChecksum(uint64(203), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
+	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+
+	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
+
+	assert.True(t, queued)
+}
+
 func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_RegistersCurrentVersion(t *testing.T) {
 	m := setup(t)
 	m.recoverObjectStats = NewObjectsSegmentsStats()

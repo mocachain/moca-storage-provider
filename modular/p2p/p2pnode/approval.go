@@ -4,17 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/cosmos/gogoproto/proto"
+	ggio "github.com/cosmos/gogoproto/io"
 	"github.com/libp2p/go-libp2p/core/network"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
+
+// MaxP2PMessageSize bounds how much a single p2p control message (ping/pong/
+// approval request/response) can be. These are small metadata messages, not
+// piece data, so this is generous headroom rather than a tight fit.
+const MaxP2PMessageSize = 1 << 20 // 1MiB
+
+// P2PStreamReadTimeout bounds how long a stream handler waits to receive a
+// complete message before giving up, so a peer that opens a stream and then
+// sends slowly (or not at all) can't hold the handler goroutine open forever.
+const P2PStreamReadTimeout = 30 * time.Second
 
 // pattern: /protocol-name/request-or-response-message/version
 const (
@@ -67,7 +77,16 @@ func (a *ApprovalProtocol) cancelApprovalRequest(id uint64) {
 	close(ch)
 }
 
-// notifyApprovalResponse notifies the approval response by the approval related channel
+// ErrApprovalResponseChannelFull is returned when a response arrives for a
+// request whose channel is already at capacity.
+var ErrApprovalResponseChannelFull = errors.New("approval response channel is full")
+
+// notifyApprovalResponse notifies the approval response by the approval related channel.
+// The send is non-blocking: this is called while holding a.mux, which
+// hangApprovalRequest and cancelApprovalRequest also need, so a blocking send
+// here (e.g. because the consumer of this channel has already stopped reading,
+// or moved on after ComputeApprovalExpiredHeight's deadline) would hold the
+// lock forever and deadlock every other approval operation on this node.
 func (a *ApprovalProtocol) notifyApprovalResponse(
 	resp coretask.ApprovalReplicatePieceTask,
 ) error {
@@ -78,11 +97,16 @@ func (a *ApprovalProtocol) notifyApprovalResponse(
 		return errors.New("approval response missing object info")
 	}
 	id := object.Id.Uint64()
-	if _, ok := a.response[id]; !ok {
+	ch, ok := a.response[id]
+	if !ok {
 		return errors.New("approval response has been canceled")
 	}
-	a.response[id] <- resp
-	return nil
+	select {
+	case ch <- resp:
+		return nil
+	default:
+		return ErrApprovalResponseChannelFull
+	}
 }
 
 func (a *ApprovalProtocol) ComputeApprovalExpiredHeight(task coretask.ApprovalReplicatePieceTask) (uint64, error) {
@@ -99,35 +123,53 @@ func (a *ApprovalProtocol) ComputeApprovalExpiredHeight(task coretask.ApprovalRe
 	return totalUnit/speedUnit + redundancyHeight, nil
 }
 
+// ErrApprovalMissingObjectInfo is returned when an approval request or
+// response has no object info attached.
+var ErrApprovalMissingObjectInfo = errors.New("approval message missing object info")
+
+// validateApprovalRequest checks the request's SP whitelist status before its
+// object info is touched. The whitelist check needs only the claimed sender
+// address, so it must run before anything that assumes ObjectInfo is set -
+// otherwise a peer that omits object_info entirely can crash the handler
+// (via a nil-pointer deref) before it's even been identified as unknown.
+func (a *ApprovalProtocol) validateApprovalRequest(req *gfsptask.GfSpReplicatePieceApprovalTask) error {
+	if !a.node.peers.checkSP(req.GetAskSpOperatorAddress()) {
+		return ErrApprovalUnknownSP
+	}
+	if req.GetObjectInfo() == nil {
+		return ErrApprovalMissingObjectInfo
+	}
+	return nil
+}
+
 // onGetApprovalRequest defines the get approval request protocol callback
 func (a *ApprovalProtocol) onGetApprovalRequest(s network.Stream) {
 	req := &gfsptask.GfSpReplicatePieceApprovalTask{}
-	buf, err := io.ReadAll(s)
-	if err != nil {
+	if err := s.SetReadDeadline(time.Now().Add(P2PStreamReadTimeout)); err != nil {
+		log.Errorw("failed to set read deadline for replicate piece approval request stream", "error", err)
+		s.Reset()
+		return
+	}
+	if err := ggio.NewFullReader(s, MaxP2PMessageSize).ReadMsg(req); err != nil {
 		log.Errorw("failed to read replicate piece approval request msg from stream", "error", err)
 		s.Reset()
 		return
 	}
 	s.Close()
-	err = proto.Unmarshal(buf, req)
-	if err != nil {
-		log.Errorw("failed to unmarshal replicate piece approval request msg", "error", err)
+	if err := a.validateApprovalRequest(req); err != nil {
+		log.Warnw("ignore invalid replicate piece approval request", "sp",
+			req.GetAskSpOperatorAddress(), "local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
 		return
 	}
 	ctx := log.WithValue(context.Background(), log.CtxKeyTask, req.Key().String())
 	log.Debugf("%s received replicate piece approval request from %s, object_id: %d",
 		s.Conn().LocalPeer(), s.Conn().RemotePeer(), req.GetObjectInfo().Id.Uint64())
-	if !a.node.peers.checkSP(req.GetAskSpOperatorAddress()) {
-		log.CtxWarnw(ctx, "ignore invalid sp replicate piece approval request", "sp",
-			req.GetAskSpOperatorAddress(), "local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer())
-		return
-	}
 	if strings.Compare(req.GetAskSpOperatorAddress(), a.node.baseApp.OperatorAddress()) == 0 {
 		log.CtxWarnw(ctx, "ignore self replicate piece approval request", "sp",
 			req.GetAskSpOperatorAddress(), "local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer())
 		return
 	}
-	err = VerifySignature(req.GetAskSpOperatorAddress(), req.GetSignBytes(), req.GetAskSignature())
+	err := VerifySignature(req.GetAskSpOperatorAddress(), req.GetSignBytes(), req.GetAskSignature())
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to verify replicate piece approval request signature",
 			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
@@ -183,28 +225,36 @@ func (a *ApprovalProtocol) checkApprovalResponse(resp *gfsptask.GfSpReplicatePie
 // onGetApprovalRequest defines the get approval response protocol callback
 func (a *ApprovalProtocol) onGetApprovalResponse(s network.Stream) {
 	resp := &gfsptask.GfSpReplicatePieceApprovalTask{}
-	buf, err := io.ReadAll(s)
-	if err != nil {
+	if err := s.SetReadDeadline(time.Now().Add(P2PStreamReadTimeout)); err != nil {
+		log.Errorw("failed to set read deadline for approval response stream", "error", err)
+		s.Reset()
+		return
+	}
+	if err := ggio.NewFullReader(s, MaxP2PMessageSize).ReadMsg(resp); err != nil {
 		log.Errorw("failed to read replicate piece approval response msg from stream", "error", err)
 		s.Reset()
 		return
 	}
 	s.Close()
-	err = proto.Unmarshal(buf, resp)
-	if err != nil {
-		log.Errorw("failed to unmarshal replicate piece approval response msg", "error", err)
+	// checkApprovalResponse only touches the SP address and signature fields,
+	// not ObjectInfo, so it's safe to run before the object-info nil check
+	// below - and it must run first, so an unrecognized/unsigned sender can't
+	// reach the ObjectInfo dereferences in Key()/the debug log at all.
+	if err := a.checkApprovalResponse(resp); err != nil {
+		log.Warnw("ignore invalid approval response", "sp", resp.GetApprovedSpOperatorAddress(),
+			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
+		return
+	}
+	if resp.GetObjectInfo() == nil {
+		log.Warnw("ignore approval response missing object info", "sp", resp.GetApprovedSpOperatorAddress(),
+			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer())
 		return
 	}
 	ctx := log.WithValue(context.Background(), log.CtxKeyTask, resp.Key().String())
 	log.Debugf("%s received approval response from %s, object_id: %d",
 		s.Conn().LocalPeer(), s.Conn().RemotePeer(), resp.GetObjectInfo().Id.Uint64())
 
-	if err = a.checkApprovalResponse(resp); err != nil {
-		log.CtxWarnw(ctx, "ignore invalid approval response", "sp", resp.GetApprovedSpOperatorAddress(),
-			"local", s.Conn().LocalPeer(), "remote", s.Conn().RemotePeer(), "error", err)
-		return
-	}
-	err = a.notifyApprovalResponse(resp)
-	log.Infof("%s received approval response to %s, and notify to hang request, task_key: %s, error: %v",
-		s.Conn().LocalPeer(), s.Conn().RemotePeer(), resp.Key().String(), err)
+	err := a.notifyApprovalResponse(resp)
+	log.CtxInfow(ctx, "received approval response and notified hang request", "local", s.Conn().LocalPeer(),
+		"remote", s.Conn().RemotePeer(), "task_key", resp.Key().String(), "error", err)
 }
