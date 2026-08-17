@@ -460,6 +460,48 @@ func TestSpDBImpl_UpdateExtraQuotaSuccess2(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+// TestSpDBImpl_UpdateExtraQuotaCapsRefundAtConsumedFreeQuota covers a refund
+// (extraQuota) larger than what free quota this bucket has actually consumed,
+// with nothing owed on the charge or monthly-free tiers to absorb it first.
+// The FreeQuota tier must cap the refund at consumedFreeQuota (5) instead of
+// subtracting the full extraQuota (20) from it - which would underflow the
+// uint64 counter and over-credit remainedFreeQuota by the uncapped amount.
+func TestSpDBImpl_UpdateExtraQuotaCapsRefundAtConsumedFreeQuota(t *testing.T) {
+	extraQuota := uint64(20)
+
+	b := BucketTrafficTable{
+		BucketID:                     2,
+		BucketName:                   "mockBucketName",
+		ReadConsumedSize:             0,
+		FreeQuotaConsumedSize:        5,
+		FreeQuotaSize:                10,
+		ChargedQuotaSize:             0,
+		MonthlyQuotaSize:             20,
+		MonthlyFreeQuotaConsumedSize: 0,
+		ModifiedTime:                 time.Now(),
+	}
+
+	yearMonth := TimestampYearMonth(b.ModifiedTime.Unix())
+	s, mock := setupDB(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT * FROM `bucket_traffic` WHERE bucket_id = ?  and month = ? ORDER BY `bucket_traffic`.`bucket_id` LIMIT 1 FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{
+		"bucket_id", "year_month", "bucket_name", "read_consumed_size", "free_quota_consumed_size",
+		"free_quota_size", "charged_quota_size", "modified_time", "monthly_free_quota_consumed_size", "monthly_quota_size",
+	}).AddRow(b.BucketID, yearMonth, b.BucketName, b.ReadConsumedSize,
+		b.FreeQuotaConsumedSize, b.FreeQuotaSize, b.ChargedQuotaSize, b.ModifiedTime, b.MonthlyFreeQuotaConsumedSize, b.MonthlyQuotaSize))
+
+	// free_quota_consumed_size must land at 0 (not an underflowed near-2^64
+	// value) and free_quota_size at 15 (10 + the capped 5, not 10 + 20).
+	mock.ExpectExec("UPDATE `bucket_traffic` SET `read_consumed_size`=?,`free_quota_consumed_size`=?,`monthly_free_quota_consumed_size`=?,`free_quota_size`=?,`monthly_quota_size`=?,`modified_time`=? WHERE `bucket_id` = ? ").
+		WithArgs(0, 0, 0, 15, sqlmock.AnyArg(), sqlmock.AnyArg(), b.BucketID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := s.UpdateExtraQuota(b.BucketID, extraQuota, GetCurrentYearMonth())
+	assert.Nil(t, err)
+}
+
 func TestSpDBImpl_UpdateExtraQuotaFail(t *testing.T) {
 	extraQuota := uint64(20)
 

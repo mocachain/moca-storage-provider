@@ -426,10 +426,17 @@ func (s *SpDBImpl) UpdateExtraQuota(bucketID, extraQuota uint64, yearMonth strin
 				monthlyFreeQuotaRemain += consumedMonthlyFreeQuota
 				consumedMonthlyFreeQuota = 0
 			}
-			// FreeQuota
-			if extraQuota > 0 {
+			// FreeQuota - last tier of the waterfall, so cap the refund at what was
+			// actually consumed the same way the two tiers above do, instead of
+			// crediting the full (possibly larger) extraQuota unconditionally: that
+			// would underflow consumedFreeQuota (a uint64) and over-credit
+			// remainedFreeQuota, the balance migrate_handler.go's quota check reads.
+			if extraQuota > 0 && consumedFreeQuota >= extraQuota {
 				consumedFreeQuota -= extraQuota
 				remainedFreeQuota += extraQuota
+			} else if extraQuota > 0 && consumedFreeQuota > 0 {
+				remainedFreeQuota += consumedFreeQuota
+				consumedFreeQuota = 0
 			}
 			log.Debugw("quota info", "consumedFreeQuota", consumedFreeQuota, "remainedFreeQuota", remainedFreeQuota, "consumedChargeQuota", consumedChargeQuota, "consumedMonthlyFreeQuota", consumedMonthlyFreeQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain)
 			err = tx.Model(&bucketTraffic).
