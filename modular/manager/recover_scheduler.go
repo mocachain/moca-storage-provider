@@ -566,6 +566,7 @@ func (s *RecoverFailedObjectScheduler) Start() {
 			}
 			if verified {
 				log.Infow("object has been recovered", "object", objectInfo)
+				s.manager.recoverObjectStats.remove(objectInfo.Id.Uint64(), objectInfo.Version)
 				err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(o.ObjectID)
 				if err != nil {
 					log.Errorw("failed to delete recover failed object entry", "object_id", o.ObjectID)
@@ -573,6 +574,8 @@ func (s *RecoverFailedObjectScheduler) Start() {
 				}
 				continue
 			}
+
+			s.seedFailedObjectStats(objectInfo, segmentCount)
 
 			if !s.queueFailedObjectRecovery(objectInfo, storageParams, o, maxSegmentSize, segmentCount) {
 				break out
@@ -617,6 +620,21 @@ func (s *RecoverFailedObjectScheduler) queueFailedObjectRecovery(objectInfo *typ
 		log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
 	}
 	return true
+}
+
+// seedFailedObjectStats registers stats for objectInfo's current version if it
+// isn't already tracked. Without this, a segment failure reported through
+// handleFailedRecoverPieceTask for an object driven by this scheduler always
+// lands on isRecoverFailed's absent-key branch - which unconditionally reports
+// failure, and is blind to which version the failure actually belongs to,
+// since RecoverFailedObjectTable itself carries no version. Seeding here at
+// least makes the in-memory report resolve against the version this pass is
+// actually recovering.
+func (s *RecoverFailedObjectScheduler) seedFailedObjectStats(objectInfo *types.ObjectInfo, segmentCount uint32) {
+	objectID := objectInfo.Id.Uint64()
+	if !s.manager.recoverObjectStats.has(objectID, objectInfo.Version) {
+		s.manager.recoverObjectStats.put(objectID, objectInfo.Version, segmentCount)
+	}
 }
 
 // VerifyGVGScheduler Verify that objects in GVG are recovered successfully or not.
