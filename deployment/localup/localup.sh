@@ -101,6 +101,13 @@ function generate_sp_db_info() {
 #############################################################
 function make_config() {
   grpc_tls_dir="${workspace}/${SP_DEPLOY_DIR}/grpc-tls"
+  signer_allowed_client_uris=""
+  for ((client_index = 0; client_index < SP_NUM; client_index++)); do
+    if [ -n "${signer_allowed_client_uris}" ]; then
+      signer_allowed_client_uris+=", "
+    fi
+    signer_allowed_client_uris+="'spiffe://mocachain.local/sp${client_index}'"
+  done
   for ((index = 0; index < ${SP_NUM}; index++)); do
     sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
     if [ ! -d "${sp_dir}" ]; then
@@ -120,6 +127,7 @@ function make_config() {
     sed -i -e "s|^CACertFile = '.*'|CACertFile = '${grpc_tls_dir}/ca.crt'|g" config.toml
     sed -i -e "s|^CertFile = '.*'|CertFile = '${grpc_tls_dir}/${grpc_tls_identity}.crt'|g" config.toml
     sed -i -e "s|^KeyFile = '.*'|KeyFile = '${grpc_tls_dir}/${grpc_tls_identity}.key'|g" config.toml
+    sed -i -e "s|^AllowedClientURIs = \[.*\]|AllowedClientURIs = [${signer_allowed_client_uris}]|g" config.toml
 
     # db
     sed -i -e "s/User = '.*'/User = '${USER}'/g" config.toml

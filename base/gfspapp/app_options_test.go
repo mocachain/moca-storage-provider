@@ -26,6 +26,23 @@ func TestDefaultStaticOptionRejectsMissingGRPCTLS(t *testing.T) {
 	assert.ErrorContains(t, err, "GRPCTLS.CACertFile is required")
 }
 
+func TestValidateSignerAuthConfig(t *testing.T) {
+	t.Run("signer requires allowed client URIs", func(t *testing.T) {
+		err := validateSignerAuthConfig([]string{module.SignModularName}, gfspconfig.SignerAuthConfig{})
+		assert.ErrorContains(t, err, "AllowedClientURIs")
+	})
+
+	t.Run("signer module name is case insensitive", func(t *testing.T) {
+		err := validateSignerAuthConfig([]string{"Signer"}, gfspconfig.SignerAuthConfig{})
+		assert.ErrorContains(t, err, "AllowedClientURIs")
+	})
+
+	t.Run("non-signer workload may omit allowed client URIs", func(t *testing.T) {
+		err := validateSignerAuthConfig([]string{module.ManageModularName}, gfspconfig.SignerAuthConfig{})
+		assert.NoError(t, err)
+	})
+}
+
 func TestDefaultGfSpClientOption(t *testing.T) {
 	g := setup(t)
 	cfg := &gfspconfig.GfSpConfig{}
