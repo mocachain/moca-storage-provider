@@ -100,6 +100,7 @@ function generate_sp_db_info() {
 # make sp config.toml according to env.info/db.info/sp.info #
 #############################################################
 function make_config() {
+  grpc_tls_dir="${workspace}/${SP_DEPLOY_DIR}/grpc-tls"
   for ((index = 0; index < ${SP_NUM}; index++)); do
     sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
     if [ ! -d "${sp_dir}" ]; then
@@ -112,6 +113,13 @@ function make_config() {
     source sp.info
     # app
     sed -i -e "s/GRPCAddress = '.*'/GRPCAddress = '127.0.0.1:${cur_port}'/g" config.toml
+
+    # internal gRPC mTLS
+    grpc_tls_identity="sp${index}"
+    bash "${workspace}/generate_grpc_tls.sh" "${grpc_tls_dir}" "${grpc_tls_identity}"
+    sed -i -e "s|^CACertFile = '.*'|CACertFile = '${grpc_tls_dir}/ca.crt'|g" config.toml
+    sed -i -e "s|^CertFile = '.*'|CertFile = '${grpc_tls_dir}/${grpc_tls_identity}.crt'|g" config.toml
+    sed -i -e "s|^KeyFile = '.*'|KeyFile = '${grpc_tls_dir}/${grpc_tls_identity}.key'|g" config.toml
 
     # db
     sed -i -e "s/User = '.*'/User = '${USER}'/g" config.toml

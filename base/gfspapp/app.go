@@ -5,6 +5,7 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
@@ -30,6 +31,8 @@ type GfSpBaseApp struct {
 
 	server *grpc.Server
 	client gfspclient.GfSpClientAPI
+
+	grpcClientCredentials credentials.TransportCredentials
 
 	gfSpDB       spdb.SPDB
 	gfBsDB       bsdb.BSDB

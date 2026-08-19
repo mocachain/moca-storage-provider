@@ -35,10 +35,11 @@ type Customize struct {
 
 // GfSpConfig defines the GfSp configuration.
 type GfSpConfig struct {
-	Env            string     `comment:"optional"`
-	AppID          string     `comment:"optional"`
-	Server         []string   `comment:"optional"`
-	GRPCAddress    string     `comment:"optional"`
+	Env            string   `comment:"optional"`
+	AppID          string   `comment:"optional"`
+	Server         []string `comment:"optional"`
+	GRPCAddress    string   `comment:"optional"`
+	GRPCTLS        GRPCTLSConfig
 	Customize      *Customize `comment:"optional"`
 	SpDB           storeconfig.SQLDBConfig
 	BsDB           storeconfig.SQLDBConfig
@@ -61,6 +62,13 @@ type GfSpConfig struct {
 	Manager        ManagerConfig
 	GC             GCConfig
 	Quota          QuotaConfig
+}
+
+// GRPCTLSConfig defines the mutual TLS files used by internal gRPC clients and servers.
+type GRPCTLSConfig struct {
+	CACertFile string `comment:"required"`
+	CertFile   string `comment:"required"`
+	KeyFile    string `comment:"required"`
 }
 
 // Apply sets the customized implement to the GfSp configuration, it will be called

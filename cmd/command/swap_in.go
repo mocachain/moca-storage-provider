@@ -183,7 +183,10 @@ func SwapInAction(ctx *cli.Context) error {
 		StorageProvider:            cfg.SpAccount.SpOperatorAddress,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	tx, err := spClient.ReserveSwapIn(ctx.Context, reserveSwapIn)
 	if err != nil {
 		println(err.Error())
@@ -209,7 +212,10 @@ func CompleteSwapInAction(ctx *cli.Context) error {
 		StorageProvider:            cfg.SpAccount.SpOperatorAddress,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	tx, err := spClient.CompleteSwapIn(ctx.Context, completeSwapIn)
 	if err != nil {
 		println(err.Error())
@@ -232,7 +238,10 @@ func RecoverGVGAction(ctx *cli.Context) error {
 		println(err.Error())
 		return err
 	}
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 
 	// check swapIn info
 	sp, err := chainClient.QuerySP(ctx.Context, cfg.SpAccount.SpOperatorAddress)
@@ -296,7 +305,10 @@ func RecoverVGFAction(ctx *cli.Context) error {
 		println(err.Error())
 		return err
 	}
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 
 	// check swapIn info
 	sp, err := chainClient.QuerySP(ctx.Context, cfg.SpAccount.SpOperatorAddress)
@@ -374,7 +386,10 @@ func QueryRecoverProcessAction(ctx *cli.Context) error {
 		}
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	gvgstatsList, executing, err := spClient.QueryRecoverProcess(ctx.Context, uint32(gvgfID), uint32(gvgID))
 	if err != nil {
 		println(err.Error())
@@ -444,7 +459,10 @@ func ListGlobalVirtualGroupsBySecondarySPAction(ctx *cli.Context) error {
 		println(err.Error())
 		return err
 	}
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	spID := ctx.Uint64(targetSPIDFlag.Name)
 	res, err := spClient.ListGlobalVirtualGroupsBySecondarySP(ctx.Context, uint32(spID))
 	if err != nil {
@@ -466,7 +484,10 @@ func ListVirtualGroupFamiliesBySpIDAction(ctx *cli.Context) error {
 		println(err.Error())
 		return err
 	}
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	spID := ctx.Uint64(targetSPIDFlag.Name)
 	res, err := spClient.ListVirtualGroupFamiliesSpID(ctx.Context, uint32(spID))
 	if err != nil {
@@ -498,7 +519,10 @@ func CancelSwapInAction(ctx *cli.Context) error {
 		StorageProvider:            cfg.SpAccount.SpOperatorAddress,
 	}
 
-	spClient := utils.MakeGfSpClient(cfg)
+	spClient, err := utils.MakeGfSpClient(cfg)
+	if err != nil {
+		return err
+	}
 	tx, err := spClient.CancelSwapIn(ctx.Context, cancelSwapIn)
 	if err != nil {
 		println(err.Error())
