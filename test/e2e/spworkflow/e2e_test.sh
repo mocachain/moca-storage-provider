@@ -186,6 +186,15 @@ updated_suite = updated_suite.replace(
     'ChainID     = "moca_1000000-121"',
     'ChainID     = "moca_5151-1"')
 
+# challenger_info carries the chain challenger's exported hex key (localup
+# discards its mnemonic), so let the challenge client accept either form
+challenge_mnemonic_old = """\tmnemonic := ParseMnemonicFromFile(fmt.Sprintf("../../moca/deployment/localup/.local/challenger%d/challenger_info", 0))\n\tchallengeAcc, err := types.NewAccountFromMnemonic("challenge_account", mnemonic)\n\ts.Require().NoError(err)\n\tpriKey, err := keys.GetPriKeyFromMnemonic(mnemonic)\n\ts.Require().NoError(err)\n"""
+challenge_mnemonic_new = """\tmnemonic := ParseMnemonicFromFile(fmt.Sprintf("../../moca/deployment/localup/.local/challenger%d/challenger_info", 0))\n\tvar challengeAcc *types.Account\n\tvar priKey string\n\tvar err error\n\tif len(mnemonic) == 64 {\n\t\tchallengeAcc, err = types.NewAccountFromPrivateKey("challenge_account", mnemonic)\n\t\ts.Require().NoError(err)\n\t\tpriKey = mnemonic\n\t} else {\n\t\tchallengeAcc, err = types.NewAccountFromMnemonic("challenge_account", mnemonic)\n\t\ts.Require().NoError(err)\n\t\tpriKey, err = keys.GetPriKeyFromMnemonic(mnemonic)\n\t\ts.Require().NoError(err)\n\t}\n"""
+if challenge_mnemonic_old in updated_suite:
+    updated_suite = updated_suite.replace(challenge_mnemonic_old, challenge_mnemonic_new, 1)
+elif 'challengeAcc, err := types.NewAccountFromMnemonic("challenge_account", mnemonic)' in updated_suite:
+    raise SystemExit("failed to patch e2e/basesuite/suite.go challenge key handling")
+
 if updated_suite == suite_text and 'Host:           "' + sp_request_host + '"' not in suite_text:
     raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
 
@@ -531,7 +540,7 @@ function prepare_sdk_suite_accounts() {
   local localdir="${workspace}/moca/deployment/localup/.local"
   local spec dir file name amount mnemonic addr
 
-  for spec in "validator0:info:sdk-e2e-default:100000000000000000000000" "challenger0:challenger_info:sdk-e2e-challenge:10000000000000000000000"; do
+  for spec in "validator0:info:sdk-e2e-default:100000000000000000000000"; do
     IFS=':' read -r dir file name amount <<<"${spec}"
     mnemonic=$("${mocad}" keys mnemonic 2>/dev/null)
     if [ -z "${mnemonic}" ]; then
@@ -553,6 +562,17 @@ function prepare_sdk_suite_accounts() {
       return 1
     fi
   done
+
+  # the SP authenticates challenge requests against the bonded validator's
+  # challenger address, so hand the suite the chain's actual challenger key
+  # (exported as hex; the patched suite accepts either form)
+  local challenger_key
+  challenger_key=$(printf 'y\n' | "${mocad}" keys unsafe-export-eth-key challenger0 --keyring-backend test --home "${localdir}/challenger0" 2>/dev/null | tail -1)
+  if [ "${#challenger_key}" != "64" ]; then
+    echo "failed to export the challenger0 key"
+    return 1
+  fi
+  printf '%s\n' "${challenger_key}" >"${localdir}/challenger0/challenger_info"
 }
 
 function run_go_sdk_e2e() {
