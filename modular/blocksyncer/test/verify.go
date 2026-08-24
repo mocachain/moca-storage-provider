@@ -87,14 +87,22 @@ func Verify(t *testing.T) error {
 
 func verify1(t *testing.T, db *gorm.DB) error {
 	var bucket models.Bucket
-	if err := db.Table(bsdb.BucketTableName).Where("bucket_name = ?", "full-node-v1-acc0000000072-buc0000000000").Find(&bucket).Error; err != nil {
-		return err
+	const bucketName = "full-node-v1-acc0000000072-buc0000000000"
+	var lastStatus string
+	for attempt := 0; attempt < 10; attempt++ {
+		bucket = models.Bucket{}
+		if err := db.Table(bsdb.BucketTableName).Where("bucket_name = ?", bucketName).Find(&bucket).Error; err != nil {
+			return err
+		}
+		lastStatus = bucket.Status
+		if lastStatus == "BUCKET_STATUS_CREATED" {
+			golog.Println(bucket)
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	golog.Println(bucket)
-	if bucket.Status != "BUCKET_STATUS_CREATED" {
-		return errors.New("bucket status error")
-	}
-	return nil
+	return fmt.Errorf("bucket status error: got %q", lastStatus)
 }
 
 func verify2(t *testing.T, db *gorm.DB) error {
