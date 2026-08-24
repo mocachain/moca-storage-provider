@@ -213,6 +213,10 @@ if migrate_test.exists():
         if mt.count("\n\tfor {\n") != 2:
             raise SystemExit("failed to bound e2e_migrate_bucket_test.go wait loops")
         mt = mt.replace("\n\tfor {\n", "\n\tfor i := 0; i < 100; i++ {\n")
+        # 1+1 EC keeps redundancy indexes -1..1; the 4+2-era challenge probe walks to 5
+        if "for j := -1; j < 6; j++ {" not in mt:
+            raise SystemExit("failed to patch e2e_migrate_bucket_test.go challenge range")
+        mt = mt.replace("for j := -1; j < 6; j++ {", "for j := -1; j < 2; j++ {")
         migrate_test.write_text(mt)
 PY
 
