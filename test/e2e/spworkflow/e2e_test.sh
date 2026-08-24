@@ -242,7 +242,8 @@ function moca_chain() {
 function transfer_account() {
   set -e
   cd "${workspace}"/moca/
-  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 -y
+  # the release-line mocad home has no client.toml chain-id default, so pass it explicitly
+  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 --chain-id moca_5151-1 -y
   sleep 2
   ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657
 }
