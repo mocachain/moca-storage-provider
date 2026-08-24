@@ -21,6 +21,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
 )
 
+const maxGroupMemberExpirationUnix = int64(253402300799)
+
 var verifyFuncs = []func(t *testing.T, db *gorm.DB) error{
 	verify1, verify2, verify3, verify4, verify5, verify6, verify7, verify8, verify9, verify10,
 	verify11, verify12, verify13, verify14, verify15, verify16, verify17, verify18, verify19, verify20,
@@ -550,7 +552,7 @@ func verify47(t *testing.T, db *gorm.DB) error {
 	if err := db.Table(bsdb.GroupTableName).Where("group_id = ? and account_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000016"), common.HexToAddress("0x5870Af236E63beaEbbFa364f78FC7c8e70F0811f")).Find(&g).Error; err != nil {
 		return err
 	}
-	if g.ExpirationTime != 1356998399 {
+	if g.ExpirationTime != maxGroupMemberExpirationUnix {
 		return fmt.Errorf("member expiration time is error :%d", g.ExpirationTime)
 	}
 	return nil
