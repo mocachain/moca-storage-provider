@@ -35,34 +35,37 @@ type Customize struct {
 
 // GfSpConfig defines the GfSp configuration.
 type GfSpConfig struct {
-	Env            string   `comment:"optional"`
-	AppID          string   `comment:"optional"`
-	Server         []string `comment:"optional"`
-	GRPCAddress    string   `comment:"optional"`
-	GRPCTLS        GRPCTLSConfig
-	SignerAuth     SignerAuthConfig
-	Customize      *Customize `comment:"optional"`
-	SpDB           storeconfig.SQLDBConfig
-	BsDB           storeconfig.SQLDBConfig
-	PieceStore     storage.PieceStoreConfig
-	Chain          ChainConfig
-	SpAccount      SpAccountConfig
-	Endpoint       EndpointConfig
-	Approval       ApprovalConfig
-	Bucket         BucketConfig
-	Gateway        GatewayConfig
-	Executor       ExecutorConfig
-	P2P            P2PConfig
-	Parallel       ParallelConfig
-	Task           TaskConfig
-	Monitor        MonitorConfig
-	Rcmgr          RcmgrConfig `comment:"optional"`
-	Log            LogConfig
-	BlockSyncer    BlockSyncerConfig
-	APIRateLimiter mwhttp.RateLimiterConfig
-	Manager        ManagerConfig
-	GC             GCConfig
-	Quota          QuotaConfig
+	Env         string   `comment:"optional"`
+	AppID       string   `comment:"optional"`
+	Server      []string `comment:"optional"`
+	GRPCAddress string   `comment:"optional"`
+	// EnableGRPCReflection registers the grpc server reflection service, it exposes
+	// the full service schema to every caller that can reach the port.
+	EnableGRPCReflection bool `comment:"optional"`
+	GRPCTLS              GRPCTLSConfig
+	SignerAuth           SignerAuthConfig
+	Customize            *Customize `comment:"optional"`
+	SpDB                 storeconfig.SQLDBConfig
+	BsDB                 storeconfig.SQLDBConfig
+	PieceStore           storage.PieceStoreConfig
+	Chain                ChainConfig
+	SpAccount            SpAccountConfig
+	Endpoint             EndpointConfig
+	Approval             ApprovalConfig
+	Bucket               BucketConfig
+	Gateway              GatewayConfig
+	Executor             ExecutorConfig
+	P2P                  P2PConfig
+	Parallel             ParallelConfig
+	Task                 TaskConfig
+	Monitor              MonitorConfig
+	Rcmgr                RcmgrConfig `comment:"optional"`
+	Log                  LogConfig
+	BlockSyncer          BlockSyncerConfig
+	APIRateLimiter       mwhttp.RateLimiterConfig
+	Manager              ManagerConfig
+	GC                   GCConfig
+	Quota                QuotaConfig
 }
 
 // GRPCTLSConfig defines the mutual TLS files used by internal gRPC clients and servers.
