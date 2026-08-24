@@ -190,6 +190,30 @@ if updated_suite == suite_text and 'Host:           "' + sp_request_host + '"' n
     raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
 
 suite.write_text(updated_suite)
+
+# The 1.2.x migrate suite assumes the 4+2 EC genesis (GVG spans 7 SPs) and polls
+# bucket status right after an evm broadcast that returns before the tx is mined,
+# so every wait loop breaks out before migration even starts. Size the GVG assert
+# for the localup 1+1 genesis (3 SPs) and make each poll also wait until the
+# family primary actually becomes the migration target. No-ops on newer refs.
+migrate_test = Path("e2e/e2e_migrate_bucket_test.go")
+if migrate_test.exists():
+    mt = migrate_test.read_text()
+    if "Equal(len(spIDs), 7)" in mt:
+        mt = mt.replace("Equal(len(spIDs), 7)", "Equal(len(spIDs), 3)")
+        wait_if = "\t\tif bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING {\n\t\t\tbreak\n\t\t}"
+        def moved_wait(target):
+            return ("\t\tfamily, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)\n"
+                    "\t\ts.Require().NoError(ferr)\n"
+                    "\t\tif bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == " + target + " {\n\t\t\tbreak\n\t\t}")
+        for target in ("destSP.GetId()", "conflictSPID", "destSP.GetId()"):
+            if wait_if not in mt:
+                raise SystemExit("failed to patch e2e_migrate_bucket_test.go wait loops")
+            mt = mt.replace(wait_if, moved_wait(target), 1)
+        if mt.count("\n\tfor {\n") != 2:
+            raise SystemExit("failed to bound e2e_migrate_bucket_test.go wait loops")
+        mt = mt.replace("\n\tfor {\n", "\n\tfor i := 0; i < 100; i++ {\n")
+        migrate_test.write_text(mt)
 PY
 
   cd "${workspace}"
