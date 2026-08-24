@@ -9,6 +9,35 @@ source "${workspace}"/env.info
 sp_bin_name=moca-sp
 sp_bin=${workspace}/../../build/${sp_bin_name}
 
+normalize_secp_private_key() {
+  local key_name=$1
+  local raw_key=$2
+  local normalized_key
+
+  if [[ ! ${raw_key} =~ ^[0-9A-Fa-f]+$ ]]; then
+    echo "ERROR: ${key_name} contains non-hex characters"
+    exit 1
+  fi
+  if [ ${#raw_key} -gt 64 ]; then
+    echo "ERROR: ${key_name} is longer than 64 hex chars: ${#raw_key}"
+    exit 1
+  fi
+
+  printf -v normalized_key "%064s" "${raw_key}"
+  normalized_key=${normalized_key// /0}
+  echo "${normalized_key}"
+}
+
+validate_secp_private_key() {
+  local key_name=$1
+  local raw_key=$2
+
+  if [[ ! ${raw_key} =~ ^[0-9A-Fa-f]{64}$ ]]; then
+    echo "ERROR: ${key_name} must be exactly 64 hex chars, got length ${#raw_key}"
+    exit 1
+  fi
+}
+
 #########################
 # the command line help #
 #########################
@@ -69,17 +98,17 @@ function generate_sp_db_info() {
     } >sp.info
     op_address=$(jq -r ".sp${i}.OperatorAddress" "${sp_json_file}")
     echo "OPERATOR_ADDRESS=\"${op_address}\"" >>sp.info
-    opk=$(jq -r ".sp${i}.OperatorPrivateKey" "${sp_json_file}")
+    opk=$(normalize_secp_private_key "sp${i}.OperatorPrivateKey" "$(jq -r ".sp${i}.OperatorPrivateKey" "${sp_json_file}")")
     echo "OPERATOR_PRIVATE_KEY=\"${opk}\"" >>sp.info
-    fpk=$(jq -r ".sp${i}.FundingPrivateKey" "${sp_json_file}")
+    fpk=$(normalize_secp_private_key "sp${i}.FundingPrivateKey" "$(jq -r ".sp${i}.FundingPrivateKey" "${sp_json_file}")")
     echo "FUNDING_PRIVATE_KEY=\"${fpk}\"" >>sp.info
-    spk=$(jq -r ".sp${i}.SealPrivateKey" "${sp_json_file}")
+    spk=$(normalize_secp_private_key "sp${i}.SealPrivateKey" "$(jq -r ".sp${i}.SealPrivateKey" "${sp_json_file}")")
     echo "SEAL_PRIVATE_KEY=\"${spk}\"" >>sp.info
-    apk=$(jq -r ".sp${i}.ApprovalPrivateKey" "${sp_json_file}")
+    apk=$(normalize_secp_private_key "sp${i}.ApprovalPrivateKey" "$(jq -r ".sp${i}.ApprovalPrivateKey" "${sp_json_file}")")
     echo "APPROVAL_PRIVATE_KEY=\"${apk}\"" >>sp.info
-    gpk=$(jq -r ".sp${i}.GcPrivateKey" "${sp_json_file}")
+    gpk=$(normalize_secp_private_key "sp${i}.GcPrivateKey" "$(jq -r ".sp${i}.GcPrivateKey" "${sp_json_file}")")
     echo "GC_PRIVATE_KEY=\"${gpk}\"" >>sp.info
-    bpk=$(jq -r ".sp${i}.BlsPrivateKey" "${sp_json_file}")
+    bpk=$(normalize_secp_private_key "sp${i}.BlsPrivateKey" "$(jq -r ".sp${i}.BlsPrivateKey" "${sp_json_file}")")
     echo "BLS_PRIVATE_KEY=\"${bpk}\"" >>sp.info
 
     # generate db info
@@ -148,6 +177,13 @@ function make_config() {
     sed -i -e "s/ApprovalPrivateKey = '.*'/ApprovalPrivateKey = '${APPROVAL_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/GcPrivateKey = '.*'/GcPrivateKey = '${GC_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/BlsPrivateKey = '.*'/BlsPrivateKey = '${BLS_PRIVATE_KEY}'/g" config.toml
+
+    validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.FundingPrivateKey" "$(sed -n "s/^FundingPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.SealPrivateKey" "$(sed -n "s/^SealPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.ApprovalPrivateKey" "$(sed -n "s/^ApprovalPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.GcPrivateKey" "$(sed -n "s/^GcPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
+    validate_secp_private_key "sp${index}.BlsPrivateKey" "$(sed -n "s/^BlsPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
 
     # gateway
     sed -i -e "s/DomainName = '.*'/DomainName = 'gnfd.test-sp.com'/g" config.toml
