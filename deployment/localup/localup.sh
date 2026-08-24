@@ -173,6 +173,7 @@ function make_config() {
     # sp account
     sed -i -e "s/SpOperatorAddress = '.*'/SpOperatorAddress = '${OPERATOR_ADDRESS}'/g" config.toml
     sed -i -e "s/OperatorPrivateKey = '.*'/OperatorPrivateKey = '${OPERATOR_PRIVATE_KEY}'/g" config.toml
+    sed -i -e "s/FundingPrivateKey = '.*'/FundingPrivateKey = '${FUNDING_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/SealPrivateKey = '.*'/SealPrivateKey = '${SEAL_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/ApprovalPrivateKey = '.*'/ApprovalPrivateKey = '${APPROVAL_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/GcPrivateKey = '.*'/GcPrivateKey = '${GC_PRIVATE_KEY}'/g" config.toml

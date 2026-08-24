@@ -511,9 +511,7 @@ function main() {
     run_e2e
     ;;
   --runSPExit)
-    # kept disabled on release/1.4.x, matching the branch's existing coverage;
-    # re-enable once the exit flow is validated against this line
-    #    run_sp_exit_e2e
+    run_sp_exit_e2e
     ;;
   --runSDKE2E)
     build_moca-go-sdk
