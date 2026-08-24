@@ -223,7 +223,12 @@ func DefaultStaticOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error {
 	app.signer = &coremodule.NilModular{}
 	app.metrics = &coremodule.NilModular{}
 	app.pprof = &coremodule.NilModular{}
-	app.newRPCServer()
+	clientCredentials, serverCredentials, err := gfspconfig.LoadGRPCTLSCredentials(cfg.GRPCTLS)
+	if err != nil {
+		return err
+	}
+	app.grpcClientCredentials = clientCredentials
+	app.newRPCServer(serverCredentials)
 	return nil
 }
 
@@ -268,6 +273,7 @@ func DefaultGfSpClientOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error
 		cfg.Endpoint.P2PEndpoint,
 		cfg.Endpoint.SignerEndpoint,
 		cfg.Endpoint.AuthenticatorEndpoint,
+		app.grpcClientCredentials,
 		!cfg.Monitor.DisableMetrics)
 	return nil
 }

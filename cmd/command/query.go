@@ -194,7 +194,9 @@ func listErrorsAction(ctx *cli.Context) error {
 }
 
 func (w *CMDWrapper) queryTasksAction(ctx *cli.Context) error {
-	w.initEmptyGRPCAPI()
+	if err := w.initGRPCAPI(ctx); err != nil {
+		return err
+	}
 	endpoint := gfspapp.DefaultGRPCAddress
 	if ctx.IsSet(utils.ConfigFileFlag.Name) {
 		cfg := &gfspconfig.GfSpConfig{}
@@ -380,7 +382,9 @@ func (w *CMDWrapper) getSegmentIntegrityAction(ctx *cli.Context) error {
 }
 
 func (w *CMDWrapper) getBucketMigrateAction(ctx *cli.Context) error {
-	w.initEmptyGRPCAPI()
+	if err := w.initGRPCAPI(ctx); err != nil {
+		return err
+	}
 	endpoint := gfspapp.DefaultGRPCAddress
 	if ctx.IsSet(utils.ConfigFileFlag.Name) {
 		cfg := &gfspconfig.GfSpConfig{}
@@ -403,7 +407,9 @@ func (w *CMDWrapper) getBucketMigrateAction(ctx *cli.Context) error {
 }
 
 func (w *CMDWrapper) getSPExitAction(ctx *cli.Context) error {
-	w.initEmptyGRPCAPI()
+	if err := w.initGRPCAPI(ctx); err != nil {
+		return err
+	}
 	endpoint := gfspapp.DefaultGRPCAddress
 	if ctx.IsSet(utils.ConfigFileFlag.Name) {
 		cfg := &gfspconfig.GfSpConfig{}

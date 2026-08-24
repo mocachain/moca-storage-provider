@@ -26,7 +26,10 @@ func (w *CMDWrapper) init(ctx *cli.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		w.grpcAPI = utils.MakeGfSpClient(w.config)
+		w.grpcAPI, err = utils.MakeGfSpClient(w.config)
+		if err != nil {
+			return err
+		}
 		w.spDBAPI, _ = utils.MakeSPDB(w.config)
 	}
 	return nil
@@ -44,8 +47,13 @@ func (w *CMDWrapper) initChainAPI(ctx *cli.Context) (err error) {
 	return nil
 }
 
-func (w *CMDWrapper) initEmptyGRPCAPI() {
+func (w *CMDWrapper) initGRPCAPI(ctx *cli.Context) (err error) {
 	if w.grpcAPI == nil {
-		w.grpcAPI = &gfspclient.GfSpClient{}
+		w.config, err = utils.MakeConfig(ctx)
+		if err != nil {
+			return err
+		}
+		w.grpcAPI, err = utils.MakeGfSpClient(w.config)
 	}
+	return err
 }

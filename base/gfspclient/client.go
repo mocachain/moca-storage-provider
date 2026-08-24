@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
@@ -53,6 +53,7 @@ type GfSpClient struct {
 	p2pEndpoint           string
 	signerEndpoint        string
 	authenticatorEndpoint string
+	transportCredentials  credentials.TransportCredentials
 
 	mux          sync.RWMutex
 	managerConn  *grpc.ClientConn
@@ -64,7 +65,8 @@ type GfSpClient struct {
 }
 
 func NewGfSpClient(approverEndpoint, managerEndpoint, downloaderEndpoint, receiverEndpoint, metadataEndpoint,
-	uploaderEndpoint, p2pEndpoint, signerEndpoint, authenticatorEndpoint string, metrics bool,
+	uploaderEndpoint, p2pEndpoint, signerEndpoint, authenticatorEndpoint string,
+	transportCredentials credentials.TransportCredentials, metrics bool,
 ) *GfSpClient {
 	return &GfSpClient{
 		approverEndpoint:      approverEndpoint,
@@ -76,12 +78,13 @@ func NewGfSpClient(approverEndpoint, managerEndpoint, downloaderEndpoint, receiv
 		p2pEndpoint:           p2pEndpoint,
 		signerEndpoint:        signerEndpoint,
 		authenticatorEndpoint: authenticatorEndpoint,
+		transportCredentials:  transportCredentials,
 		metrics:               metrics,
 	}
 }
 
 func (s *GfSpClient) Connection(ctx context.Context, address string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-	options := append(DefaultClientOptions(), opts...)
+	options := append(DefaultClientOptions(s.transportCredentials), opts...)
 	if s.metrics {
 		options = append(options, utilgrpc.GetDefaultClientInterceptor()...)
 	}
@@ -91,12 +94,8 @@ func (s *GfSpClient) Connection(ctx context.Context, address string, opts ...grp
 func (s *GfSpClient) ApproverConn(ctx context.Context, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	options := append(DefaultClientOptions(), opts...)
-	if s.metrics {
-		options = append(options, utilgrpc.GetDefaultClientInterceptor()...)
-	}
 	if s.approverConn == nil {
-		conn, err := s.Connection(ctx, s.approverEndpoint, options...)
+		conn, err := s.Connection(ctx, s.approverEndpoint, opts...)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create connection", "error", err)
 			return nil, ErrRPCUnknownWithDetail("failed to create connection, error: ", err)
@@ -109,12 +108,8 @@ func (s *GfSpClient) ApproverConn(ctx context.Context, opts ...grpc.DialOption) 
 func (s *GfSpClient) ManagerConn(ctx context.Context, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	options := append(DefaultClientOptions(), opts...)
-	if s.metrics {
-		options = append(options, utilgrpc.GetDefaultClientInterceptor()...)
-	}
 	if s.managerConn == nil {
-		conn, err := s.Connection(ctx, s.managerEndpoint, options...)
+		conn, err := s.Connection(ctx, s.managerEndpoint, opts...)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create connection", "error", err)
 			return nil, ErrRPCUnknownWithDetail("failed to create connection, error: ", err)
@@ -127,12 +122,8 @@ func (s *GfSpClient) ManagerConn(ctx context.Context, opts ...grpc.DialOption) (
 func (s *GfSpClient) P2PConn(ctx context.Context, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	options := append(DefaultClientOptions(), opts...)
-	if s.metrics {
-		options = append(options, utilgrpc.GetDefaultClientInterceptor()...)
-	}
 	if s.p2pConn == nil {
-		conn, err := s.Connection(ctx, s.p2pEndpoint, options...)
+		conn, err := s.Connection(ctx, s.p2pEndpoint, opts...)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create connection", "error", err)
 			return nil, ErrRPCUnknownWithDetail("failed to create connection, error: ", err)
@@ -145,12 +136,8 @@ func (s *GfSpClient) P2PConn(ctx context.Context, opts ...grpc.DialOption) (*grp
 func (s *GfSpClient) SignerConn(ctx context.Context, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	options := append(DefaultClientOptions(), opts...)
-	if s.metrics {
-		options = append(options, utilgrpc.GetDefaultClientInterceptor()...)
-	}
 	if s.signerConn == nil {
-		conn, err := s.Connection(ctx, s.signerEndpoint, options...)
+		conn, err := s.Connection(ctx, s.signerEndpoint, opts...)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create connection", "error", err)
 			return nil, ErrRPCUnknownWithDetail("failed to create connection, error: ", err)
@@ -193,9 +180,9 @@ func (s *GfSpClient) Close() error {
 	return nil
 }
 
-func DefaultClientOptions() []grpc.DialOption {
+func DefaultClientOptions(transportCredentials credentials.TransportCredentials) []grpc.DialOption {
 	var options []grpc.DialOption
-	options = append(options, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	options = append(options, grpc.WithTransportCredentials(transportCredentials))
 	options = append(options, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(MaxClientCallMsgSize)))
 	options = append(options, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(MaxClientCallMsgSize)))
 	return options

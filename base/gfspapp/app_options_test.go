@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsplimit"
@@ -20,12 +19,11 @@ import (
 	"github.com/mocachain/moca-storage-provider/store/sqldb"
 )
 
-func TestDefaultStaticOption(t *testing.T) {
+func TestDefaultStaticOptionRejectsMissingGRPCTLS(t *testing.T) {
 	g := setup(t)
-	g.server = grpc.NewServer()
 	cfg := &gfspconfig.GfSpConfig{}
 	err := DefaultStaticOption(g, cfg)
-	assert.Nil(t, err)
+	assert.ErrorContains(t, err, "GRPCTLS.CACertFile is required")
 }
 
 func TestDefaultGfSpClientOption(t *testing.T) {
@@ -307,11 +305,11 @@ func TestDefaultGfSpPProfOption(t *testing.T) {
 }
 
 func TestNewGfSpBaseAppFailure1(t *testing.T) {
-	t.Log("Failure case description: init would panic")
+	t.Log("Failure case description: missing gRPC TLS configuration")
 	cfg := &gfspconfig.GfSpConfig{Customize: nil}
-	assert.Panics(t, func() {
-		_, _ = NewGfSpBaseApp(cfg)
-	})
+	result, err := NewGfSpBaseApp(cfg)
+	assert.Nil(t, result)
+	assert.ErrorContains(t, err, "GRPCTLS.CACertFile is required")
 }
 
 func TestNewGfSpBaseAppFailure2(t *testing.T) {
