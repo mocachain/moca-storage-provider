@@ -479,7 +479,41 @@ function run_sp_exit_e2e() {
 ###################
 # run go-sdk e2e #
 ###################
+# The 1.2.x go-sdk suite reads its accounts as mnemonics from
+# .local/validator0/info and .local/challenger0/challenger_info (last
+# non-empty line of each). The release-line chain imports its validator
+# keys from preset raw private keys, so those mnemonic files never exist.
+# Mint a fresh mnemonic per file, write it where the suite looks, and fund
+# the derived address from validator0 so the suite's default account can
+# pay for its buckets and migrations.
+function prepare_sdk_suite_accounts() {
+  set -e
+  local mocad="${workspace}/moca/build/mocad"
+  local localdir="${workspace}/moca/deployment/localup/.local"
+  local spec dir file name amount mnemonic addr
+
+  for spec in "validator0:info:sdk-e2e-default:100000000000000000000000" "challenger0:challenger_info:sdk-e2e-challenge:10000000000000000000000"; do
+    IFS=':' read -r dir file name amount <<<"${spec}"
+    mnemonic=$("${mocad}" keys mnemonic 2>/dev/null)
+    if [ -z "${mnemonic}" ]; then
+      echo "failed to generate a mnemonic for ${name}"
+      return 1
+    fi
+    mkdir -p "${localdir}/${dir}"
+    printf '%s\n' "${mnemonic}" >"${localdir}/${dir}/${file}"
+    addr=$(printf '%s\n' "${mnemonic}" | "${mocad}" keys add "${name}" --recover --keyring-backend test --home "${localdir}/validator0" --output json 2>/dev/null | jq -r .address)
+    if [ -z "${addr}" ] || [ "${addr}" = "null" ]; then
+      echo "failed to derive the ${name} address"
+      return 1
+    fi
+    "${mocad}" tx bank send validator0 "${addr}" "${amount}amoca" --home "${localdir}/validator0" --keyring-backend test --node http://localhost:26657 --chain-id moca_5151-1 -y
+    sleep 3
+    "${mocad}" q bank balances "${addr}" --node http://localhost:26657
+  done
+}
+
 function run_go_sdk_e2e() {
+  prepare_sdk_suite_accounts
   set +e
   cd "${workspace}"/moca-go-sdk/
   echo 'run moca go sdk e2e test'
