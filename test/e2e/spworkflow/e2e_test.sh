@@ -162,10 +162,10 @@ elif new not in api_client_text:
 suite = Path("e2e/basesuite/suite.go")
 suite_text = suite.read_text()
 sp_request_host = os.environ["SP_REQUEST_HOST"]
-legacy_challenge = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t})"
-legacy_challenge_new = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
-legacy_account = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t})"
-legacy_account_new = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+legacy_challenge = "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t})"
+legacy_challenge_new = "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t\tHost:           \"" + sp_request_host + "\",\n\t})"
+legacy_account = "client.Option{\n\t\tDefaultAccount: account,\n\t})"
+legacy_account_new = "client.Option{\n\t\tDefaultAccount: account,\n\t\tHost:           \"" + sp_request_host + "\",\n\t})"
 local_option_old = """func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {\n\treturn client.Option{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t}\n}\n"""
 local_option_new = f"""func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {{\n\treturn client.Option{{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t\tHost:           \"{sp_request_host}\",\n\t}}\n}}\n"""
 
@@ -177,7 +177,7 @@ if legacy_account in updated_suite:
 if local_option_old in updated_suite:
     updated_suite = updated_suite.replace(local_option_old, local_option_new)
 
-if updated_suite == suite_text and "Host:           \\\"" + sp_request_host + "\\\"" not in suite_text:
+if updated_suite == suite_text and 'Host:           "' + sp_request_host + '"' not in suite_text:
     raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
 
 suite.write_text(updated_suite)
