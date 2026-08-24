@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo /etc/init.d/mysql start
       - name: Setup Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
           node-version: '14.x'
       - name: Install dependencies
@@ -50,12 +50,29 @@ jobs:
       # Build and Start Moca Blockchain
       - name: Build and Start Moca Blockchain
         run: |
-          bash ./test/e2e/spworkflow/e2e_test.sh --startChain
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./test/e2e/spworkflow/e2e_test.sh --startChain 2>&1 | tee .github/action-logs/sdk-e2e-start-chain.log
       # Build and Start Moca SP
       - name: Build and Start Moca SP
         run: |
-          bash ./test/e2e/spworkflow/e2e_test.sh --startSP
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./test/e2e/spworkflow/e2e_test.sh --startSP 2>&1 | tee .github/action-logs/sdk-e2e-start-sp.log
       # Run Greeenfield Go-SDK E2E Test
       - name: start e2e
         run: |
-          bash ./test/e2e/spworkflow/e2e_test.sh --runSDKE2E
+          mkdir -p .github/action-logs
+          set -o pipefail
+          bash ./test/e2e/spworkflow/e2e_test.sh --runSDKE2E 2>&1 | tee .github/action-logs/sdk-e2e-run-test.log
+      - name: Upload Go-SDK E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-e2e-diagnostics
+          if-no-files-found: ignore
+          path: |
+            .github/action-logs/
+            deployment/localup/local_env/**/log.txt
+            moca/deployment/localup/.local/**/*.log
+            moca/sp.json
