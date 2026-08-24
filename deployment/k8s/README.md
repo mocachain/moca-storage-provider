@@ -21,4 +21,6 @@ KeyFile = '/var/run/moca-sp/grpc-tls/tls.key'
 
 All fields are mandatory and invalid or missing files prevent startup. Internal gRPC requires mutual TLS 1.3 and has no plaintext fallback.
 
+Signer workloads must also configure `SignerAuth.AllowedClientURIs` with the exact URI SAN identities of workloads permitted to call `GfSpSign`. Certificate Common Names and DNS SANs do not grant signer access. Keep the allowlist limited to actual signer callers and update it together with certificate identity rotation.
+
 Clients derive the TLS server name from the configured endpoint. A workload certificate must include every Kubernetes Service DNS name used to dial that workload. For the all-in-one deployment, configure internal endpoints as `grpc:9333`; do not rely on an empty endpoint falling back to a wildcard `GRPCAddress` such as `0.0.0.0:9333`.
