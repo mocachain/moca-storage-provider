@@ -177,6 +177,15 @@ if legacy_account in updated_suite:
 if local_option_old in updated_suite:
     updated_suite = updated_suite.replace(local_option_old, local_option_new)
 
+# the 1.2.x suite hardcodes another environment's endpoint and chain id;
+# point it at the localup chain (no-ops on refs that already match)
+updated_suite = updated_suite.replace(
+    'Endpoint    = "http://localhost:26750"',
+    'Endpoint    = "http://localhost:26657"')
+updated_suite = updated_suite.replace(
+    'ChainID     = "moca_1000000-121"',
+    'ChainID     = "moca_5151-1"')
+
 if updated_suite == suite_text and 'Host:           "' + sp_request_host + '"' not in suite_text:
     raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
 
