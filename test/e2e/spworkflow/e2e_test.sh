@@ -178,13 +178,18 @@ if local_option_old in updated_suite:
     updated_suite = updated_suite.replace(local_option_old, local_option_new)
 
 # the 1.2.x suite hardcodes another environment's endpoint and chain id;
-# point it at the localup chain (no-ops on refs that already match)
+# point it at the localup chain (newer refs resolve these from env instead,
+# so only enforce the rewrite when the constant style is present)
 updated_suite = updated_suite.replace(
     'Endpoint    = "http://localhost:26750"',
     'Endpoint    = "http://localhost:26657"')
 updated_suite = updated_suite.replace(
     'ChainID     = "moca_1000000-121"',
     'ChainID     = "moca_5151-1"')
+if 'Endpoint    = "' in updated_suite and 'Endpoint    = "http://localhost:26657"' not in updated_suite:
+    raise SystemExit("failed to point e2e/basesuite/suite.go at the localup endpoint")
+if 'ChainID     = "' in updated_suite and 'ChainID     = "moca_5151-1"' not in updated_suite:
+    raise SystemExit("failed to point e2e/basesuite/suite.go at the localup chain id")
 
 # challenger_info carries the chain challenger's exported hex key (localup
 # discards its mnemonic), so let the challenge client accept either form
@@ -215,10 +220,25 @@ if migrate_test.exists():
             return ("\t\tfamily, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)\n"
                     "\t\ts.Require().NoError(ferr)\n"
                     "\t\tif bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == " + target + " {\n\t\t\tbreak\n\t\t}")
-        for target in ("destSP.GetId()", "conflictSPID", "destSP.GetId()"):
-            if wait_if not in mt:
-                raise SystemExit("failed to patch e2e_migrate_bucket_test.go wait loops")
-            mt = mt.replace(wait_if, moved_wait(target), 1)
+        # scope each rewrite to its enclosing function so upstream reordering
+        # can never wire a wait loop to the wrong migration target
+        for func_name, target in (
+            ("func (s *BucketMigrateTestSuite) waitUntilBucketMigrateFinish", "destSP.GetId()"),
+            ("func (s *BucketMigrateTestSuite) Test_Bucket_Migrate_Simple_Conflict_Case", "conflictSPID"),
+            ("func (s *BucketMigrateTestSuite) Test_Empty_Bucket_Migrate_Simple_Case", "destSP.GetId()"),
+        ):
+            start = mt.find(func_name)
+            if start == -1:
+                raise SystemExit("missing " + func_name + " in e2e_migrate_bucket_test.go")
+            end = mt.find("\nfunc ", start)
+            if end == -1:
+                end = len(mt)
+            seg = mt[start:end]
+            if seg.count(wait_if) != 1:
+                raise SystemExit("expected exactly one wait loop in " + func_name)
+            mt = mt[:start] + seg.replace(wait_if, moved_wait(target), 1) + mt[end:]
+        if wait_if in mt:
+            raise SystemExit("unexpected extra wait loop in e2e_migrate_bucket_test.go")
         if mt.count("\n\tfor {\n") != 2:
             raise SystemExit("failed to bound e2e_migrate_bucket_test.go wait loops")
         mt = mt.replace("\n\tfor {\n", "\n\tfor i := 0; i < 100; i++ {\n")
