@@ -6,11 +6,12 @@ export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 workspace=${GITHUB_WORKSPACE}
 
 # some constants
-# Keep refs override-friendly and default the whole e2e stack to main so the
-# chain, cmd and go-sdk all move in lockstep.
-MOCA_TAG="${MOCA_TAG:-main}"
-MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
-MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
+# release/1.4.x continues the 1.2.x ecosystem line, so the e2e stack pins the
+# chain to its paired release branch and cmd/go-sdk to the last 1.2.x tags
+# instead of main. Refs stay override-friendly for ad-hoc runs.
+MOCA_TAG="${MOCA_TAG:-release/v1.4.x}"
+MOCA_CMD_TAG="${MOCA_CMD_TAG:-v1.2.0-rc1}"
+MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-v1.2.0-rc1}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
@@ -161,10 +162,10 @@ elif new not in api_client_text:
 suite = Path("e2e/basesuite/suite.go")
 suite_text = suite.read_text()
 sp_request_host = os.environ["SP_REQUEST_HOST"]
-legacy_challenge = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t})"
-legacy_challenge_new = "client.Option{\\n\\t\\tDefaultAccount: challengeAcc,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
-legacy_account = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t})"
-legacy_account_new = "client.Option{\\n\\t\\tDefaultAccount: account,\\n\\t\\tHost:           \\\"" + sp_request_host + "\\\",\\n\\t})"
+legacy_challenge = "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t})"
+legacy_challenge_new = "client.Option{\n\t\tDefaultAccount: challengeAcc,\n\t\tHost:           \"" + sp_request_host + "\",\n\t})"
+legacy_account = "client.Option{\n\t\tDefaultAccount: account,\n\t})"
+legacy_account_new = "client.Option{\n\t\tDefaultAccount: account,\n\t\tHost:           \"" + sp_request_host + "\",\n\t})"
 local_option_old = """func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {\n\treturn client.Option{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t}\n}\n"""
 local_option_new = f"""func LocalE2EClientOption(account *types.Account, transport http.RoundTripper) client.Option {{\n\treturn client.Option{{\n\t\tDefaultAccount: account,\n\t\tGrpcAddress:    GRPCEndpoint,\n\t\tGrpcDialOption: grpc.WithTransportCredentials(insecure.NewCredentials()),\n\t\tTransport:      transport,\n\t\tHost:           \"{sp_request_host}\",\n\t}}\n}}\n"""
 
@@ -176,10 +177,76 @@ if legacy_account in updated_suite:
 if local_option_old in updated_suite:
     updated_suite = updated_suite.replace(local_option_old, local_option_new)
 
-if updated_suite == suite_text and "Host:           \\\"" + sp_request_host + "\\\"" not in suite_text:
+# the 1.2.x suite hardcodes another environment's endpoint and chain id;
+# point it at the localup chain (newer refs resolve these from env instead,
+# so only enforce the rewrite when the constant style is present)
+updated_suite = updated_suite.replace(
+    'Endpoint    = "http://localhost:26750"',
+    'Endpoint    = "http://localhost:26657"')
+updated_suite = updated_suite.replace(
+    'ChainID     = "moca_1000000-121"',
+    'ChainID     = "moca_5151-1"')
+if 'Endpoint    = "' in updated_suite and 'Endpoint    = "http://localhost:26657"' not in updated_suite:
+    raise SystemExit("failed to point e2e/basesuite/suite.go at the localup endpoint")
+if 'ChainID     = "' in updated_suite and 'ChainID     = "moca_5151-1"' not in updated_suite:
+    raise SystemExit("failed to point e2e/basesuite/suite.go at the localup chain id")
+
+# challenger_info carries the chain challenger's exported hex key (localup
+# discards its mnemonic), so let the challenge client accept either form
+challenge_mnemonic_old = """\tmnemonic := ParseMnemonicFromFile(fmt.Sprintf("../../moca/deployment/localup/.local/challenger%d/challenger_info", 0))\n\tchallengeAcc, err := types.NewAccountFromMnemonic("challenge_account", mnemonic)\n\ts.Require().NoError(err)\n\tpriKey, err := keys.GetPriKeyFromMnemonic(mnemonic)\n\ts.Require().NoError(err)\n"""
+challenge_mnemonic_new = """\tmnemonic := ParseMnemonicFromFile(fmt.Sprintf("../../moca/deployment/localup/.local/challenger%d/challenger_info", 0))\n\tvar challengeAcc *types.Account\n\tvar priKey string\n\tvar err error\n\tif len(mnemonic) == 64 {\n\t\tchallengeAcc, err = types.NewAccountFromPrivateKey("challenge_account", mnemonic)\n\t\ts.Require().NoError(err)\n\t\tpriKey = mnemonic\n\t} else {\n\t\tchallengeAcc, err = types.NewAccountFromMnemonic("challenge_account", mnemonic)\n\t\ts.Require().NoError(err)\n\t\tpriKey, err = keys.GetPriKeyFromMnemonic(mnemonic)\n\t\ts.Require().NoError(err)\n\t}\n"""
+if challenge_mnemonic_old in updated_suite:
+    updated_suite = updated_suite.replace(challenge_mnemonic_old, challenge_mnemonic_new, 1)
+elif 'challengeAcc, err := types.NewAccountFromMnemonic("challenge_account", mnemonic)' in updated_suite:
+    raise SystemExit("failed to patch e2e/basesuite/suite.go challenge key handling")
+
+if updated_suite == suite_text and 'Host:           "' + sp_request_host + '"' not in suite_text:
     raise SystemExit("failed to patch e2e/basesuite/suite.go host handling")
 
 suite.write_text(updated_suite)
+
+# The 1.2.x migrate suite assumes the 4+2 EC genesis (GVG spans 7 SPs) and polls
+# bucket status right after an evm broadcast that returns before the tx is mined,
+# so every wait loop breaks out before migration even starts. Size the GVG assert
+# for the localup 1+1 genesis (3 SPs) and make each poll also wait until the
+# family primary actually becomes the migration target. No-ops on newer refs.
+migrate_test = Path("e2e/e2e_migrate_bucket_test.go")
+if migrate_test.exists():
+    mt = migrate_test.read_text()
+    if "Equal(len(spIDs), 7)" in mt:
+        mt = mt.replace("Equal(len(spIDs), 7)", "Equal(len(spIDs), 3)")
+        wait_if = "\t\tif bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING {\n\t\t\tbreak\n\t\t}"
+        def moved_wait(target):
+            return ("\t\tfamily, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)\n"
+                    "\t\ts.Require().NoError(ferr)\n"
+                    "\t\tif bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == " + target + " {\n\t\t\tbreak\n\t\t}")
+        # scope each rewrite to its enclosing function so upstream reordering
+        # can never wire a wait loop to the wrong migration target
+        for func_name, target in (
+            ("func (s *BucketMigrateTestSuite) waitUntilBucketMigrateFinish", "destSP.GetId()"),
+            ("func (s *BucketMigrateTestSuite) Test_Bucket_Migrate_Simple_Conflict_Case", "conflictSPID"),
+            ("func (s *BucketMigrateTestSuite) Test_Empty_Bucket_Migrate_Simple_Case", "destSP.GetId()"),
+        ):
+            start = mt.find(func_name)
+            if start == -1:
+                raise SystemExit("missing " + func_name + " in e2e_migrate_bucket_test.go")
+            end = mt.find("\nfunc ", start)
+            if end == -1:
+                end = len(mt)
+            seg = mt[start:end]
+            if seg.count(wait_if) != 1:
+                raise SystemExit("expected exactly one wait loop in " + func_name)
+            mt = mt[:start] + seg.replace(wait_if, moved_wait(target), 1) + mt[end:]
+        if wait_if in mt:
+            raise SystemExit("unexpected extra wait loop in e2e_migrate_bucket_test.go")
+        if mt.count("\n\tfor {\n") != 2:
+            raise SystemExit("failed to bound e2e_migrate_bucket_test.go wait loops")
+        mt = mt.replace("\n\tfor {\n", "\n\tfor i := 0; i < 100; i++ {\n")
+        # 1+1 EC keeps redundancy indexes -1..1; the 4+2-era challenge probe walks to 5
+        if "for j := -1; j < 6; j++ {" not in mt:
+            raise SystemExit("failed to patch e2e_migrate_bucket_test.go challenge range")
+        mt = mt.replace("for j := -1; j < 6; j++ {", "for j := -1; j < 2; j++ {")
+        migrate_test.write_text(mt)
 PY
 
   cd "${workspace}"
@@ -241,7 +308,10 @@ function moca_chain() {
 function transfer_account() {
   set -e
   cd "${workspace}"/moca/
-  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 -y
+  # the release-line mocad home has no client.toml chain-id default, so pass it
+  # explicitly; the chain also enforces a fixed per-msg global fee, so a send
+  # without --fees is rejected at CheckTx with "insufficient fee"
+  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 --chain-id moca_5151-1 --fees 200000000000000amoca -y
   sleep 2
   ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657
 }
@@ -477,7 +547,56 @@ function run_sp_exit_e2e() {
 ###################
 # run go-sdk e2e #
 ###################
+# The 1.2.x go-sdk suite reads its accounts as mnemonics from
+# .local/validator0/info and .local/challenger0/challenger_info (last
+# non-empty line of each). The release-line chain imports its validator
+# keys from preset raw private keys, so those mnemonic files never exist.
+# Mint a fresh mnemonic per file, write it where the suite looks, and fund
+# the derived address from validator0 so the suite's default account can
+# pay for its buckets and migrations.
+function prepare_sdk_suite_accounts() {
+  set -e
+  local mocad="${workspace}/moca/build/mocad"
+  local localdir="${workspace}/moca/deployment/localup/.local"
+  local spec dir file name amount mnemonic addr
+
+  for spec in "validator0:info:sdk-e2e-default:100000000000000000000000"; do
+    IFS=':' read -r dir file name amount <<<"${spec}"
+    mnemonic=$("${mocad}" keys mnemonic 2>/dev/null)
+    if [ -z "${mnemonic}" ]; then
+      echo "failed to generate a mnemonic for ${name}"
+      return 1
+    fi
+    mkdir -p "${localdir}/${dir}"
+    printf '%s\n' "${mnemonic}" >"${localdir}/${dir}/${file}"
+    addr=$(printf '%s\n' "${mnemonic}" | "${mocad}" keys add "${name}" --recover --keyring-backend test --home "${localdir}/validator0" --output json 2>/dev/null | jq -r .address)
+    if [ -z "${addr}" ] || [ "${addr}" = "null" ]; then
+      echo "failed to derive the ${name} address"
+      return 1
+    fi
+    "${mocad}" tx bank send validator0 "${addr}" "${amount}amoca" --home "${localdir}/validator0" --keyring-backend test --node http://localhost:26657 --chain-id moca_5151-1 --fees 200000000000000amoca -y
+    sleep 5
+    "${mocad}" q bank balances "${addr}" --node http://localhost:26657
+    if [ "$("${mocad}" q bank balances "${addr}" --node http://localhost:26657 --output json | jq -r '.balances | length')" = "0" ]; then
+      echo "funding ${name} (${addr}) did not land"
+      return 1
+    fi
+  done
+
+  # the SP authenticates challenge requests against the bonded validator's
+  # challenger address, so hand the suite the chain's actual challenger key
+  # (exported as hex; the patched suite accepts either form)
+  local challenger_key
+  challenger_key=$(printf 'y\n' | "${mocad}" keys unsafe-export-eth-key challenger0 --keyring-backend test --home "${localdir}/challenger0" 2>/dev/null | tail -1)
+  if [ "${#challenger_key}" != "64" ]; then
+    echo "failed to export the challenger0 key"
+    return 1
+  fi
+  printf '%s\n' "${challenger_key}" >"${localdir}/challenger0/challenger_info"
+}
+
 function run_go_sdk_e2e() {
+  prepare_sdk_suite_accounts
   set +e
   cd "${workspace}"/moca-go-sdk/
   echo 'run moca go sdk e2e test'
