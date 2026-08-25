@@ -58,6 +58,11 @@ func (g *GateModular) notifyMigrateSwapOutHandler(w http.ResponseWriter, r *http
 		err = ErrDecodeMsg
 		return
 	}
+	if err = g.checkSwapOutApproval(reqCtx.Context(), &swapOut); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refuse to accept migrate swap out notify",
+			"swap_out", swapOut.String(), "error", err)
+		return
+	}
 	if err = g.baseApp.GfSpClient().NotifyMigrateSwapOut(reqCtx.Context(), &swapOut); err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to notify migrate swap out", "swap_out", swapOut, "error", err)
 		err = ErrNotifySwapOutWithDetail("failed to notify migrate swap out, swap_out: " + swapOut.String() + ",error: " + err.Error())

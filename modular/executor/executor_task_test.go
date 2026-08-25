@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -564,6 +565,24 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 			},
 		},
 		{
+			name: "skips deletion when object still exists on chain",
+			task: &gfsptask.GfSpGCObjectTask{Task: &gfsptask.GfSpTask{}},
+			fn: func() *ExecuteModular {
+				e := setup(t)
+				ctrl := gomock.NewController(t)
+				objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}
+				client := gfspclient.NewMockGfSpClientAPI(ctrl)
+				client.EXPECT().ListDeletedObjectsByBlockNumberRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]*metadatatypes.Object{{ObjectInfo: objectInfo}}, uint64(0), nil)
+				client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil)
+				e.baseApp.SetGfSpClient(client)
+				chain := consensus.NewMockConsensus(ctrl)
+				chain.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil)
+				chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(objectInfo, nil)
+				e.baseApp.SetConsensus(chain)
+				return e
+			},
+		},
+		{
 			name: "failed to get bucket by bucket name",
 			task: &gfsptask.GfSpGCObjectTask{
 				Task:               &gfsptask.GfSpTask{},
@@ -586,6 +605,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
@@ -623,6 +643,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
@@ -662,6 +683,42 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 			},
 		},
 		{
+			name: "skips ec deletion when secondary list is empty",
+			task: &gfsptask.GfSpGCObjectTask{
+				Task:               &gfsptask.GfSpTask{},
+				CurrentBlockNumber: 0,
+			},
+			fn: func() *ExecuteModular {
+				e := setup(t)
+				ctrl := gomock.NewController(t)
+				objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}
+				client := gfspclient.NewMockGfSpClientAPI(ctrl)
+				client.EXPECT().ListDeletedObjectsByBlockNumberRange(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+					gomock.Any()).Return([]*metadatatypes.Object{{ObjectInfo: objectInfo}}, uint64(0), nil).Times(1)
+				client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+				client.EXPECT().GetBucketInfoByBucketName(gomock.Any(), gomock.Any()).Return(&metadatatypes.Bucket{
+					BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
+				}, nil).Times(1)
+				client.EXPECT().GetGlobalVirtualGroup(gomock.Any(), gomock.Any(), gomock.Any()).Return(
+					&virtual_types.GlobalVirtualGroup{}, nil).Times(1)
+				e.baseApp.SetGfSpClient(client)
+
+				chain := consensus.NewMockConsensus(ctrl)
+				chain.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
+				e.baseApp.SetConsensus(chain)
+
+				pieceStore := piecestore.NewMockPieceStore(ctrl)
+				pieceStore.EXPECT().DeletePiecesByPrefix(gomock.Any(), "s1_").Return(uint64(0), nil).Times(1)
+				e.baseApp.SetPieceStore(pieceStore)
+
+				db := corespdb.NewMockSPDB(ctrl)
+				db.EXPECT().DeleteObjectIntegrity(uint64(1), int32(piecestore.PrimarySPRedundancyIndex)).Return(nil).Times(1)
+				e.baseApp.SetGfSpDB(db)
+				return e
+			},
+		},
+		{
 			name: "succeed to gc an object",
 			task: &gfsptask.GfSpGCObjectTask{
 				Task:               &gfsptask.GfSpTask{},
@@ -689,6 +746,7 @@ func TestExecuteModular_HandleGCObjectTask(t *testing.T) {
 
 				m1 := consensus.NewMockConsensus(ctrl)
 				m1.EXPECT().QuerySP(gomock.Any(), gomock.Any()).Return(&sptypes.StorageProvider{Id: 1}, nil).Times(1)
+				m1.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, errors.New("No such object")).Times(1)
 				e.baseApp.SetConsensus(m1)
 
 				m2 := piecestore.NewMockPieceOp(ctrl)
@@ -1030,6 +1088,40 @@ func TestExecuteModular_recoverByPrimarySPSuccess(t *testing.T) {
 	}
 	err := e.recoverByPrimarySP(context.TODO(), task)
 	assert.Nil(t, err)
+}
+
+func TestExecuteModular_recoverByPrimarySPRejectsInvalidSuccessorChecksum(t *testing.T) {
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	client.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), true).Return(&metadatatypes.VGFInfoBucket{
+		BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
+	}, nil, nil).Times(1)
+	client.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
+	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "endpoint", gomock.Any()).Return(
+		io.NopCloser(strings.NewReader("body")), nil).Times(1)
+	e.baseApp.SetGfSpClient(client)
+
+	con := consensus.NewMockConsensus(ctrl)
+	con.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtual_types.GlobalVirtualGroupFamily{PrimarySpId: 1}, nil).Times(1)
+	con.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{{Id: 1, Endpoint: "endpoint"}}, nil).Times(1)
+	e.baseApp.SetConsensus(con)
+
+	db := corespdb.NewMockSPDB(ctrl)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&corespdb.IntegrityMeta{
+		PieceChecksumList: [][]byte{[]byte("invalid-checksum")},
+	}, nil).Times(1)
+	e.baseApp.SetGfSpDB(db)
+
+	task := &gfsptask.GfSpRecoverPieceTask{
+		Task:       &gfsptask.GfSpTask{},
+		ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+	}
+	task.SetBySuccessorSP(true)
+
+	err := e.recoverByPrimarySP(context.TODO(), task)
+	assert.ErrorIs(t, err, ErrRecoveryPieceChecksum)
 }
 
 func TestExecuteModular_recoverBySecondarySPFailure1(t *testing.T) {
