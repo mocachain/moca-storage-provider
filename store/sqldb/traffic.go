@@ -184,7 +184,7 @@ func (s *SpDBImpl) InitBucketTraffic(record *corespdb.ReadRecord, quota *corespd
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var insertBucketTraffic *BucketTrafficTable
 		var bucketTraffic BucketTrafficTable
-		result := s.db.Where("bucket_id = ?", bucketID).First(&bucketTraffic)
+		result := tx.Where("bucket_id = ?", bucketID).First(&bucketTraffic)
 		if result.Error != nil {
 			if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 				return result.Error
@@ -207,7 +207,7 @@ func (s *SpDBImpl) InitBucketTraffic(record *corespdb.ReadRecord, quota *corespd
 			// If the record of this bucket id already exist, then read the record of the newest month
 			// and use the free quota consumed of this record to init free quota item
 			var newestTraffic BucketTrafficTable
-			queryErr := s.db.Where("bucket_id = ?", bucketID).Order("month DESC").Limit(1).Find(&newestTraffic).Error
+			queryErr := tx.Where("bucket_id = ?", bucketID).Order("month DESC").Limit(1).Find(&newestTraffic).Error
 			if queryErr != nil {
 				return queryErr
 			}
@@ -374,6 +374,8 @@ func (s *SpDBImpl) UpdateExtraQuota(bucketID, extraQuota uint64, yearMonth strin
 				// the new month will init by the newest old month record.
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					extraUpdateOnNextMonth = false
+				} else {
+					return fmt.Errorf("failed to query current month bucket traffic: %v", err)
 				}
 			} else {
 				extraUpdateOnNextMonth = true
