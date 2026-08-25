@@ -86,14 +86,17 @@ func (s *SpDBImpl) CheckQuotaAndAddReadRecord(record *corespdb.ReadRecord, quota
 // it returns the updated consumed free quota,consumed charged quota and remained free quota
 func getUpdatedConsumedQuotaV2(recordQuotaCost, freeQuotaRemain, consumeFreeQuota, consumeChargedQuota, chargedQuota, monthlyFreeQuotaRemain, consumeMonthlyFreeQuota uint64) (uint64, uint64, uint64, uint64, uint64, error) {
 	log.Debugw("quota info", "freeQuotaRemain", freeQuotaRemain, "consumeFreeQuota", consumeFreeQuota, "consumeChargedQuota", consumeChargedQuota, "chargedQuota", chargedQuota, "monthlyFreeQuotaRemain", monthlyFreeQuotaRemain, "consumeMonthlyFreeQuota", consumeMonthlyFreeQuota)
-	chargedQuotaInt := int64(chargedQuota) - int64(consumeChargedQuota)
-	if chargedQuotaInt >= int64(recordQuotaCost) {
+	chargedQuotaRemain := uint64(0)
+	if chargedQuota > consumeChargedQuota {
+		chargedQuotaRemain = chargedQuota - consumeChargedQuota
+	}
+	if chargedQuotaRemain >= recordQuotaCost {
 		consumeChargedQuota += recordQuotaCost
 		return consumeFreeQuota, consumeChargedQuota, consumeMonthlyFreeQuota, freeQuotaRemain, monthlyFreeQuotaRemain, nil
 	}
-	if chargedQuotaInt > 0 {
-		consumeChargedQuota += uint64(chargedQuotaInt)
-		recordQuotaCost -= uint64(chargedQuotaInt)
+	if chargedQuotaRemain > 0 {
+		consumeChargedQuota += chargedQuotaRemain
+		recordQuotaCost -= chargedQuotaRemain
 	}
 
 	if monthlyFreeQuotaRemain >= recordQuotaCost {
