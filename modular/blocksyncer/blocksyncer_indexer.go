@@ -190,36 +190,19 @@ func (i *Impl) Process(height uint64) error {
 	log.Infof("height :%d tx count:%d sql count:%d", height, txCount, sqlCount)
 	metrics.BlocksyncerLogicTime.Set(float64(time.Since(startTime).Milliseconds()))
 
-	step := 0
 	dbStartTime := time.Now()
-	for step < sqlCount {
-		finalSQL := ""
-		finalVal := make([]interface{}, 0)
-		left := step
-		right := step + int(i.CommitNumber)
-		if right > sqlCount {
-			right = sqlCount
-		}
-		for _, m := range allSQL[left:right] {
-			for k, v := range m {
-				finalSQL += fmt.Sprintf("%s;   ", k)
-				finalVal = append(finalVal, v...)
-			}
-		}
-		tx := i.DB.Begin(context.TODO())
-		if txErr := tx.Db.Session(&gorm.Session{DryRun: false}).Exec(finalSQL, finalVal...).Error; txErr != nil {
-			log.Errorw("failed to exec sql", "error", txErr)
-			tx.Rollback()
-			return txErr
-		}
-
-		if txErr := tx.Commit(); txErr != nil {
-			log.Errorw("failed to commit db", "error", txErr)
-			return txErr
-		}
-		step = right
-		log.Infof("%d - %d commit", left, right)
+	finalSQL, finalVal := flattenSQL(allSQL)
+	tx := i.DB.Begin(context.TODO())
+	if txErr := tx.Db.Session(&gorm.Session{DryRun: false}).Exec(finalSQL, finalVal...).Error; txErr != nil {
+		log.Errorw("failed to exec sql", "error", txErr)
+		tx.Rollback()
+		return txErr
 	}
+	if txErr := tx.Commit(); txErr != nil {
+		log.Errorw("failed to commit db", "error", txErr)
+		return txErr
+	}
+	log.Infof("all %d statements committed", sqlCount)
 
 	metrics.BlocksyncerWriteDBTime.Set(float64(time.Since(dbStartTime).Milliseconds()))
 	log.Infof("height :%d tx count:%d sql count:%d", height, txCount, sqlCount)
@@ -246,6 +229,18 @@ func (i *Impl) Process(height uint64) error {
 	}
 
 	return nil
+}
+
+func flattenSQL(allSQL []map[string][]interface{}) (string, []interface{}) {
+	finalSQL := ""
+	finalVal := make([]interface{}, 0)
+	for _, statements := range allSQL {
+		for statement, values := range statements {
+			finalSQL += fmt.Sprintf("%s;   ", statement)
+			finalVal = append(finalVal, values...)
+		}
+	}
+	return finalSQL, finalVal
 }
 
 // SaveEpoch accept a block result data and persist basic info into db to record current sync progress
