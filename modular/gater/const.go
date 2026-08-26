@@ -323,6 +323,8 @@ const (
 	UniversalEndpointSpecialSuffixQuery = "objectPath"
 	// objectSpecialSuffixUrlReplacement defines the replacement part for universal endpoint object url with special suffix
 	objectSpecialSuffixUrlReplacement = "?" + UniversalEndpointSpecialSuffixQuery + "="
+	// HealthCheckPath defines the public path for load balancer health checks
+	HealthCheckPath = "/health_check"
 	// StatusPath defines the path for sp status
 	StatusPath = "/status"
 )

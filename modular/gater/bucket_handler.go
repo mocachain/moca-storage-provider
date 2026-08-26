@@ -1,13 +1,13 @@
 package gater
 
 import (
-	"context"
 	"encoding/xml"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
@@ -26,13 +26,17 @@ import (
 func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err                                                                  error
+		reqCtx                                                               *RequestContext
 		bucketInfo                                                           *storagetypes.BucketInfo
 		charge, free, consume, free_consume, monthlyFree, monthlyFreeConsume uint64
 		bucketSPID                                                           uint32
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to get bucket read quota", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -42,7 +46,13 @@ func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.R
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	yearMonth := vars["year_month"]
@@ -116,6 +126,7 @@ func (g *GateModular) getBucketReadQuotaHandler(w http.ResponseWriter, r *http.R
 func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err              error
+		reqCtx           *RequestContext
 		startTimestampUs int64
 		endTimestampUs   int64
 		maxRecordNum     int64
@@ -124,7 +135,10 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to list bucket read record", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -134,7 +148,13 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 
@@ -156,6 +176,14 @@ func (g *GateModular) listBucketReadRecordHandler(w http.ResponseWriter, r *http
 		log.CtxErrorw(ctx, "sp operator address mismatch", "actual_sp_id", spID,
 			"expected_sp_id", bucketSPID)
 		err = ErrMismatchSp
+		return
+	}
+	// a read record names the account that downloaded the object and when, so the
+	// list is only served to the account that owns the bucket
+	if common.HexToAddress(bucketInfo.GetOwner()) != common.HexToAddress(reqCtx.Account()) {
+		log.CtxErrorw(ctx, "refused to list read records of a bucket the caller does not own",
+			"bucket_name", bucketName)
+		err = ErrNoPermission
 		return
 	}
 
@@ -324,12 +352,16 @@ func (g *GateModular) queryBucketMigrationProgressHandler(w http.ResponseWriter,
 func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err           error
+		reqCtx        *RequestContext
 		offset, limit uint64
 		result        []*metadatatypes.BucketReadQuotaRecord
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to list bucket read quota", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -339,7 +371,13 @@ func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 	offsetStr := queryParams.Get("offset")
@@ -396,12 +434,16 @@ func (g *GateModular) listBucketReadQuotaHandler(w http.ResponseWriter, r *http.
 // getBucketReadQuotaCountHandler handles the get bucket read quota count request.
 func (g *GateModular) getBucketReadQuotaCountHandler(w http.ResponseWriter, r *http.Request) {
 	var (
-		err   error
-		count int64
+		err    error
+		reqCtx *RequestContext
+		count  int64
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
+			reqCtx.SetError(gfsperrors.MakeGfSpError(err))
+			log.CtxErrorw(reqCtx.Context(), "failed to get bucket read quota count", "req_info", reqCtx.String())
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
 			metrics.ReqTime.WithLabelValues(GatewayTotalFailure).Observe(time.Since(startTime).Seconds())
@@ -411,7 +453,13 @@ func (g *GateModular) getBucketReadQuotaCountHandler(w http.ResponseWriter, r *h
 		}
 	}()
 
-	ctx := context.Background()
+	// the request has to carry a verified signature; taking a fresh background
+	// context here skipped that entirely
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+	ctx := reqCtx.Context()
 	queryParams := r.URL.Query()
 	yearMonth := queryParams.Get("year_month")
 

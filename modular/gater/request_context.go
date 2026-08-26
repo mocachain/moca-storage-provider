@@ -43,9 +43,9 @@ type RequestContext struct {
 var skipAuthRouterNames = []string{
 	requestNonceRouterName,
 	updateUserPublicKeyRouterName, // this will skip general auth algorithms first and use specific "personal sign" later
+	healthCheckRouterName,
 	downloadObjectByUniversalEndpointName,
 	viewObjectByUniversalEndpointName,
-	listObjectsByBucketRouterName,
 	getObjectMetaRouterName,
 	getBucketMetaRouterName,
 	listBucketsByIDsRouterName,

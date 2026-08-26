@@ -1,9 +1,12 @@
 package gater
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +56,11 @@ func (g *GateModular) notifyMigrateSwapOutHandler(w http.ResponseWriter, r *http
 	if err = json.Unmarshal(swapOutMsg, &swapOut); err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to unmarshal migrate swap out msg", "error", err)
 		err = ErrDecodeMsg
+		return
+	}
+	if err = g.checkSwapOutApproval(reqCtx.Context(), &swapOut); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refuse to accept migrate swap out notify",
+			"swap_out", swapOut.String(), "error", err)
 		return
 	}
 	if err = g.baseApp.GfSpClient().NotifyMigrateSwapOut(reqCtx.Context(), &swapOut); err != nil {
@@ -264,6 +272,110 @@ func (g *GateModular) migratePieceHandler(w http.ResponseWriter, r *http.Request
 		segmentIdx, "redundancy_index", redundancyIdx)
 }
 
+// checkSecondaryBlsMigrationBucketApproval checks that the requested bls attestation
+// matches the on-chain bucket migration this SP is a destination secondary SP of.
+// The request itself carries no caller identity, so the sign doc is only signed when
+// the chain confirms every claim it makes.
+func (g *GateModular) checkSecondaryBlsMigrationBucketApproval(ctx context.Context, signDoc *storagetypes.SecondarySpMigrationBucketSignDoc) error {
+	if signDoc.GetChainId() != g.baseApp.ChainID() {
+		log.CtxErrorw(ctx, "chain id mismatch", "expected", g.baseApp.ChainID(), "actual", signDoc.GetChainId())
+		return ErrValidateMsg
+	}
+	// a sign doc without a bucket id unmarshals into a nil Uint, every method on it panics
+	if signDoc.BucketId.IsNil() {
+		log.CtxError(ctx, "sign doc carries no bucket id")
+		return ErrValidateMsg
+	}
+	spID, err := g.getSPID()
+	if err != nil {
+		return ErrConsensusWithDetail("failed to query sp id, error: " + err.Error())
+	}
+	dstGVG, err := g.baseApp.Consensus().QueryGlobalVirtualGroup(ctx, signDoc.GetDstGlobalVirtualGroupId())
+	if err != nil {
+		return ErrConsensusWithDetail("failed to query dst gvg, gvg_id: " +
+			fmt.Sprint(signDoc.GetDstGlobalVirtualGroupId()) + ", error: " + err.Error())
+	}
+	// this SP only attests migrations into a gvg it is a secondary SP of
+	if !slices.Contains(dstGVG.GetSecondarySpIds(), spID) {
+		log.CtxErrorw(ctx, "sp is not a secondary sp of the dst gvg", "dst_gvg", dstGVG, "sp_id", spID)
+		return ErrNoPermission
+	}
+	// and the dst gvg must belong to the destination primary SP named in the sign doc
+	if dstGVG.GetPrimarySpId() != signDoc.GetDstPrimarySpId() {
+		log.CtxErrorw(ctx, "dst gvg primary sp mismatch", "dst_gvg", dstGVG,
+			"dst_primary_sp_id", signDoc.GetDstPrimarySpId())
+		return ErrNoPermission
+	}
+	// the bucket must be migrating to that destination SP
+	effect, err := g.baseApp.GfSpClient().VerifyMigrateGVGPermission(ctx, signDoc.BucketId.Uint64(),
+		signDoc.GetSrcGlobalVirtualGroupId(), signDoc.GetDstPrimarySpId())
+	if err != nil {
+		return ErrConsensusWithDetail("failed to verify migrate gvg permission, bucket_id: " +
+			signDoc.BucketId.String() + ", error: " + err.Error())
+	}
+	if effect == nil || *effect != permissiontypes.EFFECT_ALLOW {
+		log.CtxErrorw(ctx, "no permission to attest the bucket migration", "sign_doc", signDoc.String(), "effect", effect)
+		return ErrNoPermission
+	}
+	return nil
+}
+
+// checkSwapOutApproval checks that this SP is the successor named in the swap out and
+// that the requesting SP is really leaving the family or the gvgs it claims, before the
+// approval key signs the message.
+func (g *GateModular) checkSwapOutApproval(ctx context.Context, swapOut *virtualgrouptypes.MsgSwapOut) error {
+	spID, err := g.getSPID()
+	if err != nil {
+		return ErrConsensusWithDetail("failed to query sp id, error: " + err.Error())
+	}
+	if swapOut.GetSuccessorSpId() != spID {
+		log.CtxErrorw(ctx, "swap out successor is another sp", "successor_sp_id", swapOut.GetSuccessorSpId(), "sp_id", spID)
+		return ErrNoPermission
+	}
+	// query the chain directly instead of the sp cache pool, the decision depends on
+	// the sp status and the cache pool serves entries up to 30 minutes old
+	srcSP, err := g.baseApp.Consensus().QuerySP(ctx, swapOut.GetStorageProvider())
+	if err != nil {
+		return ErrConsensusWithDetail("failed to query the swap out sp, sp: " +
+			swapOut.GetStorageProvider() + ", error: " + err.Error())
+	}
+	if srcSP.GetStatus() != sptypes.STATUS_GRACEFUL_EXITING && srcSP.GetStatus() != sptypes.STATUS_FORCED_EXITING {
+		log.CtxErrorw(ctx, "swap out sp is not exiting", "sp", srcSP.GetOperatorAddress(), "status", srcSP.GetStatus())
+		return ErrNoPermission
+	}
+	if familyID := swapOut.GetGlobalVirtualGroupFamilyId(); familyID != virtualgrouptypes.NoSpecifiedFamilyID {
+		// swap out as the primary SP of the family
+		family, familyErr := g.baseApp.Consensus().QueryVirtualGroupFamily(ctx, familyID)
+		if familyErr != nil {
+			return ErrConsensusWithDetail("failed to query virtual group family, family_id: " +
+				fmt.Sprint(familyID) + ", error: " + familyErr.Error())
+		}
+		if family.GetPrimarySpId() != srcSP.GetId() {
+			log.CtxErrorw(ctx, "swap out family does not belong to the requesting sp", "family", family,
+				"sp_id", srcSP.GetId())
+			return ErrNoPermission
+		}
+		return nil
+	}
+	// swap out as a secondary SP of the listed gvgs
+	if len(swapOut.GetGlobalVirtualGroupIds()) == 0 {
+		log.CtxError(ctx, "swap out has neither a family nor gvg ids")
+		return ErrValidateMsg
+	}
+	for _, gvgID := range swapOut.GetGlobalVirtualGroupIds() {
+		gvg, gvgErr := g.baseApp.Consensus().QueryGlobalVirtualGroup(ctx, gvgID)
+		if gvgErr != nil {
+			return ErrConsensusWithDetail("failed to query gvg, gvg_id: " + fmt.Sprint(gvgID) +
+				", error: " + gvgErr.Error())
+		}
+		if !slices.Contains(gvg.GetSecondarySpIds(), srcSP.GetId()) {
+			log.CtxErrorw(ctx, "swap out gvg does not contain the requesting sp", "gvg", gvg, "sp_id", srcSP.GetId())
+			return ErrNoPermission
+		}
+	}
+	return nil
+}
+
 // getSecondaryBlsMigrationBucketApprovalHandler handles the bucket migration approval request for secondarySP using bls
 func (g *GateModular) getSecondaryBlsMigrationBucketApprovalHandler(w http.ResponseWriter, r *http.Request) {
 	var (
@@ -296,6 +408,11 @@ func (g *GateModular) getSecondaryBlsMigrationBucketApprovalHandler(w http.Respo
 	if err = storagetypes.ModuleCdc.UnmarshalJSON(migrationBucketApprovalMsg, signDoc); err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to unmarshal migration bucket approval msg", "error", err)
 		err = ErrDecodeMsg
+		return
+	}
+	if err = g.checkSecondaryBlsMigrationBucketApproval(reqCtx.Context(), signDoc); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refuse to sign secondary sp migration bucket approval",
+			"sign_doc", signDoc.String(), "error", err)
 		return
 	}
 	signature, err := g.baseApp.GfSpClient().SignSecondarySPMigrationBucket(reqCtx.Context(), signDoc)
@@ -350,7 +467,13 @@ func (g *GateModular) getSwapOutApproval(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Infow("get swap out approval", "msg", swapOutApproval)
+	if err = g.checkSwapOutApproval(reqCtx.Context(), swapOutApproval); err != nil {
+		log.CtxErrorw(reqCtx.Context(), "refuse to sign swap out approval",
+			"swap_out", swapOutApproval.String(), "error", err)
+		return
+	}
+
+	log.CtxInfow(reqCtx.Context(), "get swap out approval", "swap_out", swapOutApproval.String())
 	signature, err := g.baseApp.GfSpClient().SignSwapOut(reqCtx.Context(), swapOutApproval)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to sign swap out", "error", err)
