@@ -36,7 +36,7 @@ type Metadata interface {
 	// GetGroupsByGroupIDAndAccount get groups info by group id list and account id
 	GetGroupsByGroupIDAndAccount(groupIDList []common.Hash, account common.Address, includeRemoved bool) ([]*Group, error)
 	// ListObjectsByBucketName list objects info by a bucket name
-	ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved bool) ([]*ListObjectsResult, error)
+	ListObjectsByBucketName(bucketName, continuationToken, prefix, delimiter string, maxKeys int, includeRemoved, includePrivate bool) ([]*ListObjectsResult, error)
 	// ListDeletedObjectsByBlockNumberRange list deleted objects info by a block number range
 	ListDeletedObjectsByBlockNumberRange(startBlockNumber uint64, endBlockNumber uint64, includePrivate bool) ([]*Object, error)
 	// ListExpiredBucketsBySp list expired buckets by sp

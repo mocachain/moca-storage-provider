@@ -254,7 +254,9 @@ func (g *GateModular) listObjectsByBucketNameHandler(w http.ResponseWriter, r *h
 		err := g.baseApp.GfSpClient().ListObjectsByBucketName(
 		reqCtx.Context(),
 		requestBucketName,
-		"",
+		// the authenticated caller decides whether the private objects of the
+		// bucket are part of the listing
+		reqCtx.Account(),
 		maxKeys,
 		requestStartAfter,
 		continuationToken,
