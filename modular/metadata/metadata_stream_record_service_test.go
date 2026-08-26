@@ -91,6 +91,7 @@ func TestGfSpSecondarySpIncomeDetails_Success(t *testing.T) {
 			}}, nil
 		},
 	).Times(1)
+	m.EXPECT().ListGvgBySecondarySpID(uint32(1)).Return([]*bsdb.GlobalVirtualGroup{{GlobalVirtualGroupId: 4, SecondarySpIds: []uint32{1, 2}}}, nil)
 	a.baseApp.SetGfBsDB(m)
 	resp, err := a.GfSpSecondarySpIncomeDetails(context.Background(), &types.GfSpSecondarySpIncomeDetailsRequest{
 		SpId: 1,
