@@ -59,6 +59,15 @@ func (r *MetadataModular) GfSpSecondarySpIncomeDetails(ctx context.Context, req 
 		log.CtxErrorw(ctx, "failed to get secondary Sp Income Details", "error", err)
 		return nil, err
 	}
+	gvgList, err := r.baseApp.GfBsDB().ListGvgBySecondarySpID(req.GetSpId())
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to get secondary SP GVGs", "error", err)
+		return nil, err
+	}
+	secondaryCountByGVG := make(map[uint32]int, len(gvgList))
+	for _, gvg := range gvgList {
+		secondaryCountByGVG[gvg.GlobalVirtualGroupId] = len(gvg.SecondarySpIds)
+	}
 	resp.CurrentTimestamp = currentTimestampInSec
 	secondarySpIncomeDetails := make([]*types.SecondarySpIncomeDetail, len(secondarySpIncomeMetaList))
 	for i, secondarySpIncomeMeta := range secondarySpIncomeMetaList {
@@ -75,10 +84,14 @@ func (r *MetadataModular) GfSpSecondarySpIncomeDetails(ctx context.Context, req 
 			FrozenNetflowRate: math.NewIntFromBigInt(secondarySpIncomeMeta.FrozenNetflowRate.Raw()),
 		}
 
+		secondaryCount := secondaryCountByGVG[secondarySpIncomeMeta.GlobalVirtualGroupId]
+		if secondaryCount == 0 {
+			secondaryCount = 1
+		}
 		secondarySpIncomeDetails[i] = &types.SecondarySpIncomeDetail{
 			GvgId:        secondarySpIncomeMeta.GlobalVirtualGroupId,
 			StreamRecord: streamRecord,
-			Income:       streamRecord.NetflowRate.Mul(math.NewInt(currentTimestampInSec - streamRecord.CrudTimestamp)).Add(streamRecord.StaticBalance).Quo(math.NewInt(int64(6))),
+			Income:       streamRecord.NetflowRate.Mul(math.NewInt(currentTimestampInSec - streamRecord.CrudTimestamp)).Add(streamRecord.StaticBalance).Quo(math.NewInt(int64(secondaryCount))),
 		}
 	}
 	// sort by Income desc
