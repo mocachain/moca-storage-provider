@@ -14,6 +14,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
+	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
+	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
+	"github.com/mocachain/moca-storage-provider/pkg/metrics"
+	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/evmos/evmos/v12/types/resource"
 	resource_types "github.com/evmos/evmos/v12/types/resource"
 	"github.com/evmos/evmos/v12/types/s3util"
@@ -22,12 +28,6 @@ import (
 	sp_types "github.com/evmos/evmos/v12/x/sp/types"
 	storage_types "github.com/evmos/evmos/v12/x/storage/types"
 	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
-	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
-	modelgateway "github.com/mocachain/moca-storage-provider/model/gateway"
-	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	"github.com/mocachain/moca-storage-provider/pkg/log"
-	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	"github.com/mocachain/moca-storage-provider/util"
 )
 
 const (
@@ -333,7 +333,7 @@ func (g *GateModular) getObjectMetaHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resp, err := g.baseApp.GfSpClient().GetObjectMeta(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, true)
+	resp, err := g.baseApp.GfSpClient().GetObjectMeta(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, false)
 	if err != nil {
 		log.Errorf("failed to get object meta", "error", err)
 
@@ -385,7 +385,7 @@ func (g *GateModular) getBucketMetaHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	bucket, streamRecord, err := g.baseApp.GfSpClient().GetBucketMeta(reqCtx.Context(), reqCtx.bucketName, true)
+	bucket, streamRecord, err := g.baseApp.GfSpClient().GetBucketMeta(reqCtx.Context(), reqCtx.bucketName, false)
 	if err != nil {
 		log.Errorf("failed to get bucket metadata", "error", err)
 		return
@@ -2158,7 +2158,6 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-// getStatusHandler get status info for the current SP
 func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -2540,6 +2539,10 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if err = g.checkObjectPolicyReader(reqCtx); err != nil {
+		return
+	}
+
 	policies, err = g.baseApp.GfSpClient().ListObjectPolicies(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, startAfter, actionType, limit)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to list policies by object info", "error", err)
@@ -2556,6 +2559,32 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 
 	w.Header().Set(ContentTypeHeader, ContentTypeXMLHeaderValue)
 	w.Write(respBytes)
+}
+
+// checkObjectPolicyReader reports whether the caller may read the policy list of an
+// object. The list names every principal granted access to the object, so it is
+// administrative data of that object and is served to the accounts that administer it:
+// the object owner, the object creator and the owner of the bucket it lives in.
+func (g *GateModular) checkObjectPolicyReader(reqCtx *RequestContext) error {
+	bucketInfo, objectInfo, err := g.baseApp.Consensus().QueryBucketInfoAndObjectInfo(
+		reqCtx.Context(), reqCtx.bucketName, reqCtx.objectName)
+	if err != nil {
+		log.CtxErrorw(reqCtx.Context(), "failed to get bucket and object info from consensus",
+			"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName, "error", err)
+		return ErrConsensusWithDetail("failed to get bucket and object info from consensus, error: " + err.Error())
+	}
+	if objectInfo == nil {
+		return ErrNoSuchObject
+	}
+	caller := common.HexToAddress(reqCtx.Account())
+	if caller == common.HexToAddress(objectInfo.GetOwner()) ||
+		caller == common.HexToAddress(objectInfo.GetCreator()) ||
+		(bucketInfo != nil && caller == common.HexToAddress(bucketInfo.GetOwner())) {
+		return nil
+	}
+	log.CtxErrorw(reqCtx.Context(), "refused to list the policies of an object the caller does not administer",
+		"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName)
+	return ErrNoPermission
 }
 
 // listPaymentAccountStreamsHandler list payment account streams
