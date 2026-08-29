@@ -10,7 +10,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/util"
-	"github.com/mocachain/moca/v2/sdk/types"
+	"github.com/evmos/evmos/v12/sdk/types"
 )
 
 const (
@@ -77,6 +77,9 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+	if cfg.Chain.MaxEvmGasPriceWei == 0 {
+		cfg.Chain.MaxEvmGasPriceWei = gfspconfig.DefaultMaxEvmGasPriceWei
 	}
 	if cfg.Chain.SealGasLimit == 0 {
 		cfg.Chain.SealGasLimit = DefaultSealGasLimit
@@ -285,7 +288,7 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 
 	client, err := NewMocaChainSignClient(cfg.Chain.ChainAddress[0], cfg.Chain.RpcAddress[0], cfg.Chain.ChainID,
-		gasInfo, cfg.SpAccount.OperatorPrivateKey,
+		gasInfo, cfg.Chain.MaxEvmGasPriceWei, cfg.SpAccount.OperatorPrivateKey,
 		cfg.SpAccount.SealPrivateKey, cfg.SpAccount.ApprovalPrivateKey, cfg.SpAccount.GcPrivateKey, cfg.SpAccount.BlsPrivateKey)
 	if err != nil {
 		return err

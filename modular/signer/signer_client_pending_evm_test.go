@@ -15,8 +15,8 @@ import (
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/mocachain/moca/v2/sdk/client"
-	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	"github.com/evmos/evmos/v12/sdk/client"
+	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 )
 
 func TestResolvePendingEvmTxLookupErrorKeepsExactHash(t *testing.T) {

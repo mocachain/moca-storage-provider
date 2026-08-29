@@ -14,8 +14,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkErrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/mocachain/moca/v2/sdk/client"
-	ctypes "github.com/mocachain/moca/v2/sdk/types"
+	"github.com/evmos/evmos/v12/sdk/client"
+	ctypes "github.com/evmos/evmos/v12/sdk/types"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
