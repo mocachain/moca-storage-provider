@@ -18,8 +18,8 @@ import (
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
-	sptypes "github.com/mocachain/moca/v2/x/sp/types"
-	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	sptypes "github.com/evmos/evmos/v12/x/sp/types"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 )
 
 var (

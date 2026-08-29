@@ -27,9 +27,9 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	payment_types "github.com/mocachain/moca/v2/x/payment/types"
-	storage_types "github.com/mocachain/moca/v2/x/storage/types"
-	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	payment_types "github.com/evmos/evmos/v12/x/payment/types"
+	storage_types "github.com/evmos/evmos/v12/x/storage/types"
+	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 )

@@ -11,8 +11,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
-	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
-	virtual_types "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	virtual_types "github.com/evmos/evmos/v12/x/virtualgroup/types"
 )
 
 // TestExecuteModular_handleReplicatePiece_RejectsCardinalityMismatchBeforeReplicating

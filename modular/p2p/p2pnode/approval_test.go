@@ -11,7 +11,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
-	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 )
 
 const unknownSPAddress = "0x1000000000000000000000000000000000000001"
