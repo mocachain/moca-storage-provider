@@ -177,7 +177,6 @@ function make_config() {
     sed -i -e "s/BlsPrivateKey = '.*'/BlsPrivateKey = '${BLS_PRIVATE_KEY}'/g" config.toml
 
     validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
-    validate_secp_private_key "sp${index}.FundingPrivateKey" "$(sed -n "s/^FundingPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.SealPrivateKey" "$(sed -n "s/^SealPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.ApprovalPrivateKey" "$(sed -n "s/^ApprovalPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.GcPrivateKey" "$(sed -n "s/^GcPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
