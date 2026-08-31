@@ -217,6 +217,32 @@ func TestPreDownloadObject(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestPreDownloadObject_DBErrorDoesNotBypassQuota(t *testing.T) {
+	d := setup(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	d.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetPaymentByBucketName(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&payment_types.StreamRecord{Status: payment_types.STREAM_ACCOUNT_STATUS_ACTIVE}, nil)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	db := spdb.NewMockSPDB(ctrl)
+	d.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetBucketTraffic(gomock.Any(), gomock.Any()).Return(&spdb.BucketTraffic{}, nil)
+	db.EXPECT().CheckQuotaAndAddReadRecord(gomock.Any(), gomock.Any()).Return(fmt.Errorf("database unavailable"))
+
+	task := &gfsptask.GfSpDownloadObjectTask{
+		Task:          &gfsptask.GfSpTask{UserAddress: "user"},
+		BucketInfo:    &storagetypes.BucketInfo{Id: sdkmath.NewUint(1), BucketName: "bucket"},
+		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_SEALED},
+		StorageParams: &storagetypes.Params{},
+	}
+
+	assert.NotNil(t, d.PreDownloadObject(context.Background(), task))
+}
+
 func TestHandleDownloadObjectTask(t *testing.T) {
 	d := setup(t)
 	mockTask1 := &gfsptask.GfSpDownloadObjectTask{
