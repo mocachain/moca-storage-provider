@@ -186,6 +186,9 @@ const (
 )
 
 func DefaultStaticOption(app *GfSpBaseApp, cfg *gfspconfig.GfSpConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if cfg.Env == "" {
 		cfg.Env = EnvMainnet
 	}

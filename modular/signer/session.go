@@ -2,22 +2,21 @@ package signer
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/evmos/evmos/v12/x/evm/precompiles/storage"
 	"github.com/evmos/evmos/v12/x/evm/precompiles/storageprovider"
 	"github.com/evmos/evmos/v12/x/evm/precompiles/virtualgroup"
 )
 
-func CreateTxOpts(ctx context.Context, client *ethclient.Client, hexPrivateKey string, chain *big.Int, gasLimit uint64, nonce uint64) (*bind.TransactOpts, error) {
-	// create private key
-	privateKey, err := crypto.HexToECDSA(hexPrivateKey)
-	if err != nil {
-		return nil, err
+func CreateTxOpts(ctx context.Context, client *ethclient.Client, privateKey *ecdsa.PrivateKey, chain *big.Int, gasLimit uint64, nonce uint64, maxGasPrice *big.Int) (*bind.TransactOpts, error) {
+	if privateKey == nil {
+		return nil, ErrDanglingPointer
 	}
 
 	// Build transact tx opts with private key
@@ -31,6 +30,12 @@ func CreateTxOpts(ctx context.Context, client *ethclient.Client, hexPrivateKey s
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if maxGasPrice == nil || maxGasPrice.Sign() <= 0 {
+		return nil, fmt.Errorf("max evm gas price is not configured (got %v)", maxGasPrice)
+	}
+	if gasPrice.Cmp(maxGasPrice) > 0 {
+		return nil, fmt.Errorf("suggested gas price %s exceeds configured maximum %s", gasPrice, maxGasPrice)
 	}
 	txOpts.GasPrice = gasPrice
 

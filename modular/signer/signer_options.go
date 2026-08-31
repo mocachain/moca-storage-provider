@@ -2,7 +2,6 @@ package signer
 
 import (
 	"fmt"
-	"os"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,6 +10,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/mocachain/moca-storage-provider/util"
 )
 
 const (
@@ -74,6 +74,12 @@ func NewSignModular(app *gfspapp.GfSpBaseApp, cfg *gfspconfig.GfSpConfig) (corem
 func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error {
 	if len(cfg.Chain.ChainAddress) == 0 {
 		return fmt.Errorf("chain address missing")
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if cfg.Chain.MaxEvmGasPriceWei == 0 {
+		cfg.Chain.MaxEvmGasPriceWei = gfspconfig.DefaultMaxEvmGasPriceWei
 	}
 	if cfg.Chain.SealGasLimit == 0 {
 		cfg.Chain.SealGasLimit = DefaultSealGasLimit
@@ -183,20 +189,21 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	if cfg.Chain.CancelSwapInFeeAmount == 0 {
 		cfg.Chain.CancelSwapInFeeAmount = DefaultCancelSwapInFeeAmount
 	}
-	if val, ok := os.LookupEnv(SpOperatorPrivKey); ok {
-		cfg.SpAccount.OperatorPrivateKey = val
+	var err error
+	if cfg.SpAccount.OperatorPrivateKey, err = util.SecretFromEnv(SpOperatorPrivKey, cfg.SpAccount.OperatorPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpSealPrivKey); ok {
-		cfg.SpAccount.SealPrivateKey = val
+	if cfg.SpAccount.SealPrivateKey, err = util.SecretFromEnv(SpSealPrivKey, cfg.SpAccount.SealPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpBlsPrivKey); ok {
-		cfg.SpAccount.BlsPrivateKey = val
+	if cfg.SpAccount.BlsPrivateKey, err = util.SecretFromEnv(SpBlsPrivKey, cfg.SpAccount.BlsPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpApprovalPrivKey); ok {
-		cfg.SpAccount.ApprovalPrivateKey = val
+	if cfg.SpAccount.ApprovalPrivateKey, err = util.SecretFromEnv(SpApprovalPrivKey, cfg.SpAccount.ApprovalPrivateKey); err != nil {
+		return err
 	}
-	if val, ok := os.LookupEnv(SpGcPrivKey); ok {
-		cfg.SpAccount.GcPrivateKey = val
+	if cfg.SpAccount.GcPrivateKey, err = util.SecretFromEnv(SpGcPrivKey, cfg.SpAccount.GcPrivateKey); err != nil {
+		return err
 	}
 
 	gasInfo := make(map[GasInfoType]GasInfo)
@@ -281,7 +288,7 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 
 	client, err := NewMocaChainSignClient(cfg.Chain.ChainAddress[0], cfg.Chain.RpcAddress[0], cfg.Chain.ChainID,
-		gasInfo, cfg.SpAccount.OperatorPrivateKey, cfg.SpAccount.FundingPrivateKey,
+		gasInfo, cfg.Chain.MaxEvmGasPriceWei, cfg.SpAccount.OperatorPrivateKey,
 		cfg.SpAccount.SealPrivateKey, cfg.SpAccount.ApprovalPrivateKey, cfg.SpAccount.GcPrivateKey, cfg.SpAccount.BlsPrivateKey)
 	if err != nil {
 		return err

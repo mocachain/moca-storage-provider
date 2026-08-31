@@ -101,8 +101,6 @@ function generate_sp_db_info() {
     echo "OPERATOR_ADDRESS=\"${op_address}\"" >>sp.info
     opk=$(normalize_secp_private_key "sp${i}.OperatorPrivateKey" "$(jq -r ".sp${i}.OperatorPrivateKey" "${sp_json_file}")")
     echo "OPERATOR_PRIVATE_KEY=\"${opk}\"" >>sp.info
-    fpk=$(normalize_secp_private_key "sp${i}.FundingPrivateKey" "$(jq -r ".sp${i}.FundingPrivateKey" "${sp_json_file}")")
-    echo "FUNDING_PRIVATE_KEY=\"${fpk}\"" >>sp.info
     spk=$(normalize_secp_private_key "sp${i}.SealPrivateKey" "$(jq -r ".sp${i}.SealPrivateKey" "${sp_json_file}")")
     echo "SEAL_PRIVATE_KEY=\"${spk}\"" >>sp.info
     apk=$(normalize_secp_private_key "sp${i}.ApprovalPrivateKey" "$(jq -r ".sp${i}.ApprovalPrivateKey" "${sp_json_file}")")
@@ -173,14 +171,12 @@ function make_config() {
     # sp account
     sed -i -e "s/SpOperatorAddress = '.*'/SpOperatorAddress = '${OPERATOR_ADDRESS}'/g" config.toml
     sed -i -e "s/OperatorPrivateKey = '.*'/OperatorPrivateKey = '${OPERATOR_PRIVATE_KEY}'/g" config.toml
-    sed -i -e "s/FundingPrivateKey = '.*'/FundingPrivateKey = '${FUNDING_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/SealPrivateKey = '.*'/SealPrivateKey = '${SEAL_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/ApprovalPrivateKey = '.*'/ApprovalPrivateKey = '${APPROVAL_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/GcPrivateKey = '.*'/GcPrivateKey = '${GC_PRIVATE_KEY}'/g" config.toml
     sed -i -e "s/BlsPrivateKey = '.*'/BlsPrivateKey = '${BLS_PRIVATE_KEY}'/g" config.toml
 
     validate_secp_private_key "sp${index}.OperatorPrivateKey" "$(sed -n "s/^OperatorPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
-    validate_secp_private_key "sp${index}.FundingPrivateKey" "$(sed -n "s/^FundingPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.SealPrivateKey" "$(sed -n "s/^SealPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.ApprovalPrivateKey" "$(sed -n "s/^ApprovalPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
     validate_secp_private_key "sp${index}.GcPrivateKey" "$(sed -n "s/^GcPrivateKey = '\\(.*\\)'/\\1/p" config.toml)"
