@@ -14,6 +14,7 @@ import (
 	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 	corespdb "github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
@@ -671,6 +672,60 @@ func TestUploadModular_HandleResumableUploadObjectForUpdateTaskSuccess(t *testin
 	}
 	err := u.HandleResumableUploadObjectTask(context.TODO(), task, m)
 	assert.Nil(t, err)
+}
+
+// TestUploadModular_HandleResumableUploadObjectTaskAgentUploadRejectsPayloadSizeMismatch
+// covers an agent upload whose stored pieces don't add up to the object's
+// declared payload size: the handler must reject synchronously (matching how
+// HandleUploadObjectTask's identical check already behaves), not fall through
+// to mark the upload done while a separate goroutine asks the chain to reject
+// the object. No SetObjectIntegrity/UpdateUploadProgress expectation is
+// registered below, so gomock fails loudly if the handler still reaches them.
+func TestUploadModular_HandleResumableUploadObjectTaskAgentUploadRejectsPayloadSizeMismatch(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+
+	m := gfspclient.NewMockstdLib(ctrl)
+	m.EXPECT().Read(gomock.Any()).Return(0, io.EOF).AnyTimes()
+
+	m1 := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = m1
+	m1.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	m1.EXPECT().PopByKey(gomock.Any()).Return(&gfsptask.GfSpResumableUploadObjectTask{}).AnyTimes()
+
+	m2 := piecestore.NewMockPieceOp(ctrl)
+	u.baseApp.SetPieceOp(m2)
+	m2.EXPECT().MaxSegmentPieceSize(gomock.Any(), gomock.Any()).Return(int64(1)).Times(1)
+
+	m3 := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(m3)
+	// the stored pieces only total 5 bytes, but the object claims a 100-byte payload
+	m3.EXPECT().GetObjectIntegrity(gomock.Any(), gomock.Any()).Return(&corespdb.IntegrityMeta{
+		ObjectSize: 5,
+	}, nil).Times(1)
+
+	m4 := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(m4)
+	m4.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// the async on-chain reject (unchanged by this fix) - let it succeed
+	// immediately so the background goroutine it runs in exits cleanly.
+	m4.EXPECT().RejectUnSealObject(gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+	m5 := consensus.NewMockConsensus(ctrl)
+	u.baseApp.SetConsensus(m5)
+	m5.EXPECT().ListenRejectUnSealObject(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
+
+	task := &gfsptask.GfSpResumableUploadObjectTask{
+		Task: &gfsptask.GfSpTask{TaskPriority: 1},
+		ObjectInfo: &storagetypes.ObjectInfo{
+			Id:          sdkmath.NewUint(1),
+			PayloadSize: 100,
+		},
+		StorageParams: &storagetypes.Params{},
+		Completed:     true,
+		IsAgentUpload: true,
+	}
+	err := u.HandleResumableUploadObjectTask(context.TODO(), task, m)
+	assert.ErrorIs(t, err, ErrPayloadSize)
 }
 
 func TestUploadModular_HandleResumableUploadObjectTaskFailure1(t *testing.T) {

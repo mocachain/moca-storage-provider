@@ -144,7 +144,7 @@ func (d *DownloadModular) PreDownloadObject(ctx context.Context, downloadObjectT
 		if errors.Is(err, sqldb.ErrCheckQuotaEnough) {
 			return ErrExceedBucketQuota
 		}
-		// ignore the access db error, it is the system's inner error, will be let the request go.
+		return ErrGfSpDBWithDetail("failed to check bucket quota, error: " + err.Error())
 	}
 	// report the task to the manager for monitor the download task
 	go func() {

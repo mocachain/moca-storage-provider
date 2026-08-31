@@ -1853,6 +1853,30 @@ func TestMetadataModularGfSpVerifyMigrateGVGPermission_verifySwapOut_Success(t *
 	assert.Equal(t, "EFFECT_ALLOW", effect.Effect.String())
 }
 
+// TestMetadataModularGfSpVerifyMigrateGVGPermission_verifySwapOut_NilEvent covers
+// GetEventSwapOutByGvgID's not-found contract: GetGlobalVirtualGroupByGvgID
+// returning (nil, nil) for an unrecognized gvg id propagates as (nil, nil) here
+// too, so verifySwapOut must treat a nil event as not-found rather than reading
+// its fields.
+func TestMetadataModularGfSpVerifyMigrateGVGPermission_verifySwapOut_NilEvent(t *testing.T) {
+	a := setup(t)
+	ctrl := gomock.NewController(t)
+	m := bsdb.NewMockBSDB(ctrl)
+	a.baseApp.SetGfBsDB(m)
+	m.EXPECT().GetEventSwapOutByGvgID(gomock.Any()).DoAndReturn(
+		func(uint32) (*bsdb.EventSwapOut, error) {
+			return nil, nil
+		},
+	).Times(1)
+	effect, err := a.GfSpVerifyMigrateGVGPermission(context.Background(), &types.GfSpVerifyMigrateGVGPermissionRequest{
+		BucketId: 0,
+		GvgId:    1,
+		DstSpId:  1,
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "EFFECT_DENY", effect.Effect.String())
+}
+
 func TestMetadataModularGfSpVerifyMigrateGVGPermission_verifyBucketMigration_Failed(t *testing.T) {
 	a := setup(t)
 	ctrl := gomock.NewController(t)
