@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -689,8 +690,8 @@ func (g *GateModular) replicateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func readReplicateBody(body io.Reader, maxSize uint64) ([]byte, error) {
-	if maxSize > uint64(^uint64(0)>>1) {
-		maxSize = uint64(^uint64(0) >> 1)
+	if maxSize > math.MaxInt64 {
+		maxSize = math.MaxInt64
 	}
 	data, err := io.ReadAll(io.LimitReader(body, int64(maxSize)+1))
 	if err != nil {
