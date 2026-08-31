@@ -324,28 +324,17 @@ func (m *Module) handleCompleteMigrationBucket(ctx context.Context, block *tmcty
 }
 
 func (m *Module) handleToggleSPAsDelegatedAgent(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, toggleSPAsDelegatedAgent *storagetypes.EventToggleSPAsDelegatedAgent) map[string][]interface{} {
-	bucket, err := m.db.GetBucketByBucketName(ctx, toggleSPAsDelegatedAgent.BucketName)
+	_, err := m.db.GetBucketByBucketName(ctx, toggleSPAsDelegatedAgent.BucketName)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
+		log.Errorw("failed to get bucket for delegated-agent status update", "bucket_name", toggleSPAsDelegatedAgent.BucketName, "error", err)
+		return nil
 	}
-	var offChainStatus int
-	if toggleSPAsDelegatedAgent.SpAsDelegatedAgentDisabled {
-		offChainStatus = AddStatus(bucket.OffChainStatus, int(OffChainStatusSpAsDelegatedAgentDisabled))
-	} else {
-		offChainStatus = RemoveStatus(bucket.OffChainStatus, int(OffChainStatusSpAsDelegatedAgentDisabled))
-	}
-	bucketStatus := &models.Bucket{
-		BucketName:     toggleSPAsDelegatedAgent.BucketName,
-		OffChainStatus: offChainStatus,
-
-		UpdateAt:     block.Block.Height,
-		UpdateTxHash: txHash,
-		UpdateTime:   block.Block.Time.UTC().Unix(),
-	}
-
-	k, v := m.db.UpdateBucketOffChainStatus(ctx, bucketStatus)
+	k, v := m.db.UpdateBucketOffChainStatusBit(ctx, toggleSPAsDelegatedAgent.BucketName,
+		int(OffChainStatusSpAsDelegatedAgentDisabled), toggleSPAsDelegatedAgent.SpAsDelegatedAgentDisabled,
+		block.Block.Height, txHash, block.Block.Time.UTC().Unix())
 	return map[string][]interface{}{
 		k: v,
 	}
