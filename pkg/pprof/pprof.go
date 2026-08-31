@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"strings"
+	"time"
 
 	"github.com/felixge/fgprof"
 	"github.com/gorilla/mux"
@@ -56,8 +57,12 @@ func (p *PProf) serve() {
 	router := mux.NewRouter()
 	p.registerProfiler(router)
 	p.httpServer = &http.Server{
-		Addr:    p.httpAddress,
-		Handler: router,
+		Addr:              p.httpAddress,
+		Handler:           router,
+		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 	if err := p.httpServer.ListenAndServe(); err != nil {
 		log.Errorw("failed to listen and serve", "error", err)
