@@ -132,7 +132,7 @@ func (m *ManageModular) NotifyPreMigrateBucketAndDeductQuota(ctx context.Context
 		log.CtxErrorw(ctx, "failed to update migrate bucket state and deduct quota", "bucket_id", bucketID, "error", err)
 		// if failed to update migrate bucket state, recoup quota and return error
 		if quotaUpdateErr := m.baseApp.GfSpClient().RecoupQuota(ctx, bucketID, bucketSize, quota.GetMonth()); quotaUpdateErr != nil {
-			log.CtxErrorw(ctx, "failed to recoup extra quota to user", "error", err)
+			log.CtxErrorw(ctx, "failed to recoup extra quota to user", "error", quotaUpdateErr)
 		}
 		return quota, err
 	}
@@ -175,25 +175,52 @@ func (m *ManageModular) NotifyPostMigrateBucketAndRecoupQuota(ctx context.Contex
 	// If dest sp notify src sp migration succeed, bucket migration gc trigger by bucket migration complete event in src sp
 	// otherwise, the src sp will recoup quota
 	if !bmInfo.GetFinished() {
-		migratedBytes := bmInfo.GetMigratedBytesSize()
+		migratedBytes, err := m.getLocallyReconciledMigratedBytes(bucketID, bmInfo.GetMigratedBytesSize())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to reconcile migrated bytes", "bucket_id", bucketID, "error", err)
+			return latestQuota, err
+		}
 		if migratedBytes >= bucketSize {
 			// If the data migrated surpasses the total bucket size, quota recoup is skipped.
 			// This situation may arise due to deletions in the bucket migration process.
-			log.CtxErrorw(ctx, "failed to recoup extra quota to user", "error", err)
+			log.CtxInfow(ctx, "skipped extra quota recoup, migrated bytes reached the bucket size",
+				"bucket_id", bucketID, "migrated_bytes", migratedBytes, "bucket_size", bucketSize)
 		} else {
 			extraQuota = bucketSize - migratedBytes
 			if quotaUpdateErr := m.baseApp.GfSpClient().RecoupQuota(ctx, bmInfo.GetBucketId(), extraQuota, latestQuota.GetMonth()); quotaUpdateErr != nil {
-				log.CtxErrorw(ctx, "failed to recoup extra quota to user", "error", err)
-				return latestQuota, err
+				log.CtxErrorw(ctx, "failed to recoup extra quota to user", "error", quotaUpdateErr)
+				return latestQuota, quotaUpdateErr
 			}
 			if err = m.baseApp.GfSpDB().UpdateBucketMigrationRecoupQuota(bucketID, extraQuota, int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_MIGRATION_FINISHED)); err != nil {
 				log.CtxErrorw(ctx, "failed to update bucket migrate progress recoup quota", "error", err)
+				return latestQuota, err
 			}
 		}
 		log.CtxDebugw(ctx, "succeed to recoup extra quota to user", "extra_quote", extraQuota, "bucket_id", bucketID)
 	}
 
 	return latestQuota, nil
+}
+
+func (m *ManageModular) getLocallyReconciledMigratedBytes(bucketID, reported uint64) (uint64, error) {
+	units, err := m.baseApp.GfSpDB().ListMigrateGVGUnitsByBucketID(bucketID)
+	if err != nil {
+		return 0, err
+	}
+	var local uint64
+	for _, unit := range units {
+		if ^uint64(0)-local < unit.MigratedBytesSize {
+			return ^uint64(0), nil
+		}
+		local += unit.MigratedBytesSize
+	}
+	if len(units) == 0 {
+		return reported, nil
+	}
+	if reported < local {
+		return reported, nil
+	}
+	return local, nil
 }
 
 // getBucketTotalSize return the total size of the bucket
