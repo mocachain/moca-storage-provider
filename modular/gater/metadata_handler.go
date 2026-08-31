@@ -2,7 +2,6 @@ package gater
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"net/http"
@@ -92,6 +91,10 @@ func (g *GateModular) getUserBucketsHandler(w http.ResponseWriter, r *http.Reque
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check account id", "account_id", reqCtx.account, "error", err)
 		err = ErrInvalidHeader
+		return
+	}
+	if common.HexToAddress(r.Header.Get(GnfdUserAddressHeader)) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 
@@ -330,7 +333,7 @@ func (g *GateModular) getObjectMetaHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	resp, err := g.baseApp.GfSpClient().GetObjectMeta(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, true)
+	resp, err := g.baseApp.GfSpClient().GetObjectMeta(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, false)
 	if err != nil {
 		log.Errorf("failed to get object meta", "error", err)
 
@@ -382,7 +385,7 @@ func (g *GateModular) getBucketMetaHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	bucket, streamRecord, err := g.baseApp.GfSpClient().GetBucketMeta(reqCtx.Context(), reqCtx.bucketName, true)
+	bucket, streamRecord, err := g.baseApp.GfSpClient().GetBucketMeta(reqCtx.Context(), reqCtx.bucketName, false)
 	if err != nil {
 		log.Errorf("failed to get bucket metadata", "error", err)
 		return
@@ -1094,6 +1097,10 @@ func (g *GateModular) getUserBucketsCountHandler(w http.ResponseWriter, r *http.
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check X-Gnfd-User-Address", "X-Gnfd-User-Address", reqCtx.account, "error", err)
 		err = ErrInvalidHeader
+		return
+	}
+	if common.HexToAddress(r.Header.Get(GnfdUserAddressHeader)) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 
@@ -2151,7 +2158,6 @@ func (g *GateModular) getSPInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-// getStatusHandler get status info for the current SP
 func (g *GateModular) getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -2255,6 +2261,10 @@ func (g *GateModular) getUserGroupsHandler(w http.ResponseWriter, r *http.Reques
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check X-Gnfd-User-Address", "X-Gnfd-User-Address", reqCtx.account, "error", err)
 		err = ErrInvalidHeader
+		return
+	}
+	if common.HexToAddress(r.Header.Get(GnfdUserAddressHeader)) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 
@@ -2411,6 +2421,10 @@ func (g *GateModular) getUserOwnedGroupsHandler(w http.ResponseWriter, r *http.R
 		err = ErrInvalidHeader
 		return
 	}
+	if common.HexToAddress(r.Header.Get(GnfdUserAddressHeader)) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
+		return
+	}
 
 	if requestStartAfter != "" {
 		if startAfter, err = util.StringToUint64(requestStartAfter); err != nil {
@@ -2525,6 +2539,10 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if err = g.checkObjectPolicyReader(reqCtx); err != nil {
+		return
+	}
+
 	policies, err = g.baseApp.GfSpClient().ListObjectPolicies(reqCtx.Context(), reqCtx.objectName, reqCtx.bucketName, startAfter, actionType, limit)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to list policies by object info", "error", err)
@@ -2541,6 +2559,32 @@ func (g *GateModular) listObjectPoliciesHandler(w http.ResponseWriter, r *http.R
 
 	w.Header().Set(ContentTypeHeader, ContentTypeXMLHeaderValue)
 	w.Write(respBytes)
+}
+
+// checkObjectPolicyReader reports whether the caller may read the policy list of an
+// object. The list names every principal granted access to the object, so it is
+// administrative data of that object and is served to the accounts that administer it:
+// the object owner, the object creator and the owner of the bucket it lives in.
+func (g *GateModular) checkObjectPolicyReader(reqCtx *RequestContext) error {
+	bucketInfo, objectInfo, err := g.baseApp.Consensus().QueryBucketInfoAndObjectInfo(
+		reqCtx.Context(), reqCtx.bucketName, reqCtx.objectName)
+	if err != nil {
+		log.CtxErrorw(reqCtx.Context(), "failed to get bucket and object info from consensus",
+			"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName, "error", err)
+		return ErrConsensusWithDetail("failed to get bucket and object info from consensus, error: " + err.Error())
+	}
+	if objectInfo == nil {
+		return ErrNoSuchObject
+	}
+	caller := common.HexToAddress(reqCtx.Account())
+	if caller == common.HexToAddress(objectInfo.GetOwner()) ||
+		caller == common.HexToAddress(objectInfo.GetCreator()) ||
+		(bucketInfo != nil && caller == common.HexToAddress(bucketInfo.GetOwner())) {
+		return nil
+	}
+	log.CtxErrorw(reqCtx.Context(), "refused to list the policies of an object the caller does not administer",
+		"bucket_name", reqCtx.bucketName, "object_name", reqCtx.objectName)
+	return ErrNoPermission
 }
 
 // listPaymentAccountStreamsHandler list payment account streams
@@ -2629,6 +2673,10 @@ func (g *GateModular) listUserPaymentAccountsHandler(w http.ResponseWriter, r *h
 	if ok := common.IsHexAddress(r.Header.Get(GnfdUserAddressHeader)); !ok {
 		log.Errorw("failed to check X-Gnfd-User-Address", "X-Gnfd-User-Address", reqCtx.account, "error", err)
 		err = ErrInvalidHeader
+		return
+	}
+	if common.HexToAddress(r.Header.Get(GnfdUserAddressHeader)) != common.HexToAddress(reqCtx.account) {
+		err = ErrNoPermission
 		return
 	}
 
@@ -2925,12 +2973,14 @@ func (g *GateModular) getBucketSizeHandler(w http.ResponseWriter, r *http.Reques
 func (g *GateModular) getBsDBDataInfoHandler(w http.ResponseWriter, r *http.Request) {
 	var (
 		err          error
+		reqCtx       *RequestContext
 		blockHeight  int64
 		metadataResp *types.GfSpGetBsDBInfoResponse
 		respBytes    []byte
 	)
 	startTime := time.Now()
 	defer func() {
+		reqCtx.Cancel()
 		if err != nil {
 			modelgateway.MakeErrorResponse(w, gfsperrors.MakeGfSpError(err))
 			metrics.ReqCounter.WithLabelValues(GatewayTotalFailure).Inc()
@@ -2941,7 +2991,11 @@ func (g *GateModular) getBsDBDataInfoHandler(w http.ResponseWriter, r *http.Requ
 		}
 	}()
 
-	ctx := context.Background()
+	reqCtx, err = NewRequestContext(r, g)
+	if err != nil {
+		return
+	}
+
 	queryParams := r.URL.Query()
 	blockHeightStr := queryParams.Get("block_height")
 	blockHeight, err = util.StringToInt64(blockHeightStr)
@@ -2950,7 +3004,7 @@ func (g *GateModular) getBsDBDataInfoHandler(w http.ResponseWriter, r *http.Requ
 		err = ErrInvalidQuery
 		return
 	}
-	metadataResp, err = g.baseApp.GfSpClient().GetBsDBInfo(ctx, uint64(blockHeight))
+	metadataResp, err = g.baseApp.GfSpClient().GetBsDBInfo(reqCtx.Context(), uint64(blockHeight))
 	if err != nil {
 		log.Errorw("failed to Get BsDB Info", "error", err)
 		return

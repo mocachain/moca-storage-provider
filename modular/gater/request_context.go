@@ -50,6 +50,7 @@ var skipAuthRouterNames = []string{
 	getBucketMetaRouterName,
 	listBucketsByIDsRouterName,
 	listObjectsByIDsRouterName,
+	getBsDBDataInfo,
 }
 
 // NewRequestContext returns an instance of RequestContext, and verify the

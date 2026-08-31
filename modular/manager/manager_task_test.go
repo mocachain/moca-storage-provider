@@ -266,6 +266,47 @@ func TestManageModular_HandleFailedReplicatePieceTask(t *testing.T) {
 	assert.Equal(t, nil, err)
 }
 
+// TestManageModular_HandleFailedReplicatePieceTask_NotAvailableSpIdxOutOfRange covers
+// a gvg that has drifted since NotAvailableSpIdx was recorded (e.g. a secondary SP
+// swap-out shrank its membership), so the index is no longer valid against the
+// freshly re-queried gvg. This must fall back to a plain retry instead of indexing
+// out of range.
+func TestManageModular_HandleFailedReplicatePieceTask_NotAvailableSpIdxOutOfRange(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	replicatePieceTask := &gfsptask.GfSpReplicatePieceTask{
+		ObjectInfo: &types0.ObjectInfo{
+			Id:         sdkmath.NewUint(1),
+			BucketName: "test",
+			ObjectName: "test",
+		},
+		Task: &gfsptask.GfSpTask{
+			TaskPriority: 1,
+			Retry:        2,
+			MaxRetry:     3,
+		},
+		StorageParams:        &types0.Params{},
+		NotAvailableSpIdx:    5,
+		GlobalVirtualGroupId: 1,
+	}
+	replicateQueue := gfsptqueue.NewGfSpTQueueWithLimit("test", 2)
+	m.replicateQueue = replicateQueue
+	_ = m.replicateQueue.Push(replicatePieceTask)
+
+	con := consensus.NewMockConsensus(ctrl)
+	m.baseApp.SetConsensus(con)
+	con.EXPECT().QueryObjectInfoByID(gomock.Any(), gomock.Any()).Return(&types0.ObjectInfo{
+		ObjectStatus: types0.OBJECT_STATUS_CREATED,
+	}, nil).AnyTimes()
+	// only one secondary SP, but NotAvailableSpIdx (5) points well past it.
+	con.EXPECT().QueryGlobalVirtualGroup(gomock.Any(), gomock.Any()).Return(&types1.GlobalVirtualGroup{
+		SecondarySpIds: []uint32{1},
+	}, nil).AnyTimes()
+
+	err := m.handleFailedReplicatePieceTask(context.TODO(), replicatePieceTask)
+	assert.Equal(t, nil, err)
+}
+
 func TestManageModular_HandleSealObjectTask(t *testing.T) {
 	m := setup(t)
 	ctrl := gomock.NewController(t)
