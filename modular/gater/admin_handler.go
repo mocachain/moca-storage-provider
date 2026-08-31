@@ -658,7 +658,7 @@ func (g *GateModular) replicateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	readDataTime := time.Now()
-	data, err = io.ReadAll(r.Body)
+	data, err = readReplicateBody(r.Body, g.maxPayloadSize)
 	metrics.PerfReceivePieceTimeHistogram.WithLabelValues("receive_piece_read_piece_time").Observe(time.Since(readDataTime).Seconds())
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to read replicate piece data", "error", err)
@@ -686,6 +686,20 @@ func (g *GateModular) replicateHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(GnfdIntegrityHashSignatureHeader, hex.EncodeToString(signature))
 	}
 	log.CtxDebug(reqCtx.Context(), "succeed to replicate piece")
+}
+
+func readReplicateBody(body io.Reader, maxSize uint64) ([]byte, error) {
+	if maxSize > uint64(^uint64(0)>>1) {
+		maxSize = uint64(^uint64(0) >> 1)
+	}
+	data, err := io.ReadAll(io.LimitReader(body, int64(maxSize)+1))
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(data)) > maxSize {
+		return nil, ErrInvalidPayloadSize
+	}
+	return data, nil
 }
 
 func (g *GateModular) checkReplicatePermission(ctx context.Context, receiveTask gfsptask.GfSpReceivePieceTask, signatureAddr string) error {
