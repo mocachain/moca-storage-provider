@@ -261,8 +261,9 @@ func (rc *resources) addConns(inCount, outCount, fdCount int) error {
 func (rc *resources) removeConn(dir corercmgr.Direction) {
 	if dir == corercmgr.DirInbound {
 		rc.removeConns(1, 0, 1)
+	} else {
+		rc.removeConns(0, 1, 1)
 	}
-	rc.removeConns(0, 1, 1)
 }
 
 func (rc *resources) removeConns(inCount, outCount, fdCount int) {
