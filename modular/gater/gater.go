@@ -62,6 +62,9 @@ func (g *GateModular) server(ctx context.Context) {
 		Addr:              g.httpAddress,
 		Handler:           router,
 		ReadHeaderTimeout: ReadHeaderTimeout,
+		ReadTimeout:       ReadHeaderTimeout,
+		WriteTimeout:      ReadHeaderTimeout,
+		IdleTimeout:       time.Minute,
 	}
 	if err := g.httpServer.ListenAndServe(); err != nil {
 		log.Errorw("failed to listen", "error", err)

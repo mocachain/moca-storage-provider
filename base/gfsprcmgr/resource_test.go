@@ -584,6 +584,14 @@ func TestResources_removeConn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rc := setupResources(t)
 			rc.removeConn(tt.dir)
+			if tt.dir == corercmgr.DirInbound {
+				assert.Equal(t, 0, rc.nconnsIn)
+				assert.Equal(t, 2, rc.nconnsOut)
+			} else {
+				assert.Equal(t, 1, rc.nconnsIn)
+				assert.Equal(t, 1, rc.nconnsOut)
+			}
+			assert.Equal(t, 2, rc.nfd)
 		})
 	}
 }
