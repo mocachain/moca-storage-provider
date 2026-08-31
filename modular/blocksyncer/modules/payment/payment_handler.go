@@ -108,9 +108,11 @@ func (m *Module) handleEventStreamRecordUpdate(ctx context.Context, streamRecord
 func (m *Module) handleEventBucketFlowRateLimitStatus(ctx context.Context, block *tmctypes.ResultBlock, txHash common.Hash, bucketFlowRateLimitStatus *storagetypes.EventBucketFlowRateLimitStatus) map[string][]interface{} {
 	bucket, err := m.db.GetBucketByBucketName(ctx, bucketFlowRateLimitStatus.BucketName)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
+		log.Errorw("failed to get bucket for flow rate limit update", "bucket_name", bucketFlowRateLimitStatus.BucketName, "error", err)
+		return nil
 	}
 	var offChainStatus int
 	if bucketFlowRateLimitStatus.IsLimited {

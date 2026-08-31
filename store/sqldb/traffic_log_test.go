@@ -57,3 +57,14 @@ func TestGetUpdatedConsumedQuotaV2_DoesNotLogQuotaStateAtInfo(t *testing.T) {
 
 	assert.NotContains(t, capture.String(), "quota info")
 }
+
+func TestGetUpdatedConsumedQuotaV2_HandlesUint64QuotaValues(t *testing.T) {
+	_, consumedCharged, _, remainingFree, remainingMonthly, err := getUpdatedConsumedQuotaV2(
+		1, 0, 0, 0, ^uint64(0), 0, 0,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), consumedCharged)
+	assert.Equal(t, uint64(0), remainingFree)
+	assert.Equal(t, uint64(0), remainingMonthly)
+}

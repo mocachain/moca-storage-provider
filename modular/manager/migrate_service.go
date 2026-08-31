@@ -175,7 +175,11 @@ func (m *ManageModular) NotifyPostMigrateBucketAndRecoupQuota(ctx context.Contex
 	// If dest sp notify src sp migration succeed, bucket migration gc trigger by bucket migration complete event in src sp
 	// otherwise, the src sp will recoup quota
 	if !bmInfo.GetFinished() {
-		migratedBytes := bmInfo.GetMigratedBytesSize()
+		migratedBytes, err := m.getLocallyReconciledMigratedBytes(bucketID, bmInfo.GetMigratedBytesSize())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to reconcile migrated bytes", "bucket_id", bucketID, "error", err)
+			return latestQuota, err
+		}
 		if migratedBytes >= bucketSize {
 			// If the data migrated surpasses the total bucket size, quota recoup is skipped.
 			// This situation may arise due to deletions in the bucket migration process.
@@ -196,6 +200,27 @@ func (m *ManageModular) NotifyPostMigrateBucketAndRecoupQuota(ctx context.Contex
 	}
 
 	return latestQuota, nil
+}
+
+func (m *ManageModular) getLocallyReconciledMigratedBytes(bucketID, reported uint64) (uint64, error) {
+	units, err := m.baseApp.GfSpDB().ListMigrateGVGUnitsByBucketID(bucketID)
+	if err != nil {
+		return 0, err
+	}
+	var local uint64
+	for _, unit := range units {
+		if ^uint64(0)-local < unit.MigratedBytesSize {
+			return ^uint64(0), nil
+		}
+		local += unit.MigratedBytesSize
+	}
+	if len(units) == 0 {
+		return reported, nil
+	}
+	if reported < local {
+		return reported, nil
+	}
+	return local, nil
 }
 
 // getBucketTotalSize return the total size of the bucket

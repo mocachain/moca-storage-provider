@@ -705,7 +705,7 @@ func (g *GateModular) sufficientQuotaForBucketMigrationHandler(w http.ResponseWr
 	}
 
 	// empty bucket will approval
-	if quota.FreeQuotaSize+quota.ChargedQuotaSize-quota.ReadConsumedSize+quota.MonthlyFreeQuotaSize > bucketSize || bucketSize == 0 {
+	if hasSufficientMigrationQuota(quota.FreeQuotaSize, quota.ChargedQuotaSize, quota.ReadConsumedSize, quota.MonthlyFreeQuotaSize, bucketSize) {
 		quota.AllowMigrate = true
 	} else {
 		quota.AllowMigrate = false
@@ -722,4 +722,27 @@ func (g *GateModular) sufficientQuotaForBucketMigrationHandler(w http.ResponseWr
 	w.Header().Set(ContentTypeHeader, ContentTypeXMLHeaderValue)
 	log.CtxInfow(reqCtx.Context(), "succeed to check bucket migrate quota", "bucket_id", bucketID,
 		"quota", quota, "bucket_size", bucketSize)
+}
+
+func hasSufficientMigrationQuota(freeQuota, chargedQuota, consumedQuota, monthlyQuota, bucketSize uint64) bool {
+	if bucketSize == 0 {
+		return true
+	}
+	available := freeQuota
+	if ^uint64(0)-available < chargedQuota {
+		available = ^uint64(0)
+	} else {
+		available += chargedQuota
+	}
+	if consumedQuota >= available {
+		available = 0
+	} else {
+		available -= consumedQuota
+	}
+	if ^uint64(0)-available < monthlyQuota {
+		available = ^uint64(0)
+	} else {
+		available += monthlyQuota
+	}
+	return available > bucketSize
 }
