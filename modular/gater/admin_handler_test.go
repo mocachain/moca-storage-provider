@@ -1,6 +1,7 @@
 package gater
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,16 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
 )
+
+func TestReadReplicateBodyLimit(t *testing.T) {
+	data, err := readReplicateBody(bytes.NewReader([]byte("12345")), 4)
+	assert.ErrorIs(t, err, ErrInvalidPayloadSize)
+	assert.Nil(t, data)
+
+	data, err = readReplicateBody(bytes.NewReader([]byte("1234")), 4)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("1234"), data)
+}
 
 func mockGetApprovalRoute(t *testing.T, g *GateModular) *mux.Router {
 	t.Helper()
