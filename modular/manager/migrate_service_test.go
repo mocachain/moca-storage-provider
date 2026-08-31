@@ -24,6 +24,7 @@ func TestManageModular_NotifyPostMigrateBucketAndRecoupQuota_PropagatesRecoupErr
 	m.baseApp.SetGfSpDB(db)
 	db.EXPECT().QueryMigrateBucketState(gomock.Any()).Return(
 		int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_SRC_SP_PRE_DEDUCT_QUOTA_DONE), nil).Times(1)
+	db.EXPECT().ListMigrateGVGUnitsByBucketID(gomock.Any()).Return(nil, nil).Times(1)
 
 	client := gfspclient.NewMockGfSpClientAPI(ctrl)
 	m.baseApp.SetGfSpClient(client)
@@ -57,6 +58,7 @@ func TestManageModular_NotifyPostMigrateBucketAndRecoupQuota_PropagatesStateWrit
 	m.baseApp.SetGfSpDB(db)
 	db.EXPECT().QueryMigrateBucketState(gomock.Any()).Return(
 		int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_SRC_SP_PRE_DEDUCT_QUOTA_DONE), nil).Times(1)
+	db.EXPECT().ListMigrateGVGUnitsByBucketID(gomock.Any()).Return(nil, nil).Times(1)
 	db.EXPECT().UpdateBucketMigrationRecoupQuota(gomock.Any(), uint64(50),
 		int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_MIGRATION_FINISHED)).Return(mockErr).Times(1)
 
@@ -87,6 +89,7 @@ func TestManageModular_NotifyPostMigrateBucketAndRecoupQuota_Success(t *testing.
 	m.baseApp.SetGfSpDB(db)
 	db.EXPECT().QueryMigrateBucketState(gomock.Any()).Return(
 		int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_SRC_SP_PRE_DEDUCT_QUOTA_DONE), nil).Times(1)
+	db.EXPECT().ListMigrateGVGUnitsByBucketID(gomock.Any()).Return(nil, nil).Times(1)
 	db.EXPECT().UpdateBucketMigrationRecoupQuota(gomock.Any(), uint64(50),
 		int(storetypes.BucketMigrationState_BUCKET_MIGRATION_STATE_MIGRATION_FINISHED)).Return(nil).Times(1)
 
