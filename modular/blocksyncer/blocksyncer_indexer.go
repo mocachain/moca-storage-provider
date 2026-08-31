@@ -191,12 +191,14 @@ func (i *Impl) Process(height uint64) error {
 	metrics.BlocksyncerLogicTime.Set(float64(time.Since(startTime).Milliseconds()))
 
 	dbStartTime := time.Now()
-	finalSQL, finalVal := flattenSQL(allSQL)
 	tx := i.DB.Begin(context.TODO())
-	if txErr := tx.Db.Session(&gorm.Session{DryRun: false}).Exec(finalSQL, finalVal...).Error; txErr != nil {
-		log.Errorw("failed to exec sql", "error", txErr)
-		tx.Rollback()
-		return txErr
+	for _, statements := range chunkSQL(allSQL, int(i.CommitNumber)) {
+		finalSQL, finalVal := flattenSQL(statements)
+		if txErr := tx.Db.Session(&gorm.Session{DryRun: false}).Exec(finalSQL, finalVal...).Error; txErr != nil {
+			log.Errorw("failed to exec sql", "error", txErr)
+			tx.Rollback()
+			return txErr
+		}
 	}
 	if txErr := tx.Commit(); txErr != nil {
 		log.Errorw("failed to commit db", "error", txErr)
@@ -241,6 +243,18 @@ func flattenSQL(allSQL []map[string][]interface{}) (string, []interface{}) {
 		}
 	}
 	return finalSQL, finalVal
+}
+
+func chunkSQL(allSQL []map[string][]interface{}, chunkSize int) [][]map[string][]interface{} {
+	chunks := make([][]map[string][]interface{}, 0, (len(allSQL)+chunkSize-1)/chunkSize)
+	for start := 0; start < len(allSQL); start += chunkSize {
+		end := start + chunkSize
+		if end > len(allSQL) {
+			end = len(allSQL)
+		}
+		chunks = append(chunks, allSQL[start:end])
+	}
+	return chunks
 }
 
 // SaveEpoch accept a block result data and persist basic info into db to record current sync progress
