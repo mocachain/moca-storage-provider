@@ -34,7 +34,6 @@ func NewIndexer(codec codec.Codec, proxy node.Node, db database.Database, module
 		DB:                       db,
 		Modules:                  modules,
 		ServiceName:              serviceName,
-		ProcessedHeight:          0,
 		CommitNumber:             commitNumber,
 		BlockResultStorageEnable: blockResultStorageEnable,
 	}
@@ -47,7 +46,7 @@ type Impl struct {
 	DB      database.Database
 
 	LatestBlockHeight atomic.Value
-	ProcessedHeight   uint64
+	ProcessedHeight   atomic.Uint64
 
 	CommitNumber             uint64
 	BlockResultStorageEnable bool
@@ -215,7 +214,7 @@ func (i *Impl) Process(height uint64) error {
 	metrics.BlockHeightLagGauge.WithLabelValues("blocksyncer").Set(float64(block.Block.Height))
 	metrics.BlocksyncerCatchTime.Set(float64(time.Since(startTime).Milliseconds()))
 
-	i.ProcessedHeight = height
+	i.setProcessedHeight(height)
 	if !realTimeMode || catchEndBLock < int64(height) {
 		blockMap.Delete(heightKey)
 		eventMap.Delete(heightKey)
@@ -395,20 +394,33 @@ func (i *Impl) GetBlockRecordNum(_ context.Context) int64 {
 	return 1
 }
 
+type epochReader interface {
+	GetEpoch(context.Context) (*models.Epoch, error)
+}
+
 // GetLastBlockRecordHeight returns the last block height stored inside the database
 func (i *Impl) GetLastBlockRecordHeight(ctx context.Context) (uint64, error) {
-	var lastBlockRecordHeight uint64
-	currentEpoch, err := i.DB.GetEpoch(ctx)
-	if err == nil {
-		lastBlockRecordHeight = 0
-	} else {
-		lastBlockRecordHeight = uint64(currentEpoch.BlockHeight)
+	return lastBlockRecordHeight(ctx, i.DB)
+}
+
+func lastBlockRecordHeight(ctx context.Context, reader epochReader) (uint64, error) {
+	currentEpoch, err := reader.GetEpoch(ctx)
+	if err != nil {
+		return 0, err
 	}
-	return lastBlockRecordHeight, err
+	return uint64(currentEpoch.BlockHeight), nil
 }
 
 func (i *Impl) GetLatestBlockHeight() *atomic.Value {
 	return &(i.LatestBlockHeight)
+}
+
+func (i *Impl) processedHeight() uint64 {
+	return i.ProcessedHeight.Load()
+}
+
+func (i *Impl) setProcessedHeight(height uint64) {
+	i.ProcessedHeight.Store(height)
 }
 
 func (i *Impl) CreateMasterTable() error {
