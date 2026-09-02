@@ -64,6 +64,9 @@ func VerifyEddsaSignatureV2(pubKey string, sig, message []byte) error {
 		log.Errorf("failed to parse public key, pubKey=%s, err=%s", pubKey, err.Error())
 		return err
 	}
+	if len(pubKeyBytes) != ed25519.PublicKeySize {
+		return errors.New("invalid public key length")
+	}
 	if !ed25519.Verify(pubKeyBytes, message, sig) {
 		return ErrBadSignature
 	}
