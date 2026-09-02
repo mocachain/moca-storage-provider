@@ -129,6 +129,13 @@ func TestDiskFileStore_GetObjectFailure(t *testing.T) {
 			limit:     1,
 			wantedErr: errors.New("EOF"),
 		},
+		{
+			name:      "disk_file_get_with_huge_limit_past_end_test1",
+			key:       f.Name(),
+			offset:    6,
+			limit:     int64(^uint64(0) >> 1),
+			wantedErr: errors.New("EOF"),
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
