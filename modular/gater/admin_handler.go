@@ -763,13 +763,23 @@ func (g *GateModular) checkReplicatePermission(ctx context.Context, receiveTask 
 		return ErrConsensusWithDetail("failed to getSPID, gvg info:" + gvg.String() + ", error: " + err.Error())
 	}
 
-	expectSecondarySPID := gvg.GetSecondarySpIds()[int(receiveTask.GetRedundancyIdx())]
+	expectSecondarySPID, err := expectedSecondarySP(gvg, receiveTask.GetRedundancyIdx())
+	if err != nil {
+		return err
+	}
 	if expectSecondarySPID != spID {
 		log.CtxErrorw(ctx, "secondary sp mismatch", "gvg_info", gvg, "expected", expectSecondarySPID, "actual", spID)
 		return ErrSecondaryMismatch
 	}
 
 	return nil
+}
+
+func expectedSecondarySP(gvg *virtualgrouptypes.GlobalVirtualGroup, redundancyIdx int32) (uint32, error) {
+	if redundancyIdx < 0 || int(redundancyIdx) >= len(gvg.GetSecondarySpIds()) {
+		return 0, fmt.Errorf("redundancy index %d is out of range", redundancyIdx)
+	}
+	return gvg.GetSecondarySpIds()[redundancyIdx], nil
 }
 
 // getRecoverDataHandler handles the query for recovery request from secondary SP or primary SP.
