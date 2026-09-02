@@ -394,16 +394,21 @@ func (i *Impl) GetBlockRecordNum(_ context.Context) int64 {
 	return 1
 }
 
+type epochReader interface {
+	GetEpoch(context.Context) (*models.Epoch, error)
+}
+
 // GetLastBlockRecordHeight returns the last block height stored inside the database
 func (i *Impl) GetLastBlockRecordHeight(ctx context.Context) (uint64, error) {
-	var lastBlockRecordHeight uint64
-	currentEpoch, err := i.DB.GetEpoch(ctx)
-	if err == nil {
-		lastBlockRecordHeight = 0
-	} else {
-		lastBlockRecordHeight = uint64(currentEpoch.BlockHeight)
+	return lastBlockRecordHeight(ctx, i.DB)
+}
+
+func lastBlockRecordHeight(ctx context.Context, reader epochReader) (uint64, error) {
+	currentEpoch, err := reader.GetEpoch(ctx)
+	if err != nil {
+		return 0, err
 	}
-	return lastBlockRecordHeight, err
+	return uint64(currentEpoch.BlockHeight), nil
 }
 
 func (i *Impl) GetLatestBlockHeight() *atomic.Value {
