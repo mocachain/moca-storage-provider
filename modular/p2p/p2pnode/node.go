@@ -261,15 +261,21 @@ func (n *Node) broadcast(
 	pc protocol.ID,
 	data proto.Message,
 ) {
-	for _, peerID := range n.node.Peerstore().PeersWithAddrs() {
-		if strings.Compare(n.node.ID().String(), peerID.String()) == 0 {
-			continue
-		}
+	broadcastToPeers(n.node.Peerstore().PeersWithAddrs(), n.node.ID(), func(peerID peer.ID) {
 		// addrs := n.node.Peerstore().Addrs(peerID)
 		// for _, addr := range addrs {
 		//	log.CtxErrorw(ctx, "broadcast", "protocol", pc, "peer_addr", addr.String())
 		// }
-		n.sendToPeer(ctx, peerID, pc, data)
+		_ = n.sendToPeer(ctx, peerID, pc, data)
+	})
+}
+
+func broadcastToPeers(peers []peer.ID, self peer.ID, send func(peer.ID)) {
+	for _, peerID := range peers {
+		if self == peerID {
+			continue
+		}
+		go send(peerID)
 	}
 }
 
