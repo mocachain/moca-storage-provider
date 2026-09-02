@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -15,6 +14,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/rcmgr"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
+	common "github.com/mocachain/moca/v2/types/common"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var mockErr = errors.New("mock error")
@@ -155,8 +156,9 @@ func TestApprovalModular_eventLoopSuccess2(t *testing.T) {
 func TestApprovalModular_GCApprovalQueue1(t *testing.T) {
 	t.Log("expire approval task")
 	a := setup(t)
-	approvalTask := &gfsptask.GfSpCreateObjectApprovalTask{Task: &gfsptask.GfSpTask{}}
-	approvalTask.SetCreateTime(10)
+	approvalTask := &gfsptask.GfSpCreateObjectApprovalTask{Task: &gfsptask.GfSpTask{}, CreateObjectInfo: &storagetypes.MsgCreateObject{PrimarySpApproval: &common.Approval{}}}
+	approvalTask.SetExpiredHeight(10)
+	a.SetCurrentBlockHeight(10)
 	result := a.GCApprovalQueue(approvalTask)
 	assert.Equal(t, true, result)
 }
@@ -164,10 +166,20 @@ func TestApprovalModular_GCApprovalQueue1(t *testing.T) {
 func TestApprovalModular_GCApprovalQueue2(t *testing.T) {
 	t.Log("not expired approval task")
 	a := setup(t)
-	approvalTask := &gfsptask.GfSpCreateObjectApprovalTask{Task: &gfsptask.GfSpTask{}}
-	approvalTask.SetCreateTime(time.Now().Unix())
+	approvalTask := &gfsptask.GfSpCreateObjectApprovalTask{Task: &gfsptask.GfSpTask{}, CreateObjectInfo: &storagetypes.MsgCreateObject{PrimarySpApproval: &common.Approval{}}}
+	approvalTask.SetExpiredHeight(10)
+	a.SetCurrentBlockHeight(9)
 	result := a.GCApprovalQueue(approvalTask)
 	assert.Equal(t, false, result)
+}
+
+func TestApprovalModular_GCApprovalQueueIgnoresWallClock(t *testing.T) {
+	a := setup(t)
+	approvalTask := &gfsptask.GfSpCreateObjectApprovalTask{Task: &gfsptask.GfSpTask{}, CreateObjectInfo: &storagetypes.MsgCreateObject{PrimarySpApproval: &common.Approval{}}}
+	approvalTask.SetCreateTime(1)
+	approvalTask.SetExpiredHeight(100)
+	a.SetCurrentBlockHeight(10)
+	assert.False(t, a.GCApprovalQueue(approvalTask))
 }
 
 func TestApprovalModular_GetCurrentBlockHeight(t *testing.T) {
