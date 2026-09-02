@@ -32,6 +32,12 @@ func TestEd25519PrivateKeyAndVerify(t *testing.T) {
 	}
 }
 
+func TestVerifyEddsaSignatureV2RejectsMalformedPublicKeyLength(t *testing.T) {
+	err := VerifyEddsaSignatureV2("aa", nil, []byte("message"))
+
+	require.Error(t, err)
+}
+
 func TestGenerateEddsaPrivateKey(t *testing.T) {
 	sk, err := GenerateEddsaPrivateKey("testeeetgcxsaahsadcastzxbmjhgmgjhcarwewfseasdasdavacsafaewe")
 	if err != nil {
