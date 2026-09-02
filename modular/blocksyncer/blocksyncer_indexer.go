@@ -34,7 +34,6 @@ func NewIndexer(codec codec.Codec, proxy node.Node, db database.Database, module
 		DB:                       db,
 		Modules:                  modules,
 		ServiceName:              serviceName,
-		ProcessedHeight:          0,
 		CommitNumber:             commitNumber,
 		BlockResultStorageEnable: blockResultStorageEnable,
 	}
@@ -47,7 +46,7 @@ type Impl struct {
 	DB      database.Database
 
 	LatestBlockHeight atomic.Value
-	ProcessedHeight   uint64
+	ProcessedHeight   atomic.Uint64
 
 	CommitNumber             uint64
 	BlockResultStorageEnable bool
@@ -211,7 +210,7 @@ func (i *Impl) Process(height uint64) error {
 	metrics.BlockHeightLagGauge.WithLabelValues("blocksyncer").Set(float64(block.Block.Height))
 	metrics.BlocksyncerCatchTime.Set(float64(time.Since(startTime).Milliseconds()))
 
-	i.ProcessedHeight = height
+	i.setProcessedHeight(height)
 	if !realTimeMode || catchEndBLock < int64(height) {
 		blockMap.Delete(heightKey)
 		eventMap.Delete(heightKey)
@@ -405,6 +404,14 @@ func (i *Impl) GetLastBlockRecordHeight(ctx context.Context) (uint64, error) {
 
 func (i *Impl) GetLatestBlockHeight() *atomic.Value {
 	return &(i.LatestBlockHeight)
+}
+
+func (i *Impl) processedHeight() uint64 {
+	return i.ProcessedHeight.Load()
+}
+
+func (i *Impl) setProcessedHeight(height uint64) {
+	i.ProcessedHeight.Store(height)
 }
 
 func (i *Impl) CreateMasterTable() error {
