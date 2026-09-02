@@ -78,6 +78,9 @@ func (d *diskFileStore) GetObject(ctx context.Context, key string, offset, limit
 		}
 	}
 	if limit > 0 {
+		if offset < info.Size() && limit > info.Size()-offset {
+			limit = info.Size() - offset
+		}
 		defer func() {
 			_ = f.Close()
 		}()
