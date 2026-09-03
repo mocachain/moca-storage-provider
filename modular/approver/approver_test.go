@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
+	common "github.com/evmos/evmos/v12/types/common"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/rcmgr"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
-	common "github.com/mocachain/moca/v2/types/common"
-	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 var mockErr = errors.New("mock error")
