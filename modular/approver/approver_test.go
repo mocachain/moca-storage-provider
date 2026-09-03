@@ -182,6 +182,16 @@ func TestApprovalModular_GCApprovalQueueIgnoresWallClock(t *testing.T) {
 	assert.False(t, a.GCApprovalQueue(approvalTask))
 }
 
+func TestApprovalModular_GCApprovalQueueDelegateCreateFallback(t *testing.T) {
+	a := setup(t)
+	delegateTask := &gfsptask.GfSpDelegateCreateObjectApprovalTask{
+		Task:                 &gfsptask.GfSpTask{},
+		DelegateCreateObject: &storagetypes.MsgDelegateCreateObject{},
+	}
+	delegateTask.SetCreateTime(1)
+	assert.True(t, a.GCApprovalQueue(delegateTask))
+}
+
 func TestApprovalModular_GetCurrentBlockHeight(t *testing.T) {
 	a := setup(t)
 	result := a.GetCurrentBlockHeight()

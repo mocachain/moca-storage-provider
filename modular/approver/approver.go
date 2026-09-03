@@ -137,7 +137,8 @@ func (a *ApprovalModular) eventLoop(ctx context.Context) {
 func (a *ApprovalModular) GCApprovalQueue(qTask task.Task) bool {
 	approvalTask := qTask.(task.ApprovalTask)
 	expiredHeight := approvalTask.GetExpiredHeight()
-	if expiredHeight > 0 && expiredHeight <= a.GetCurrentBlockHeight() {
+	if (expiredHeight > 0 && expiredHeight <= a.GetCurrentBlockHeight()) ||
+		(expiredHeight == 0 && approvalTask.GetCreateTime() < time.Now().Unix()-DefaultApprovalExpiredTimeout) {
 		log.Debugw("expire approval task", "info", approvalTask.Info())
 		return true
 	}
