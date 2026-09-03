@@ -1090,10 +1090,11 @@ func TestExecuteModular_recoverByPrimarySPSuccess(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestExecuteModular_recoverByPrimarySPRejectsInvalidSuccessorChecksum(t *testing.T) {
-	e := setup(t)
-	ctrl := gomock.NewController(t)
-
+// successorRecoverByPrimarySPFixture wires the mocks shared by the successor
+// recovery tests: piece download succeeds and the successor branch reaches
+// setPieceMetadata with the accumulated checksums returned by the SPDB mock.
+func successorRecoverByPrimarySPFixture(e *ExecuteModular, ctrl *gomock.Controller,
+	segmentCount uint32, accumulated [][]byte) (*corespdb.MockSPDB, *consensus.MockConsensus) {
 	client := gfspclient.NewMockGfSpClientAPI(ctrl)
 	client.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), true).Return(&metadatatypes.VGFInfoBucket{
 		BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
@@ -1108,20 +1109,79 @@ func TestExecuteModular_recoverByPrimarySPRejectsInvalidSuccessorChecksum(t *tes
 	con.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{{Id: 1, Endpoint: "endpoint"}}, nil).Times(1)
 	e.baseApp.SetConsensus(con)
 
+	pieceOp := piecestore.NewMockPieceOp(ctrl)
+	pieceOp.EXPECT().ECPieceKey(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("test").Times(1)
+	pieceOp.EXPECT().SegmentPieceCount(gomock.Any(), gomock.Any()).Return(segmentCount).Times(1)
+	e.baseApp.SetPieceOp(pieceOp)
+
+	pieceStore := piecestore.NewMockPieceStore(ctrl)
+	pieceStore.EXPECT().PutPiece(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	e.baseApp.SetPieceStore(pieceStore)
+
 	db := corespdb.NewMockSPDB(ctrl)
-	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&corespdb.IntegrityMeta{
-		PieceChecksumList: [][]byte{[]byte("invalid-checksum")},
-	}, nil).Times(1)
+	db.EXPECT().SetReplicatePieceChecksum(uint64(1), gomock.Any(), int32(0), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	db.EXPECT().GetAllReplicatePieceChecksumOptimized(uint64(1), int32(0), segmentCount).Return(accumulated, nil).Times(1)
 	e.baseApp.SetGfSpDB(db)
 
+	return db, con
+}
+
+func successorRecoveryTask() *gfsptask.GfSpRecoverPieceTask {
 	task := &gfsptask.GfSpRecoverPieceTask{
-		Task:       &gfsptask.GfSpTask{},
-		ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+		Task:          &gfsptask.GfSpTask{},
+		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+		StorageParams: &storagetypes.Params{},
 	}
 	task.SetBySuccessorSP(true)
+	return task
+}
 
-	err := e.recoverByPrimarySP(context.TODO(), task)
-	assert.ErrorIs(t, err, ErrRecoveryPieceChecksum)
+func TestExecuteModular_recoverByPrimarySPSuccessorSkipsLocalIntegrityLookup(t *testing.T) {
+	t.Log("a successor has no local integrity record, so the per-piece lookup must not run for it")
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+
+	// two segments expected, one accumulated: recovery proceeds without assembly
+	// and without ever calling GetObjectIntegrity (the mock rejects it)
+	successorRecoverByPrimarySPFixture(e, ctrl, 2, [][]byte{hash.GenerateChecksum([]byte("body"))})
+
+	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
+	assert.Nil(t, err)
+}
+
+func TestExecuteModular_recoverByPrimarySPSuccessorCompletesAgainstSealedChecksums(t *testing.T) {
+	t.Log("a completed successor piece set must be validated against the sealed checksums before the integrity record is written")
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+
+	pieceChecksum := hash.GenerateChecksum([]byte("body"))
+	db, con := successorRecoverByPrimarySPFixture(e, ctrl, 1, [][]byte{pieceChecksum})
+	con.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(&storagetypes.ObjectInfo{
+		Id:        sdkmath.NewUint(1),
+		Checksums: [][]byte{[]byte("primary-root"), hash.GenerateIntegrityHash([][]byte{pieceChecksum})},
+	}, nil).Times(1)
+	db.EXPECT().SetObjectIntegrity(gomock.Any()).Return(nil).Times(1)
+	db.EXPECT().DeleteAllReplicatePieceChecksum(uint64(1), int32(0), uint32(1)).Return(nil).Times(1)
+
+	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
+	assert.Nil(t, err)
+}
+
+func TestExecuteModular_recoverByPrimarySPSuccessorRejectsMismatchedSealedChecksums(t *testing.T) {
+	t.Log("a completed successor piece set that does not match the sealed checksums must not become servable")
+	e := setup(t)
+	ctrl := gomock.NewController(t)
+
+	db, con := successorRecoverByPrimarySPFixture(e, ctrl, 1, [][]byte{hash.GenerateChecksum([]byte("body"))})
+	con.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(&storagetypes.ObjectInfo{
+		Id:        sdkmath.NewUint(1),
+		Checksums: [][]byte{[]byte("primary-root"), []byte("checksum-sealed-on-chain")},
+	}, nil).Times(1)
+	// the accumulated checksums are dropped so the whole piece set is re-recovered
+	db.EXPECT().DeleteAllReplicatePieceChecksum(uint64(1), int32(0), uint32(1)).Return(nil).Times(1)
+
+	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
+	assert.ErrorIs(t, err, ErrRecoveryChainChecksum)
 }
 
 func TestExecuteModular_recoverBySecondarySPFailure1(t *testing.T) {
