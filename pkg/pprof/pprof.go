@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,13 +79,44 @@ func (p *PProf) ReleaseResource(ctx context.Context, scope corercmgr.ResourceSco
 	scope.Done()
 }
 
+const (
+	// defaultProfileSeconds mirrors the default collection window of
+	// net/http/pprof's duration-based endpoints.
+	defaultProfileSeconds = 30
+	// profileWriteGrace is added on top of the requested collection window so
+	// the response body can still be written after collection finishes.
+	profileWriteGrace = 30 * time.Second
+)
+
+// durationAware extends the connection write deadline for handlers that
+// collect for a caller-chosen duration before writing anything: the
+// server-wide WriteTimeout starts when the headers are read, so without the
+// extension it terminates any profile at or above the timeout.
+//
+// net/http/pprof's Profile and Trace handlers already extend the deadline
+// themselves (configureWriteDeadline, present in the go1.23.x line this
+// module builds with), so only the third-party fgprof route needs this.
+func durationAware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secs, err := strconv.ParseFloat(r.FormValue("seconds"), 64)
+		if err != nil || secs <= 0 {
+			secs = defaultProfileSeconds
+		}
+		deadline := time.Now().Add(time.Duration(secs*float64(time.Second)) + profileWriteGrace)
+		if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil {
+			log.Errorw("failed to extend the profile write deadline", "error", err)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (p *PProf) registerProfiler(r *mux.Router) {
 	r.HandleFunc("/debug/pprof/", pprof.Index)
 	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	r.Handle("/debug/fgprof", fgprof.Handler())
+	r.Handle("/debug/fgprof", durationAware(fgprof.Handler()))
 
 	// Manually add support for paths linked to by index page at /debug/pprof/
 	r.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
