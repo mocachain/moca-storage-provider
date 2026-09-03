@@ -70,6 +70,10 @@ func (d *diskFileStore) GetObject(ctx context.Context, key string, offset, limit
 		_ = f.Close()
 		return io.NopCloser(bytes.NewBuffer([]byte{})), nil
 	}
+	if limit > 0 && offset > info.Size() {
+		_ = f.Close()
+		return nil, io.EOF
+	}
 
 	if offset > 0 {
 		if _, err = f.Seek(offset, 0); err != nil {
@@ -78,6 +82,9 @@ func (d *diskFileStore) GetObject(ctx context.Context, key string, offset, limit
 		}
 	}
 	if limit > 0 {
+		if limit > info.Size()-offset {
+			limit = info.Size() - offset
+		}
 		defer func() {
 			_ = f.Close()
 		}()
