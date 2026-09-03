@@ -44,7 +44,7 @@ var (
 	ErrInvalidPieceChecksumLength   = gfsperrors.Register(module.ExecuteModularName, http.StatusInternalServerError, 45214, "invalid piece checksum length")
 	ErrRecoveryObjectStatus         = gfsperrors.Register(module.ExecuteModularName, http.StatusNotAcceptable, 45215, "the recovered object has not been sealed state")
 	ErrInvalidSecondaryBlsSignature = gfsperrors.Register(module.ExecuteModularName, http.StatusNotAcceptable, 45216, "primary receive invalid bls signature from secondary SP")
-	ErrRecoveryChainChecksum        = gfsperrors.Register(module.ExecuteModularName, http.StatusNotAcceptable, 45217, "recovered piece checksums do not match the sealed object checksums")
+	ErrRecoveryChainChecksum        = gfsperrors.Register(module.ExecuteModularName, http.StatusNotAcceptable, 45218, "recovered piece checksums do not match the sealed object checksums")
 	ErrInvalidReplicatePieceTask    = gfsperrors.Register(module.ExecuteModularName, http.StatusInternalServerError, 45217, "invalid replicate piece task")
 )
 
