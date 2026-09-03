@@ -608,13 +608,17 @@ func CheckProgress() {
 		if err != nil {
 			continue
 		}
-		if epochMaster.BlockHeight-epochSlave.BlockHeight < DefaultBlockHeightDiff {
+		if shouldSwitchMasterDB(epochMaster.BlockHeight, epochSlave.BlockHeight) {
 			SwitchMasterDBFlag()
 			StopMainService()
 			break
 		}
 		time.Sleep(time.Minute * DefaultCheckDiffPeriod)
 	}
+}
+
+func shouldSwitchMasterDB(masterHeight, backupHeight int64) bool {
+	return masterHeight >= backupHeight && masterHeight-backupHeight < DefaultBlockHeightDiff
 }
 
 func SwitchMasterDBFlag() error {
