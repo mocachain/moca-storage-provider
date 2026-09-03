@@ -3,7 +3,7 @@ package gater
 import (
 	"testing"
 
-	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/stretchr/testify/require"
 )
 
