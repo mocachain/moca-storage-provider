@@ -85,6 +85,14 @@ func TestDiskFileStore_GetObjectSuccess(t *testing.T) {
 			wantedResult: "lo",
 			wantedErr:    nil,
 		},
+		{
+			name:         "disk_file_get_with_huge_limit_test1",
+			key:          f.Name(),
+			offset:       3,
+			limit:        int64(^uint64(0) >> 1),
+			wantedResult: "lo",
+			wantedErr:    nil,
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,6 +127,13 @@ func TestDiskFileStore_GetObjectFailure(t *testing.T) {
 			key:       f.Name(),
 			offset:    6,
 			limit:     1,
+			wantedErr: errors.New("EOF"),
+		},
+		{
+			name:      "disk_file_get_with_huge_limit_past_end_test1",
+			key:       f.Name(),
+			offset:    6,
+			limit:     int64(^uint64(0) >> 1),
 			wantedErr: errors.New("EOF"),
 		},
 	}

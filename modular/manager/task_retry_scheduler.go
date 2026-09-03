@@ -39,6 +39,23 @@ const (
 	maxLengthOfNextExecutionBackOffMap = 100000
 )
 
+const maxRetryBackoffDuration = time.Duration(1<<63 - 1)
+
+func retryBackoffDuration(triedTimes int64) time.Duration {
+	if triedTimes < 0 {
+		triedTimes = 0
+	}
+	if triedTimes >= 62 {
+		return maxRetryBackoffDuration
+	}
+	multiplier := uint64(2) << uint(triedTimes)
+	interval := uint64(retryIntervalSecond)
+	if multiplier > uint64(maxRetryBackoffDuration)/interval {
+		return maxRetryBackoffDuration
+	}
+	return time.Duration(multiplier * interval)
+}
+
 type RetryTaskType int32
 
 const (
@@ -136,7 +153,7 @@ func (s *TaskRetryScheduler) startReplicateTaskRetry() {
 			err = s.retryReplicateTask(iter.Value())
 			s.replicateTaskBackOffMap[taskKey].TriedTimes += 1
 			if err != nil {
-				s.replicateTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add((2 << s.replicateTaskBackOffMap[taskKey].TriedTimes) * retryIntervalSecond)
+				s.replicateTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add(retryBackoffDuration(s.replicateTaskBackOffMap[taskKey].TriedTimes))
 				log.Infow("reset backoff execution time for retry replicate task",
 					"task", iter.Value(), "TaskRetryInfo", s.replicateTaskBackOffMap[taskKey])
 			} else {
@@ -191,7 +208,7 @@ func (s *TaskRetryScheduler) startSealTaskRetry() {
 			err = s.retrySealTask(iter.Value())
 			s.sealTaskBackOffMap[taskKey].TriedTimes += 1
 			if err != nil {
-				s.sealTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add((2 << s.sealTaskBackOffMap[taskKey].TriedTimes) * retryIntervalSecond)
+				s.sealTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add(retryBackoffDuration(s.sealTaskBackOffMap[taskKey].TriedTimes))
 				log.Infow("reset backoff execution time for retry seal task",
 					"task", iter.Value(), "TaskRetryInfo", s.sealTaskBackOffMap[taskKey])
 			} else {
@@ -246,7 +263,7 @@ func (s *TaskRetryScheduler) startRejectUnsealTaskRetry() {
 			err = s.retryRejectUnsealTask(iter.Value())
 			s.rejectUnsealTaskBackOffMap[taskKey].TriedTimes += 1
 			if err != nil {
-				s.rejectUnsealTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add((2 << s.rejectUnsealTaskBackOffMap[taskKey].TriedTimes) * retryIntervalSecond)
+				s.rejectUnsealTaskBackOffMap[taskKey].NextExecutionTime = time.Now().Add(retryBackoffDuration(s.rejectUnsealTaskBackOffMap[taskKey].TriedTimes))
 				log.Infow("reset backoff execution time for retry reject unseal task",
 					"task", iter.Value(), "TaskRetryInfo", s.rejectUnsealTaskBackOffMap[taskKey])
 			} else {
