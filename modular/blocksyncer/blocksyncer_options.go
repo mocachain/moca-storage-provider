@@ -325,7 +325,7 @@ func (b *BlockSyncerModular) quickFetchBlockData(ctx context.Context, startHeigh
 				startBlock = count*cycle + startHeight
 				endBlock = count*(cycle+1) + startHeight - 1
 				flag = 1
-				processedHeight := Cast(b.parserCtx.Indexer).ProcessedHeight
+				processedHeight := Cast(b.parserCtx.Indexer).processedHeight()
 				if processedHeight != 0 && int64(startBlock)-int64(processedHeight) > int64(MaxHeightGapFactor*count) {
 					log.Infof("processedHeight: %d", processedHeight)
 					time.Sleep(time.Second)
@@ -344,12 +344,12 @@ func (b *BlockSyncerModular) quickFetchBlockData(ctx context.Context, startHeigh
 				endBlock = uint64(latestBlockHeight)
 			}
 
-			b.fetchData(startBlock, endBlock)
+			b.fetchData(ctx, startBlock, endBlock)
 		}
 	}
 }
 
-func (b *BlockSyncerModular) fetchData(start, end uint64) {
+func (b *BlockSyncerModular) fetchData(ctx context.Context, start, end uint64) {
 	log.Infof("fetch data start:%d end:%d", start, end)
 	if start > end {
 		return
@@ -361,10 +361,19 @@ func (b *BlockSyncerModular) fetchData(start, end uint64) {
 			defer wg.Done()
 
 			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
 				rpcStartTime := time.Now()
 				block, err := b.parserCtx.Node.Block(int64(height))
 				if err != nil {
 					log.Warnf("failed to get block from node: %s", err)
+					if !waitForFetchRetry(ctx) {
+						return
+					}
 					continue
 				}
 				metrics.ChainRPCTime.Set(float64(time.Since(rpcStartTime).Milliseconds()))
@@ -372,6 +381,9 @@ func (b *BlockSyncerModular) fetchData(start, end uint64) {
 				events, err := b.parserCtx.Node.BlockResults(int64(height))
 				if err != nil {
 					log.Warnf("failed to get block results from node: %s", err)
+					if !waitForFetchRetry(ctx) {
+						return
+					}
 					continue
 				}
 				metrics.ChainRPCTime.Set(float64(time.Since(rpcStartTime).Milliseconds()))
@@ -387,11 +399,20 @@ func (b *BlockSyncerModular) fetchData(start, end uint64) {
 				eventMap.Store(heightKey, events)
 				txMap.Store(heightKey, txs)
 				txHashMap.Store(heightKey, block.Block.Data.Txs)
-				break
+				return
 			}
 		}(i)
 	}
 	wg.Wait()
+}
+
+func waitForFetchRetry(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(100 * time.Millisecond):
+		return true
+	}
 }
 
 func (b *BlockSyncerModular) prepareMasterFlagTable() error {
@@ -587,13 +608,17 @@ func CheckProgress() {
 		if err != nil {
 			continue
 		}
-		if epochMaster.BlockHeight-epochSlave.BlockHeight < DefaultBlockHeightDiff {
+		if shouldSwitchMasterDB(epochMaster.BlockHeight, epochSlave.BlockHeight) {
 			SwitchMasterDBFlag()
 			StopMainService()
 			break
 		}
 		time.Sleep(time.Minute * DefaultCheckDiffPeriod)
 	}
+}
+
+func shouldSwitchMasterDB(masterHeight, backupHeight int64) bool {
+	return masterHeight >= backupHeight && masterHeight-backupHeight < DefaultBlockHeightDiff
 }
 
 func SwitchMasterDBFlag() error {

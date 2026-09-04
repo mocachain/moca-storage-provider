@@ -34,7 +34,6 @@ func NewIndexer(codec codec.Codec, proxy node.Node, db database.Database, module
 		DB:                       db,
 		Modules:                  modules,
 		ServiceName:              serviceName,
-		ProcessedHeight:          0,
 		CommitNumber:             commitNumber,
 		BlockResultStorageEnable: blockResultStorageEnable,
 	}
@@ -47,7 +46,7 @@ type Impl struct {
 	DB      database.Database
 
 	LatestBlockHeight atomic.Value
-	ProcessedHeight   uint64
+	ProcessedHeight   atomic.Uint64
 
 	CommitNumber             uint64
 	BlockResultStorageEnable bool
@@ -186,36 +185,21 @@ func (i *Impl) Process(height uint64) error {
 	log.Infof("height :%d tx count:%d sql count:%d", height, txCount, sqlCount)
 	metrics.BlocksyncerLogicTime.Set(float64(time.Since(startTime).Milliseconds()))
 
-	step := 0
 	dbStartTime := time.Now()
-	for step < sqlCount {
-		finalSQL := ""
-		finalVal := make([]interface{}, 0)
-		left := step
-		right := step + int(i.CommitNumber)
-		if right > sqlCount {
-			right = sqlCount
-		}
-		for _, m := range allSQL[left:right] {
-			for k, v := range m {
-				finalSQL += fmt.Sprintf("%s;   ", k)
-				finalVal = append(finalVal, v...)
-			}
-		}
-		tx := i.DB.Begin(context.TODO())
+	tx := i.DB.Begin(context.TODO())
+	for _, statements := range chunkSQL(allSQL, int(i.CommitNumber)) {
+		finalSQL, finalVal := flattenSQL(statements)
 		if txErr := tx.Db.Session(&gorm.Session{DryRun: false}).Exec(finalSQL, finalVal...).Error; txErr != nil {
 			log.Errorw("failed to exec sql", "error", txErr)
 			tx.Rollback()
 			return txErr
 		}
-
-		if txErr := tx.Commit(); txErr != nil {
-			log.Errorw("failed to commit db", "error", txErr)
-			return txErr
-		}
-		step = right
-		log.Infof("%d - %d commit", left, right)
 	}
+	if txErr := tx.Commit(); txErr != nil {
+		log.Errorw("failed to commit db", "error", txErr)
+		return txErr
+	}
+	log.Infof("all %d statements committed", sqlCount)
 
 	metrics.BlocksyncerWriteDBTime.Set(float64(time.Since(dbStartTime).Milliseconds()))
 	log.Infof("height :%d tx count:%d sql count:%d", height, txCount, sqlCount)
@@ -226,7 +210,7 @@ func (i *Impl) Process(height uint64) error {
 	metrics.BlockHeightLagGauge.WithLabelValues("blocksyncer").Set(float64(block.Block.Height))
 	metrics.BlocksyncerCatchTime.Set(float64(time.Since(startTime).Milliseconds()))
 
-	i.ProcessedHeight = height
+	i.setProcessedHeight(height)
 	if !realTimeMode || catchEndBLock < int64(height) {
 		blockMap.Delete(heightKey)
 		eventMap.Delete(heightKey)
@@ -242,6 +226,30 @@ func (i *Impl) Process(height uint64) error {
 	}
 
 	return nil
+}
+
+func flattenSQL(allSQL []map[string][]interface{}) (string, []interface{}) {
+	finalSQL := ""
+	finalVal := make([]interface{}, 0)
+	for _, statements := range allSQL {
+		for statement, values := range statements {
+			finalSQL += fmt.Sprintf("%s;   ", statement)
+			finalVal = append(finalVal, values...)
+		}
+	}
+	return finalSQL, finalVal
+}
+
+func chunkSQL(allSQL []map[string][]interface{}, chunkSize int) [][]map[string][]interface{} {
+	chunks := make([][]map[string][]interface{}, 0, (len(allSQL)+chunkSize-1)/chunkSize)
+	for start := 0; start < len(allSQL); start += chunkSize {
+		end := start + chunkSize
+		if end > len(allSQL) {
+			end = len(allSQL)
+		}
+		chunks = append(chunks, allSQL[start:end])
+	}
+	return chunks
 }
 
 // SaveEpoch accept a block result data and persist basic info into db to record current sync progress
@@ -382,20 +390,33 @@ func (i *Impl) GetBlockRecordNum(_ context.Context) int64 {
 	return 1
 }
 
+type epochReader interface {
+	GetEpoch(context.Context) (*models.Epoch, error)
+}
+
 // GetLastBlockRecordHeight returns the last block height stored inside the database
 func (i *Impl) GetLastBlockRecordHeight(ctx context.Context) (uint64, error) {
-	var lastBlockRecordHeight uint64
-	currentEpoch, err := i.DB.GetEpoch(ctx)
-	if err == nil {
-		lastBlockRecordHeight = 0
-	} else {
-		lastBlockRecordHeight = uint64(currentEpoch.BlockHeight)
+	return lastBlockRecordHeight(ctx, i.DB)
+}
+
+func lastBlockRecordHeight(ctx context.Context, reader epochReader) (uint64, error) {
+	currentEpoch, err := reader.GetEpoch(ctx)
+	if err != nil {
+		return 0, err
 	}
-	return lastBlockRecordHeight, err
+	return uint64(currentEpoch.BlockHeight), nil
 }
 
 func (i *Impl) GetLatestBlockHeight() *atomic.Value {
 	return &(i.LatestBlockHeight)
+}
+
+func (i *Impl) processedHeight() uint64 {
+	return i.ProcessedHeight.Load()
+}
+
+func (i *Impl) setProcessedHeight(height uint64) {
+	i.ProcessedHeight.Store(height)
 }
 
 func (i *Impl) CreateMasterTable() error {
