@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	sdkmath "cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
@@ -40,6 +41,7 @@ var (
 	ErrCancelSwapIn                       = gfsperrors.Register(module.SignModularName, http.StatusBadRequest, 120018, "send cancel swap in failed")
 	ErrDelegateUpdateObjectContentOnChain = gfsperrors.Register(module.SignModularName, http.StatusBadRequest, 120019, "send DelegateUpdateObjectContent failed")
 	ErrDelegateCreateObjectOnChain        = gfsperrors.Register(module.SignModularName, http.StatusBadRequest, 120020, "send DelegateCreateObject failed")
+	ErrUnexpectedFundDeposit              = gfsperrors.Register(module.SignModularName, http.StatusBadRequest, 120021, "gvg deposit outside the expected bounds")
 )
 
 var _ module.Signer = &SignModular{}
@@ -69,6 +71,38 @@ func (s *SignModular) ReserveResource(ctx context.Context, state *rcmgr.ScopeSta
 
 func (s *SignModular) ReleaseResource(ctx context.Context, span rcmgr.ResourceScopeSpan) {
 	span.Done()
+}
+
+// validateGVGDeposit bounds the caller-supplied deposit that a create-gvg or
+// top-up request draws from the funding account: the denom must match the
+// chain's deposit denom and the amount must be positive and no more than a
+// fully staked family could ever need. The cap is only applied when the chain
+// params make it derivable, so degenerate params cannot block group creation.
+func (s *SignModular) validateGVGDeposit(ctx context.Context, deposit sdk.Coin) error {
+	if deposit.Amount.IsNil() || !deposit.Amount.IsPositive() {
+		return ErrUnexpectedFundDeposit
+	}
+	params, err := s.baseApp.Consensus().QueryVirtualGroupParams(ctx)
+	if err != nil {
+		log.CtxErrorw(ctx, "failed to query virtual group params to bound the deposit", "error", err)
+		return err
+	}
+	if deposit.Denom != params.GetDepositDenom() {
+		log.CtxErrorw(ctx, "gvg deposit denom differs from the chain deposit denom",
+			"deposit_denom", deposit.Denom, "expected_denom", params.GetDepositDenom())
+		return ErrUnexpectedFundDeposit
+	}
+	stakingPerBytes := params.GvgStakingPerBytes
+	if stakingPerBytes.IsNil() || !stakingPerBytes.IsPositive() || params.GetMaxStoreSizePerFamily() == 0 {
+		return nil
+	}
+	maxDeposit := stakingPerBytes.Mul(sdkmath.NewIntFromUint64(params.GetMaxStoreSizePerFamily()))
+	if deposit.Amount.GT(maxDeposit) {
+		log.CtxErrorw(ctx, "gvg deposit exceeds the stake a full family needs",
+			"deposit", deposit.Amount.String(), "max", maxDeposit.String())
+		return ErrUnexpectedFundDeposit
+	}
+	return nil
 }
 
 func (s *SignModular) SignCreateBucketApproval(ctx context.Context, bucket *storagetypes.MsgCreateBucket) ([]byte, error) {
@@ -180,10 +214,20 @@ func (s *SignModular) DiscontinueBucketEvm(ctx context.Context, bucket *storaget
 }
 
 func (s *SignModular) CreateGlobalVirtualGroup(ctx context.Context, gvg *virtualgrouptypes.MsgCreateGlobalVirtualGroup) (string, error) {
+	if gvg != nil {
+		if err := s.validateGVGDeposit(ctx, gvg.GetDeposit()); err != nil {
+			return "", err
+		}
+	}
 	return s.client.CreateGlobalVirtualGroup(ctx, SignOperator, gvg)
 }
 
 func (s *SignModular) CreateGlobalVirtualGroupEvm(ctx context.Context, gvg *virtualgrouptypes.MsgCreateGlobalVirtualGroup) (string, error) {
+	if gvg != nil {
+		if err := s.validateGVGDeposit(ctx, gvg.GetDeposit()); err != nil {
+			return "", err
+		}
+	}
 	return s.client.CreateGlobalVirtualGroupEvm(ctx, SignOperator, gvg)
 }
 
@@ -304,10 +348,20 @@ func (s *SignModular) CancelSwapInEvm(ctx context.Context, cancelSwapIn *virtual
 }
 
 func (s *SignModular) Deposit(ctx context.Context, deposit *virtualgrouptypes.MsgDeposit) (string, error) {
+	if deposit != nil {
+		if err := s.validateGVGDeposit(ctx, deposit.GetDeposit()); err != nil {
+			return "", err
+		}
+	}
 	return s.client.Deposit(ctx, SignOperator, deposit)
 }
 
 func (s *SignModular) DepositEvm(ctx context.Context, deposit *virtualgrouptypes.MsgDeposit) (string, error) {
+	if deposit != nil {
+		if err := s.validateGVGDeposit(ctx, deposit.GetDeposit()); err != nil {
+			return "", err
+		}
+	}
 	return s.client.DepositEvm(ctx, SignOperator, deposit)
 }
 
