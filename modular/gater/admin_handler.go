@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -658,7 +659,7 @@ func (g *GateModular) replicateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	readDataTime := time.Now()
-	data, err = io.ReadAll(r.Body)
+	data, err = readReplicateBody(r.Body, g.maxPayloadSize)
 	metrics.PerfReceivePieceTimeHistogram.WithLabelValues("receive_piece_read_piece_time").Observe(time.Since(readDataTime).Seconds())
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to read replicate piece data", "error", err)
@@ -686,6 +687,20 @@ func (g *GateModular) replicateHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(GnfdIntegrityHashSignatureHeader, hex.EncodeToString(signature))
 	}
 	log.CtxDebug(reqCtx.Context(), "succeed to replicate piece")
+}
+
+func readReplicateBody(body io.Reader, maxSize uint64) ([]byte, error) {
+	if maxSize > math.MaxInt64 {
+		maxSize = math.MaxInt64
+	}
+	data, err := io.ReadAll(io.LimitReader(body, int64(maxSize)+1))
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(data)) > maxSize {
+		return nil, ErrInvalidPayloadSize
+	}
+	return data, nil
 }
 
 func (g *GateModular) checkReplicatePermission(ctx context.Context, receiveTask gfsptask.GfSpReceivePieceTask, signatureAddr string) error {
@@ -748,13 +763,23 @@ func (g *GateModular) checkReplicatePermission(ctx context.Context, receiveTask 
 		return ErrConsensusWithDetail("failed to getSPID, gvg info:" + gvg.String() + ", error: " + err.Error())
 	}
 
-	expectSecondarySPID := gvg.GetSecondarySpIds()[int(receiveTask.GetRedundancyIdx())]
+	expectSecondarySPID, err := expectedSecondarySP(gvg, receiveTask.GetRedundancyIdx())
+	if err != nil {
+		return err
+	}
 	if expectSecondarySPID != spID {
 		log.CtxErrorw(ctx, "secondary sp mismatch", "gvg_info", gvg, "expected", expectSecondarySPID, "actual", spID)
 		return ErrSecondaryMismatch
 	}
 
 	return nil
+}
+
+func expectedSecondarySP(gvg *virtualgrouptypes.GlobalVirtualGroup, redundancyIdx int32) (uint32, error) {
+	if redundancyIdx < 0 || int(redundancyIdx) >= len(gvg.GetSecondarySpIds()) {
+		return 0, fmt.Errorf("redundancy index %d is out of range", redundancyIdx)
+	}
+	return gvg.GetSecondarySpIds()[redundancyIdx], nil
 }
 
 // getRecoverDataHandler handles the query for recovery request from secondary SP or primary SP.

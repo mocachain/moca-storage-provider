@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -55,8 +56,12 @@ func (p *Probe) serve() {
 	router := mux.NewRouter()
 	p.registerProbes(router, p.httpProbe)
 	p.httpServer = &http.Server{
-		Addr:    p.httpAddress,
-		Handler: router,
+		Addr:              p.httpAddress,
+		Handler:           router,
+		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 	if err := p.httpServer.ListenAndServe(); err != nil {
 		log.Errorw("failed to listen and serve", "error", err)

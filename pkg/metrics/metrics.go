@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
@@ -66,8 +67,12 @@ func (m *Metrics) serve() {
 	router := mux.NewRouter()
 	router.Path("/metrics").Handler(promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{}))
 	m.httpServer = &http.Server{
-		Addr:    m.httpAddress,
-		Handler: router,
+		Addr:              m.httpAddress,
+		Handler:           router,
+		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 	if err := m.httpServer.ListenAndServe(); err != nil {
 		log.Errorw("failed to listen and serve", "error", err)
