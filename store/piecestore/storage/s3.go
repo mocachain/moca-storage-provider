@@ -94,6 +94,13 @@ func (s *s3Store) GetObject(ctx context.Context, key string, offset, limit int64
 		log.Errorw("S3 failed to get object", "error", err)
 		return nil, err
 	}
+	if offset > 0 || limit > 0 {
+		if resp.Metadata[ChecksumAlgo] != nil {
+			_ = resp.Body.Close()
+			return nil, ErrRangeChecksumUnavailable
+		}
+		return resp.Body, nil
+	}
 	if offset == 0 && limit == -1 {
 		cs := resp.Metadata[ChecksumAlgo]
 		if cs != nil {
