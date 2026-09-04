@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/mocachain/moca-storage-provider/pkg/log"
@@ -106,19 +104,22 @@ func (d *diskFileStore) PutObject(ctx context.Context, key string, reader io.Rea
 		return os.MkdirAll(p, os.FileMode(0o755))
 	}
 
-	tmp := filepath.Join(filepath.Dir(p), "."+filepath.Base(p)+".tmp"+strconv.Itoa(rand.Int()))
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// exclusive creation with an OS-generated name, so the write can never go
+	// through a pre-existing path
+	tmpPattern := "." + filepath.Base(p) + ".tmp*"
+	f, err := os.CreateTemp(filepath.Dir(p), tmpPattern)
 	if err != nil && os.IsNotExist(err) {
 		if err = os.MkdirAll(filepath.Dir(p), os.FileMode(0o755)); err != nil {
 			log.Errorw("failed to put object due to mkdir", "error", err)
 			return err
 		}
-		f, err = os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		f, err = os.CreateTemp(filepath.Dir(p), tmpPattern)
 	}
 	if err != nil {
 		log.Errorw("failed to put object due to open file", "error", err)
 		return err
 	}
+	tmp := f.Name()
 	defer func() {
 		if err != nil {
 			_ = os.Remove(tmp)
