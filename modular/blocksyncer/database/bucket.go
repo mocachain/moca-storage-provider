@@ -48,6 +48,25 @@ func (db *DB) UpdateBucketOffChainStatus(ctx context.Context, bucket *models.Buc
 	return stat.SQL.String(), stat.Vars
 }
 
+func (db *DB) UpdateBucketOffChainStatusBit(ctx context.Context, bucketName string, status int, enabled bool, updateAt int64, txHash common.Hash, updateTime int64) (string, []interface{}) {
+	expression := "off_chain_status & ?"
+	value := ^status
+	if enabled {
+		expression = "off_chain_status | ?"
+		value = status
+	}
+	stat := db.Db.Session(&gorm.Session{DryRun: true}).Table((&models.Bucket{}).TableName()).
+		Where("bucket_name = ?", bucketName).
+		Select("off_chain_status", "update_at", "update_tx_hash", "update_time").
+		Updates(map[string]interface{}{
+			"off_chain_status": gorm.Expr(expression, value),
+			"update_at":        updateAt,
+			"update_tx_hash":   txHash,
+			"update_time":      updateTime,
+		}).Statement
+	return stat.SQL.String(), stat.Vars
+}
+
 func (db *DB) BatchUpdateBucketSize(ctx context.Context, buckets []*models.Bucket) error {
 	return db.Db.Table((&models.Bucket{}).TableName()).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "bucket_id"}},
