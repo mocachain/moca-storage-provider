@@ -185,30 +185,30 @@ func TestS3Store_CreateBucketSuccess(t *testing.T) {
 func TestS3Store_GetObjectSuccess(t *testing.T) {
 	store := setupS3Test(t)
 	cases := []struct {
-		name      string
-		key       string
-		offset    int64
-		limit     int64
-		resp      s3.GetObjectOutput
-		wantedErr error
+		name         string
+		key          string
+		offset       int64
+		limit        int64
+		resp         s3.GetObjectOutput
+		wantedResult string
 	}{
 		{
-			name:      "1",
-			key:       mockKey,
-			limit:     1,
-			resp:      s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get"))},
-			wantedErr: nil,
+			name:         "ranged read without checksum metadata is sliced locally",
+			key:          mockKey,
+			limit:        1,
+			resp:         s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get"))},
+			wantedResult: "s",
 		},
 		{
-			name:      "2",
-			key:       mockKey,
-			offset:    1,
-			limit:     -1,
-			resp:      s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get"))},
-			wantedErr: nil,
+			name:         "open-ended ranged read without checksum metadata",
+			key:          mockKey,
+			offset:       1,
+			limit:        -1,
+			resp:         s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get"))},
+			wantedResult: "3 get",
 		},
 		{
-			name:   "3",
+			name:   "full read verifies the whole-object checksum",
 			key:    mockKey,
 			offset: 0,
 			limit:  -1,
@@ -216,21 +216,69 @@ func TestS3Store_GetObjectSuccess(t *testing.T) {
 				Metadata: map[string]*string{
 					ChecksumAlgo: aws.String("445758184"),
 				}},
-			wantedErr: nil,
+			wantedResult: "s3 get",
+		},
+		{
+			name:   "ranged read is verified against the whole-object checksum before slicing",
+			key:    mockKey,
+			offset: 3,
+			limit:  3,
+			resp: s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get")),
+				Metadata: map[string]*string{
+					ChecksumAlgo: aws.String("445758184"),
+				}},
+			wantedResult: "get",
+		},
+		{
+			name:   "ranged read clamps past the object end",
+			key:    mockKey,
+			offset: 3,
+			limit:  100,
+			resp: s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get")),
+				Metadata: map[string]*string{
+					ChecksumAlgo: aws.String("445758184"),
+				}},
+			wantedResult: "get",
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			store.api = mockS3Client{getObjectResp: tt.resp}
 			data, err := store.GetObject(context.TODO(), tt.key, tt.offset, tt.limit)
-			assert.Equal(t, tt.wantedErr, err)
+			assert.Nil(t, err)
 			data1, err := io.ReadAll(data)
 			if err != nil {
 				t.Fatalf("io ReadAll error: %s", err)
 			}
-			assert.Equal(t, "s3 get", string(data1))
+			assert.Equal(t, tt.wantedResult, string(data1))
 		})
 	}
+}
+
+func TestS3Store_GetObjectRangedRejectsCorruptedObject(t *testing.T) {
+	store := setupS3Test(t)
+	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
+		Body: io.NopCloser(strings.NewReader("tampered body")),
+		Metadata: map[string]*string{
+			ChecksumAlgo: aws.String("445758184"),
+		}}}
+	data, err := store.GetObject(context.TODO(), mockKey, 3, 3)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "failed to verify checksum")
+	assert.Nil(t, data)
+}
+
+func TestS3Store_GetObjectRangedRejectsOffsetPastEnd(t *testing.T) {
+	store := setupS3Test(t)
+	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
+		Body: io.NopCloser(strings.NewReader("s3 get")),
+		Metadata: map[string]*string{
+			ChecksumAlgo: aws.String("445758184"),
+		}}}
+	data, err := store.GetObject(context.TODO(), mockKey, 100, 3)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "invalid range")
+	assert.Nil(t, data)
 }
 
 func TestS3Store_PutObjectSuccess(t *testing.T) {
