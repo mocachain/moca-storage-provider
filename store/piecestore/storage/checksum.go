@@ -52,6 +52,26 @@ func (c *checksumReader) Read(buf []byte) (n int, err error) {
 	return
 }
 
+// verifiedRange reads a whole object through its verifying reader and serves
+// the requested slice, so a ranged read is integrity-checked before any byte
+// is returned; an empty checksum degrades to an unverified local slice.
+func verifiedRange(rc io.ReadCloser, checksum string, offset, limit int64) (io.ReadCloser, error) {
+	vr := verifyChecksum(rc, checksum)
+	defer vr.Close()
+	data, err := io.ReadAll(vr)
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 || offset >= int64(len(data)) {
+		return nil, fmt.Errorf("invalid range: offset %d outside object of size %d", offset, len(data))
+	}
+	end := int64(len(data))
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return io.NopCloser(bytes.NewReader(data[offset:end])), nil
+}
+
 func verifyChecksum(rc io.ReadCloser, checksum string) io.ReadCloser {
 	if checksum == "" {
 		return rc
