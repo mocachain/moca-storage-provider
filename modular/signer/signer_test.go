@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 
+	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
-	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 func setupFundValidationSigner(t *testing.T, params *virtualgrouptypes.Params, paramsErr error) *SignModular {
