@@ -65,8 +65,10 @@ func verifiedRange(rc io.ReadCloser, checksum string, offset, limit int64) (io.R
 	if offset < 0 || offset >= int64(len(data)) {
 		return nil, fmt.Errorf("invalid range: offset %d outside object of size %d", offset, len(data))
 	}
+	// compare limit against the remaining length instead of computing
+	// offset+limit, which can overflow for huge limits
 	end := int64(len(data))
-	if limit > 0 && offset+limit < end {
+	if limit > 0 && limit < end-offset {
 		end = offset + limit
 	}
 	return io.NopCloser(bytes.NewReader(data[offset:end])), nil

@@ -230,6 +230,17 @@ func TestS3Store_GetObjectSuccess(t *testing.T) {
 			wantedResult: "get",
 		},
 		{
+			name:   "ranged read clamps an overflowing limit",
+			key:    mockKey,
+			offset: 3,
+			limit:  int64(^uint64(0) >> 1),
+			resp: s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("s3 get")),
+				Metadata: map[string]*string{
+					ChecksumAlgo: aws.String("445758184"),
+				}},
+			wantedResult: "get",
+		},
+		{
 			name:   "ranged read clamps past the object end",
 			key:    mockKey,
 			offset: 3,
