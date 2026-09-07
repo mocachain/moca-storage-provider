@@ -6,6 +6,14 @@ import (
 
 // define all kinds of http constants
 const (
+	// DefaultAuthNonceCacheEntries bounds the in-memory single-use tracking of
+	// signed requests per gateway instance.
+	DefaultAuthNonceCacheEntries = 1 << 20
+	// maxHashableBodyBytes bounds how much of a request body is buffered to
+	// verify the signed content hash; larger streams stay covered by the
+	// payload checksums sealed on chain.
+	maxHashableBodyBytes = 32 << 20
+
 	// ContentTypeHeader is used to indicate the media type of the resource
 	ContentTypeHeader = "Content-Type"
 	// ContentLengthHeader indicates the size of the message body, in bytes

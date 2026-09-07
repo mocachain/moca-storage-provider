@@ -64,6 +64,10 @@ var (
 	// ErrRequestBodyTooLarge is returned when a request body exceeds the size the
 	// handler is willing to buffer.
 	ErrRequestBodyTooLarge = gfsperrors.Register(module.GateModularName, http.StatusRequestEntityTooLarge, 50045, "request body is too large")
+	ErrReusedAuthRequest   = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50046, "this signed request was already used, sign a fresh one")
+	ErrMissingAuthNonce    = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50047, "The "+commonhttp.HTTPHeaderNonce+" header is required by this gateway")
+	ErrContentHashMismatch = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50048, "request body does not match the signed "+commonhttp.HTTPHeaderContentSHA256+" header")
+	ErrExpiryTooFarAhead   = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50049, "The "+commonhttp.HTTPHeaderExpiryTimestamp+" header is too far in the future for this operation")
 )
 
 func ErrEncodeResponseWithDetail(detail string) *gfsperrors.GfSpError {

@@ -327,7 +327,7 @@ require (
 	google.golang.org/genproto v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -361,7 +361,7 @@ replace (
 	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc1
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
-	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.3.0-rc0
+	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260907100522-a762ad965466
 	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.3.0-rc0
 	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-rc0
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
