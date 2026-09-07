@@ -157,6 +157,10 @@ func InitDB(config *config.SQLDBConfig) (*gorm.DB, error) {
 		log.Errorw("failed to create off-chain authKey v2 table", "error", err)
 		return nil, err
 	}
+	if err = db.AutoMigrate(&AuthNonceClaimTable{}); err != nil && !isAlreadyExists(err) {
+		log.Errorw("failed to create auth nonce claim table", "error", err)
+		return nil, err
+	}
 	if err = db.AutoMigrate(&MigrateSubscribeProgressTable{}); err != nil && !isAlreadyExists(err) {
 		log.Errorw("failed to migrate subscribe progress table", "error", err)
 		return nil, err

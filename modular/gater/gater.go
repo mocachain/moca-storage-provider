@@ -14,7 +14,10 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 )
 
-const ReadHeaderTimeout = 20 * time.Minute
+const (
+	ReadHeaderTimeout        = 20 * time.Minute
+	AuthNonceCleanupInterval = time.Hour
+)
 
 var _ module.Modular = &GateModular{}
 
@@ -33,6 +36,10 @@ type GateModular struct {
 	// operational status endpoint; an empty map closes it to everyone.
 	statusAllowedAccounts map[string]struct{}
 
+	// requireAuthNonce rejects authenticated requests without a nonce once
+	// every client ships one.
+	requireAuthNonce bool
+
 	spID        uint32
 	spCachePool *SPCachePool
 }
@@ -48,8 +55,24 @@ func (g *GateModular) Start(ctx context.Context) error {
 	}
 	g.scope = scope
 	go g.server(ctx)
+	go g.cleanupAuthNonces(ctx, AuthNonceCleanupInterval)
 	g.spCachePool = NewSPCachePool(g.baseApp.Consensus())
 	return nil
+}
+
+func (g *GateModular) cleanupAuthNonces(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case expiredBefore := <-ticker.C:
+			if err := g.baseApp.GfSpDB().DeleteExpiredAuthNonces(expiredBefore); err != nil {
+				log.CtxErrorw(ctx, "failed to delete expired auth nonces", "error", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (g *GateModular) server(ctx context.Context) {

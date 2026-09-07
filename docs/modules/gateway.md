@@ -21,6 +21,12 @@ Gateway provides unified authorization for each HTTP request from the fowllowing
 - Checks the authorization to ensure the corresponding account has permissions on resources.
 - Checks the object state and payment account state to ensure the object is sealed and the payment account is active.
 
+#### Signed request replay protection
+
+Authenticated requests may include `X-Gnfd-Nonce`. The nonce must be exactly 32 hexadecimal characters (16 bytes, in either case). After signature verification, the gateway atomically claims the normalized account/nonce pair in the shared SPDB and keeps its Unix expiry. A duplicate claim returns the replay error; an SPDB error fails closed with a server error. The gateway removes expired claims hourly.
+
+`Gateway.RequireAuthNonce` is an optional rollout switch. When it is false, authenticated requests without a nonce remain compatible; when it is true, nonce-less authenticated requests are rejected. Deploy the server and clients that send nonces before enabling the switch. Reusable pre-signed GET URLs remain an explicit exception: their nonce-less query-parameter authentication path is unchanged.
+
 ### Request Router
 
 Based on the specific request type, it is routed to the corresponding backend microservice.

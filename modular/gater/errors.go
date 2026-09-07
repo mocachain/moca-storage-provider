@@ -61,9 +61,12 @@ var (
 	// 3. Contains "\": May indicate an attempt at illegal path or file operations, especially in Windows systems.
 	// 4. Fails SQL Injection Test (util.IsSQLInjection): Object name contains patterns that might be used for SQL injection, like ';select', 'xxx;insert', etc., or SQL comment patterns.
 	ErrInvalidObjectName = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50044, "invalid object name")
-	// ErrRequestBodyTooLarge is returned when a request body exceeds the size the
-	// handler is willing to buffer.
+	// ErrRequestBodyTooLarge is returned when an auth-key request body exceeds its limit.
 	ErrRequestBodyTooLarge = gfsperrors.Register(module.GateModularName, http.StatusRequestEntityTooLarge, 50045, "request body is too large")
+	ErrReusedAuthRequest   = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50046, "this signed request was already used, sign a fresh one")
+	ErrMissingAuthNonce    = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50047, "The "+commonhttp.HTTPHeaderNonce+" header is required by this gateway")
+	ErrInvalidAuthNonce    = gfsperrors.Register(module.GateModularName, http.StatusBadRequest, 50048, "The "+commonhttp.HTTPHeaderNonce+" header must be exactly 16 random bytes encoded as hexadecimal")
+	ErrAuthNonceStore      = gfsperrors.Register(module.GateModularName, http.StatusInternalServerError, 50049, "unable to claim the signed request nonce")
 )
 
 func ErrEncodeResponseWithDetail(detail string) *gfsperrors.GfSpError {

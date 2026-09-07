@@ -89,7 +89,53 @@ func NewRequestContext(r *http.Request, g *GateModular) (*RequestContext, error)
 		return reqCtx, err
 	}
 	reqCtx.account = account
+	if err = reqCtx.enforceSingleUse(); err != nil {
+		return reqCtx, err
+	}
 	return reqCtx, nil
+}
+
+// enforceSingleUse honors a signed request carrying a nonce exactly once
+// within its expiry; requests without a nonce pass until the gateway is
+// configured to require one.
+func (r *RequestContext) enforceSingleUse() error {
+	nonce := r.request.Header.Get(commonhttp.HTTPHeaderNonce)
+	if nonce == "" {
+		nonce = r.request.URL.Query().Get(commonhttp.HTTPHeaderNonce)
+	}
+	if nonce == "" {
+		if r.g.requireAuthNonce {
+			return ErrMissingAuthNonce
+		}
+		return nil
+	}
+	if len(nonce) != 32 {
+		return ErrInvalidAuthNonce
+	}
+	decoded, err := hex.DecodeString(nonce)
+	if err != nil || len(decoded) != 16 {
+		return ErrInvalidAuthNonce
+	}
+	expiryStr := r.request.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	if expiryStr == "" {
+		expiryStr = r.request.URL.Query().Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	}
+	expiry, parseErr := time.Parse(ExpiryDateFormat, expiryStr)
+	if parseErr != nil {
+		return ErrInvalidExpiryDateHeader
+	}
+	if r.g == nil || r.g.baseApp == nil || r.g.baseApp.GfSpDB() == nil {
+		return ErrAuthNonceStore
+	}
+	claimed, claimErr := r.g.baseApp.GfSpDB().ClaimAuthNonce(r.account, nonce, expiry)
+	if claimErr != nil {
+		log.CtxErrorw(r.ctx, "failed to claim auth nonce", "error", claimErr)
+		return ErrAuthNonceStore
+	}
+	if !claimed {
+		return ErrReusedAuthRequest
+	}
+	return nil
 }
 
 // Context returns the RequestContext runtime context.
