@@ -3,6 +3,7 @@ package blocksyncer
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -18,6 +19,15 @@ import (
 )
 
 func TestProcessedTreatsCurrentEpochHeightAsProcessed(t *testing.T) {
+	previousBlockMap, previousEventMap := blockMap, eventMap
+	previousTxMap, previousTxHashMap := txMap, txHashMap
+	blockMap, eventMap = new(sync.Map), new(sync.Map)
+	txMap, txHashMap = new(sync.Map), new(sync.Map)
+	t.Cleanup(func() {
+		blockMap, eventMap = previousBlockMap, previousEventMap
+		txMap, txHashMap = previousTxMap, previousTxHashMap
+	})
+
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
