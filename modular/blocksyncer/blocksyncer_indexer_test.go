@@ -3,19 +3,43 @@ package blocksyncer
 import (
 	"context"
 	"errors"
-	"os"
-	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	junodatabase "github.com/forbole/juno/v4/database"
+	junomysql "github.com/forbole/juno/v4/database/mysql"
 	"github.com/forbole/juno/v4/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+
+	blocksyncerdb "github.com/mocachain/moca-storage-provider/modular/blocksyncer/database"
 )
 
 func TestProcessedTreatsCurrentEpochHeightAsProcessed(t *testing.T) {
-	source, err := os.ReadFile("blocksyncer_indexer.go")
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
-	require.Contains(t, strings.ReplaceAll(string(source), " ", ""), "ep.BlockHeight>=int64(height)")
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      sqlDB,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	require.NoError(t, err)
+
+	mock.ExpectQuery("SELECT * FROM `epoch`").WillReturnRows(
+		sqlmock.NewRows([]string{"one_row_id", "block_height", "block_hash", "update_time"}).
+			AddRow(true, 42, make([]byte, 32), 0),
+	)
+	indexer := &Impl{
+		DB: &blocksyncerdb.DB{Database: &junomysql.Database{Impl: junodatabase.Impl{Db: gormDB}}},
+	}
+
+	processed, err := indexer.Processed(context.Background(), 42)
+	require.NoError(t, err)
+	require.True(t, processed)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 type epochReaderStub struct {
