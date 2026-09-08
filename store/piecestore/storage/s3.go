@@ -80,25 +80,19 @@ func (s *s3Store) GetObject(ctx context.Context, key string, offset, limit int64
 		Bucket: aws.String(s.bucketName),
 		Key:    aws.String(key),
 	}
-	if offset > 0 || limit > 0 {
-		var r string
-		if limit > 0 {
-			r = fmt.Sprintf("bytes=%d-%d", offset, offset+limit-1)
-		} else {
-			r = fmt.Sprintf("bytes=%d-", offset)
-		}
-		params.Range = aws.String(r)
-	}
+	// a whole-object checksum cannot verify a server-sliced range, so ranged
+	// reads fetch the bounded piece object in full, verify, and slice locally
 	resp, err := s.api.GetObjectWithContext(ctx, params)
 	if err != nil {
 		log.Errorw("S3 failed to get object", "error", err)
 		return nil, err
 	}
-	if offset == 0 && limit == -1 {
-		cs := resp.Metadata[ChecksumAlgo]
-		if cs != nil {
-			resp.Body = verifyChecksum(resp.Body, aws.StringValue(cs))
-		}
+	cs := aws.StringValue(resp.Metadata[ChecksumAlgo])
+	if offset > 0 || limit > 0 {
+		return verifiedRange(resp.Body, cs, offset, limit)
+	}
+	if cs != "" {
+		resp.Body = verifyChecksum(resp.Body, cs)
 	}
 	return resp.Body, nil
 }
