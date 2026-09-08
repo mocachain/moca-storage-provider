@@ -37,22 +37,17 @@ func (o *ossStore) CreateBucket(ctx context.Context) error {
 
 func (o *ossStore) GetObject(ctx context.Context, key string, off, limit int64) (resp io.ReadCloser, err error) {
 	var respHeader http.Header
-	if off > 0 || limit > 0 {
-		var r string
-		if limit > 0 {
-			r = fmt.Sprintf("%d-%d", off, off+limit-1)
-		} else {
-			r = fmt.Sprintf("%d-", off)
-		}
-		resp, err = o.bucket.GetObject(key, oss.NormalizedRange(r), oss.RangeBehavior("standard"), oss.GetResponseHeader(&respHeader))
-	} else {
-		resp, err = o.bucket.GetObject(key, oss.GetResponseHeader(&respHeader))
-		if err == nil {
-			resp = verifyChecksum(resp,
-				resp.(*oss.Response).Headers.Get(oss.HTTPHeaderOssMetaPrefix+ChecksumAlgo))
-		}
+	// a whole-object checksum cannot verify a server-sliced range, so ranged
+	// reads fetch the bounded piece object in full, verify, and slice locally
+	resp, err = o.bucket.GetObject(key, oss.GetResponseHeader(&respHeader))
+	if err != nil {
+		return nil, err
 	}
-	return resp, err
+	cs := resp.(*oss.Response).Headers.Get(oss.HTTPHeaderOssMetaPrefix + ChecksumAlgo)
+	if off > 0 || limit > 0 {
+		return verifiedRange(resp, cs, off, limit)
+	}
+	return verifyChecksum(resp, cs), nil
 }
 
 func (o *ossStore) PutObject(ctx context.Context, key string, in io.Reader) error {
