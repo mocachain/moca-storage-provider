@@ -3,12 +3,20 @@ package blocksyncer
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/forbole/juno/v4/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProcessedTreatsCurrentEpochHeightAsProcessed(t *testing.T) {
+	source, err := os.ReadFile("blocksyncer_indexer.go")
+	require.NoError(t, err)
+	require.Contains(t, strings.ReplaceAll(string(source), " ", ""), "ep.BlockHeight>=int64(height)")
+}
 
 type epochReaderStub struct {
 	epoch *models.Epoch
