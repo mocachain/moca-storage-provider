@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/forbole/juno/v4/common"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 )
@@ -17,11 +18,26 @@ const (
 // query must constrain results to publicly-readable buckets.
 func TestBsDBImpl_ListBucketsByIDs_FiltersToPublicRead(t *testing.T) {
 	s, mock := setupDBRegexp(t)
-	mock.ExpectQuery(`bucket_id in \(\?\) and visibility = \?`).
+	mock.ExpectQuery(`bucket_id in \(\?\) AND visibility = \?`).
 		WillReturnRows(sqlmock.NewRows([]string{"bucket_name", "visibility"}).
 			AddRow("public-bucket", "VISIBILITY_TYPE_PUBLIC_READ"))
 
-	buckets, err := s.ListBucketsByIDs([]common.Hash{common.HexToHash("0x1")}, false)
+	buckets, err := s.ListBucketsByIDs([]common.Hash{common.HexToHash("0x1")}, false, false)
+	assert.NoError(t, err)
+	assert.Len(t, buckets, 1)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Internal callers (GVG migration, recovery, GC) pass includePrivate=true and
+// must see private buckets: the query carries no visibility constraint.
+// Regression guard for SP exit stalling on private buckets (moca-e2e #62).
+func TestBsDBImpl_ListBucketsByIDs_IncludePrivateSkipsVisibilityFilter(t *testing.T) {
+	s, mock := setupDBRegexp(t)
+	mock.ExpectQuery(`bucket_id in \(\?\) AND removed = \?$`).
+		WillReturnRows(sqlmock.NewRows([]string{"bucket_name", "visibility"}).
+			AddRow("private-bucket", "VISIBILITY_TYPE_PRIVATE"))
+
+	buckets, err := s.ListBucketsByIDs([]common.Hash{common.HexToHash("0x1")}, false, true)
 	assert.NoError(t, err)
 	assert.Len(t, buckets, 1)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -45,6 +61,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 
 	s, mock := setupDB(t)
 	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).
+		WithArgs(expectedBucketName).
 		WillReturnRows(
 			sqlmock.NewRows([]string{"bucket_name"}).
 				AddRow(expectedBucketName))
@@ -57,7 +74,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameSuccess(t *testing.T) {
 func TestBsDBImpl_GetBucketInfoByBucketNameNoRecords(t *testing.T) {
 	expectedBucketName := "test-bucket"
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WithArgs(expectedBucketName).WillReturnError(gorm.ErrRecordNotFound)
 
 	_, err := s.GetBucketInfoByBucketName(expectedBucketName)
 	assert.Error(t, err)
@@ -67,7 +84,7 @@ func TestBsDBImpl_GetBucketInfoByBucketNameNoRecords(t *testing.T) {
 func TestBsDBImpl_GetBucketInfoByBucketNameDBError(t *testing.T) {
 	expectedBucketName := "test-bucket"
 	s, mock := setupDB(t)
-	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WillReturnError(mockDBInternalError)
+	mock.ExpectQuery(mockGetBucketInfoByBucketNameQuerySQL).WithArgs(expectedBucketName).WillReturnError(mockDBInternalError)
 
 	_, err := s.GetBucketInfoByBucketName(expectedBucketName)
 	assert.Error(t, err)

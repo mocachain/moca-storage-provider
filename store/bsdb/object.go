@@ -191,7 +191,7 @@ func (b *BsDBImpl) GetObjectByName(objectName string, bucketName string, include
 }
 
 // ListObjectsByIDs list objects by object ids
-func (b *BsDBImpl) ListObjectsByIDs(ids []common.Hash, includeRemoved bool) ([]*Object, error) {
+func (b *BsDBImpl) ListObjectsByIDs(ids []common.Hash, includeRemoved bool, includePrivate bool) ([]*Object, error) {
 	var (
 		objects []*Object
 		err     error
@@ -217,9 +217,19 @@ func (b *BsDBImpl) ListObjectsByIDs(ids []common.Hash, includeRemoved bool) ([]*
 			log.Errorw("failed to get bucket name by object id in ListObjectsByObjectID", "error", err)
 			continue
 		}
-		err = b.db.Table(GetObjectsTableName(bucketName)).
+		query := b.db.Table(GetObjectsTableName(bucketName)).
 			Select("*").
-			Where("object_id = ?", id).
+			Where("object_id = ?", id)
+		if !includePrivate {
+			// Restrict the batch lookup to publicly-readable objects: visibility
+			// PUBLIC_READ, or INHERIT when the parent bucket is public. Matches the
+			// single-item GetObjectByName(includePrivate=false) path.
+			query = query.Where("visibility = 'VISIBILITY_TYPE_PUBLIC_READ' or "+
+				"(visibility = 'VISIBILITY_TYPE_INHERIT' and exists "+
+				"(select 1 from buckets where buckets.bucket_name = ? and buckets.visibility = 'VISIBILITY_TYPE_PUBLIC_READ'))",
+				bucketName)
+		}
+		err = query.
 			Scopes(filters...).
 			Take(&object).Error
 		if err != nil {
@@ -451,7 +461,9 @@ func (b *BsDBImpl) ListObjectsInGVG(gvgID uint32, startAfter common.Hash, limit 
 		}
 	}
 
-	buckets, err = b.ListBucketsByIDs(bucketIDs, false)
+	// The migration path must resolve private buckets too; visibility scoping
+	// only applies to the unauthenticated gater surface.
+	buckets, err = b.ListBucketsByIDs(bucketIDs, false, true)
 	if err != nil {
 		return nil, nil, err
 	}

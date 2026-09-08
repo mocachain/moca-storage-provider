@@ -278,7 +278,7 @@ func (r *MetadataModular) GfSpListObjectsByIDs(ctx context.Context, req *types.G
 		ids[i] = common.BigToHash(math.NewUint(id).BigInt())
 	}
 
-	objects, err = r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.IncludeRemoved)
+	objects, err = r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.IncludeRemoved, false)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list objects by object ids", "error", err)
 		return nil, err
