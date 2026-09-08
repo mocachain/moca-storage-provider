@@ -901,18 +901,15 @@ func TestS3Store_parseEndpoint(t *testing.T) {
 }
 
 func TestParseS3EndpointDoesNotRetainPreviousTransportSettings(t *testing.T) {
-	disableSSL = false
-	isVirtualHostStyle = false
-
-	_, _, _, err := parseS3Endpoint("http://s3.us-east-1.amazonaws.com/first-bucket")
+	first, err := parseS3EndpointOptions("http://s3.us-east-1.amazonaws.com/first-bucket")
 	assert.NoError(t, err)
-	assert.True(t, disableSSL)
-	assert.False(t, isVirtualHostStyle)
+	assert.True(t, first.disableSSL)
+	assert.False(t, first.virtualHostStyle)
 
-	_, _, _, err = parseS3Endpoint("https://second-bucket.s3.us-east-1.amazonaws.com")
+	second, err := parseS3EndpointOptions("https://second-bucket.s3.us-east-1.amazonaws.com")
 	assert.NoError(t, err)
-	assert.False(t, disableSSL)
-	assert.True(t, isVirtualHostStyle)
+	assert.False(t, second.disableSSL)
+	assert.True(t, second.virtualHostStyle)
 }
 
 func TestS3Store_parseRegion(t *testing.T) {
