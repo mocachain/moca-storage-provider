@@ -501,7 +501,13 @@ func (s *resourceScope) ReserveResources(st *corercmgr.ScopeStat) error {
 		}
 	}
 	if err != nil {
-		s.ReleaseResourcesWithoutLock(*st)
+		// The owner/edge rolled back its own reservation on failure, so release
+		// only this scope's portion here and do not propagate the release upward.
+		s.rc.releaseMemory(st.Memory)
+		s.rc.removeConns(int(st.NumConnsInbound), int(st.NumConnsOutbound), int(st.NumFD))
+		s.rc.removeTask(int(st.NumTasksHigh), corercmgr.ReserveTaskPriorityHigh)
+		s.rc.removeTask(int(st.NumTasksMedium), corercmgr.ReserveTaskPriorityMedium)
+		s.rc.removeTask(int(st.NumTasksLow), corercmgr.ReserveTaskPriorityLow)
 		return err
 	}
 	return nil
