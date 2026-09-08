@@ -10,14 +10,14 @@ import (
 
 func TestListGroupsByNameAndSourceTypeEscapesLikeMetacharacters(t *testing.T) {
 	db, mock := setupDB(t)
-	pattern := `team\%\_ops%`
+	pattern := `team\%%\_ops%`
 	address := common.HexToAddress(GroupAddress)
 
-	mock.ExpectQuery("SELECT * FROM `groups` WHERE (group_name LIKE ? ESCAPE '\\\\' and account_id = ?) AND `removed` = ? ORDER BY group_id LIMIT ?").
+	mock.ExpectQuery("SELECT * FROM `groups` WHERE (group_name LIKE ? ESCAPE '\\\\' and account_id = ?) AND removed = ? ORDER BY group_id LIMIT ?").
 		WithArgs(pattern, address, false, 10).
 		WillReturnRows(sqlmock.NewRows([]string{}))
-	mock.ExpectQuery("SELECT count(*) FROM `groups` WHERE (group_name LIKE ? ESCAPE '\\\\' and account_id = ?) AND `removed` = ? LIMIT 1").
-		WithArgs(pattern, address, false).
+	mock.ExpectQuery("SELECT count(*) FROM `groups` WHERE (group_name LIKE ? ESCAPE '\\\\' and account_id = ?) AND removed = ? LIMIT ?").
+		WithArgs(pattern, address, false, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"count(*)"}).AddRow(0))
 
 	_, _, err := db.ListGroupsByNameAndSourceType("_ops", "team%", "", 10, 0, false)
