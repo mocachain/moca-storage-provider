@@ -637,7 +637,7 @@ func (s *SpDBImpl) GetBucketReadRecord(bucketID uint64, timeRange *corespdb.Traf
 	if timeRange.LimitNum <= 0 {
 		result = s.db.Where("read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ?",
 			timeRange.StartTimestampUs, timeRange.EndTimestampUs, bucketID).
-			Find(&queryReturns)
+			Limit(100).Find(&queryReturns)
 	} else {
 		result = s.db.Where("read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ?",
 			timeRange.StartTimestampUs, timeRange.EndTimestampUs, bucketID).
@@ -681,7 +681,7 @@ func (s *SpDBImpl) GetObjectReadRecord(objectID uint64, timeRange *corespdb.Traf
 	if timeRange.LimitNum <= 0 {
 		result = s.db.Where("read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ?",
 			timeRange.StartTimestampUs, timeRange.EndTimestampUs, objectID).
-			Find(&queryReturns)
+			Limit(100).Find(&queryReturns)
 	} else {
 		result = s.db.Where("read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ?",
 			timeRange.StartTimestampUs, timeRange.EndTimestampUs, objectID).
