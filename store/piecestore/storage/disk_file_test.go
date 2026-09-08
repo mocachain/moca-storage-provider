@@ -363,3 +363,47 @@ func TestDiskFileStore_path(t *testing.T) {
 		})
 	}
 }
+
+func TestDiskFileStore_PutObjectRoundtrip(t *testing.T) {
+	store := &diskFileStore{root: t.TempDir() + "/"}
+
+	err := store.PutObject(context.TODO(), "piece-key", strings.NewReader("piece-data"))
+	assert.Nil(t, err)
+
+	rc, err := store.GetObject(context.TODO(), "piece-key", 0, -1)
+	assert.Nil(t, err)
+	data, err := io.ReadAll(rc)
+	assert.Nil(t, err)
+	assert.Equal(t, "piece-data", string(data))
+
+	// the temp file must be gone after a successful atomic rename
+	leftovers, err := filepath.Glob(filepath.Join(store.root, ".piece-key.tmp*"))
+	assert.Nil(t, err)
+	assert.Empty(t, leftovers)
+}
+
+func TestDiskFileStore_PutObjectCreatesMissingDirectories(t *testing.T) {
+	store := &diskFileStore{root: t.TempDir() + "/"}
+
+	err := store.PutObject(context.TODO(), "a/b/piece-key", strings.NewReader("nested"))
+	assert.Nil(t, err)
+
+	rc, err := store.GetObject(context.TODO(), "a/b/piece-key", 0, -1)
+	assert.Nil(t, err)
+	data, err := io.ReadAll(rc)
+	assert.Nil(t, err)
+	assert.Equal(t, "nested", string(data))
+}
+
+func TestDiskFileStore_PutObjectOverwrites(t *testing.T) {
+	store := &diskFileStore{root: t.TempDir() + "/"}
+
+	assert.Nil(t, store.PutObject(context.TODO(), "piece-key", strings.NewReader("old")))
+	assert.Nil(t, store.PutObject(context.TODO(), "piece-key", strings.NewReader("new-content")))
+
+	rc, err := store.GetObject(context.TODO(), "piece-key", 0, -1)
+	assert.Nil(t, err)
+	data, err := io.ReadAll(rc)
+	assert.Nil(t, err)
+	assert.Equal(t, "new-content", string(data))
+}
