@@ -1,6 +1,8 @@
 package bsdb
 
 import (
+	"strings"
+
 	"github.com/forbole/juno/v4/common"
 	"gorm.io/gorm"
 )
@@ -12,8 +14,9 @@ func ContinuationTokenFilter(continuationToken string) func(db *gorm.DB) *gorm.D
 }
 
 func PrefixFilter(prefix string) func(db *gorm.DB) *gorm.DB {
+	pattern := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(prefix) + "%"
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("object_name LIKE ?", prefix+"%")
+		return db.Where("object_name LIKE ? ESCAPE '\\\\'", pattern)
 	}
 }
 
