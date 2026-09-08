@@ -133,7 +133,7 @@ func (s *s3Store) DeleteObject(ctx context.Context, key string) error {
 		Key:    aws.String(key),
 	}
 	_, err := s.api.DeleteObjectWithContext(ctx, param)
-	if err != nil && strings.Contains(err.Error(), "NoSuckKey") {
+	if err != nil && strings.Contains(err.Error(), s3.ErrCodeNoSuchKey) {
 		log.Errorw("S3 failed to delete object", "error", err)
 		err = nil
 	}
