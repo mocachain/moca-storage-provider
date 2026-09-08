@@ -73,7 +73,7 @@ func (m mockS3Client) PutObjectWithContext(aws.Context, *s3.PutObjectInput, ...r
 func (m mockS3Client) DeleteObjectWithContext(aws.Context, *s3.DeleteObjectInput, ...request.Option) (
 	*s3.DeleteObjectOutput, error) {
 	if *m.deleteObjectReq.Key == "non_existed_object" {
-		return nil, errors.New("NoSuckKey")
+		return nil, errors.New(s3.ErrCodeNoSuchKey)
 	}
 	return &m.deleteObjectResp, nil
 }
