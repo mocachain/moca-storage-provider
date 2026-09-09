@@ -1,6 +1,7 @@
 package bsdb
 
 import (
+	"strings"
 	"time"
 
 	"cosmossdk.io/math"
@@ -87,9 +88,10 @@ func (b *BsDBImpl) ListGroupsByNameAndSourceType(name, prefix, sourceType string
 		filters = append(filters, RemovedFilter(includeRemoved))
 	}
 
+	groupNamePattern := escapeGroupLikeValue(prefix) + "%" + escapeGroupLikeValue(name) + "%"
 	err = b.db.Table((&Group{}).TableName()).
 		Select("*").
-		Where("group_name LIKE ? and account_id = ?", prefix+"%"+name+"%", common.HexToAddress(GroupAddress)).
+		Where("group_name LIKE ? ESCAPE '\\\\' and account_id = ?", groupNamePattern, common.HexToAddress(GroupAddress)).
 		Scopes(filters...).
 		Limit(limit).
 		Offset(offset).
@@ -101,10 +103,14 @@ func (b *BsDBImpl) ListGroupsByNameAndSourceType(name, prefix, sourceType string
 
 	err = b.db.Table((&Group{}).TableName()).
 		Select("count(*)").
-		Where("group_name LIKE ? and account_id = ?", prefix+"%"+name+"%", common.HexToAddress(GroupAddress)).
+		Where("group_name LIKE ? ESCAPE '\\\\' and account_id = ?", groupNamePattern, common.HexToAddress(GroupAddress)).
 		Scopes(filters...).
 		Take(&count).Error
 	return groups, count, err
+}
+
+func escapeGroupLikeValue(value string) string {
+	return strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(value)
 }
 
 // GetGroupMembersCount get the count of group members
