@@ -959,6 +959,18 @@ func TestS3Store_parseEndpoint(t *testing.T) {
 	}
 }
 
+func TestParseS3EndpointDoesNotRetainPreviousTransportSettings(t *testing.T) {
+	first, err := parseS3EndpointOptions("http://s3.us-east-1.amazonaws.com/first-bucket")
+	assert.NoError(t, err)
+	assert.True(t, first.disableSSL)
+	assert.False(t, first.virtualHostStyle)
+
+	second, err := parseS3EndpointOptions("https://second-bucket.s3.us-east-1.amazonaws.com")
+	assert.NoError(t, err)
+	assert.False(t, second.disableSSL)
+	assert.True(t, second.virtualHostStyle)
+}
+
 func TestS3Store_parseRegion(t *testing.T) {
 	cases := []struct {
 		name         string

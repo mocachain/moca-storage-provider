@@ -38,22 +38,22 @@ func (sc *SessionCache) newB2Session(cfg ObjectStorageConfig) (*session.Session,
 	sc.Lock()
 	defer sc.Unlock()
 
-	endpoint, region, bucketName, err := parseB2BucketURL(cfg.BucketURL)
+	options, err := parseB2BucketURLOptions(cfg.BucketURL)
 	if err != nil {
 		log.Errorw("failed to parse b2 bucket url", "error", err)
 		return &session.Session{}, "", err
 	}
 
 	if sess, ok := sc.sessions[cfg]; ok {
-		return sess, bucketName, nil
+		return sess, options.bucketName, nil
 	}
 
 	key := getSecretKeyFromEnv(B2AccessKey, B2SecretKey, B2SessionToken)
 	awsConfig := &aws.Config{
 		Credentials:      credentials.NewStaticCredentials(key.accessKey, key.secretKey, key.sessionToken),
-		Region:           aws.String(region),
-		Endpoint:         aws.String(endpoint),
-		DisableSSL:       aws.Bool(disableSSL),
+		Region:           aws.String(options.region),
+		Endpoint:         aws.String(options.endpoint),
+		DisableSSL:       aws.Bool(options.disableSSL),
 		S3ForcePathStyle: aws.Bool(true),
 		HTTPClient:       getHTTPClient(cfg.TLSInsecureSkipVerify),
 	}
@@ -64,7 +64,7 @@ func (sc *SessionCache) newB2Session(cfg ObjectStorageConfig) (*session.Session,
 	}
 
 	sc.sessions[cfg] = sess
-	return sess, bucketName, nil
+	return sess, options.bucketName, nil
 }
 
 func (m *b2Store) String() string {
@@ -72,30 +72,32 @@ func (m *b2Store) String() string {
 }
 
 func parseB2BucketURL(bucketURL string) (endpoint, region, bucketName string, err error) {
+	options, err := parseB2BucketURLOptions(bucketURL)
+	return options.endpoint, options.region, options.bucketName, err
+}
+
+func parseB2BucketURLOptions(bucketURL string) (endpointOptions, error) {
 	bucketURL = strings.Trim(bucketURL, "/")
 	uri, err := url.ParseRequestURI(bucketURL)
 	if err != nil {
-		return "", "", "", fmt.Errorf("failed to parse b2 bucket url: %s", err)
+		return endpointOptions{}, fmt.Errorf("failed to parse b2 bucket url: %s", err)
 	}
 
-	ssl := strings.ToLower(uri.Scheme) == "https"
-	if !ssl {
-		disableSSL = true
+	options := endpointOptions{
+		endpoint:   uri.Host,
+		disableSSL: strings.ToLower(uri.Scheme) != "https",
 	}
-
-	endpoint = uri.Host
 
 	if uri.Path != "" {
 		// Path style: https://s3.<region>.backblazeb2.com(.cn)/<bucketName>
-		bucketName = strings.Split(uri.Path, "/")[1]
-		isVirtualHostStyle = false
+		options.bucketName = strings.Split(uri.Path, "/")[1]
 	} else {
 		// Virtual hosted style: https://<bucketName>.s3.<region>.backblazeb2.com(.cn)
-		bucketName = strings.SplitN(endpoint, ".s3", 2)[0]
-		endpoint = endpoint[len(bucketName)+1:]
-		isVirtualHostStyle = true
+		options.bucketName = strings.SplitN(options.endpoint, ".s3", 2)[0]
+		options.endpoint = options.endpoint[len(options.bucketName)+1:]
+		options.virtualHostStyle = true
 	}
 
-	region = parseS3Region(endpoint)
-	return endpoint, region, bucketName, nil
+	options.region = parseS3Region(options.endpoint)
+	return options, nil
 }
