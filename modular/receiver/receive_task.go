@@ -135,13 +135,22 @@ func (r *ReceiveModular) HandleDoneReceivePieceTask(ctx context.Context, task ta
 		log.CtxErrorw(ctx, "failed to query object info from chain", "task", task, "error", err)
 		return nil, err
 	}
-	checksumIdx := task.GetRedundancyIdx() + 1
-	if chainObjectInfo == nil || checksumIdx < 0 || checksumIdx >= int32(len(chainObjectInfo.GetChecksums())) {
-		log.CtxErrorw(ctx, "invalid checksum index from chain object info", "task", task, "checksum_index", checksumIdx)
+	if chainObjectInfo == nil {
+		log.CtxErrorw(ctx, "object info not found on chain", "task", task)
 		err = ErrInvalidDataChecksum
 		return nil, ErrInvalidDataChecksum
 	}
-	expectedIntegrityHash := chainObjectInfo.GetChecksums()[checksumIdx]
+	expectedChecksums, err := r.expectedSealChecksums(ctx, task, chainObjectInfo)
+	if err != nil {
+		return nil, err
+	}
+	checksumIdx := task.GetRedundancyIdx() + 1
+	if checksumIdx < 0 || checksumIdx >= int32(len(expectedChecksums)) {
+		log.CtxErrorw(ctx, "invalid checksum index", "task", task, "checksum_index", checksumIdx, "checksum_count", len(expectedChecksums))
+		err = ErrInvalidDataChecksum
+		return nil, ErrInvalidDataChecksum
+	}
+	expectedIntegrityHash := expectedChecksums[checksumIdx]
 	integrityChecksum := hash.GenerateIntegrityHash(pieceChecksums)
 	if !bytes.Equal(expectedIntegrityHash, integrityChecksum) {
 		log.CtxErrorw(ctx, "failed to compare checksum", "task", task, "actual_checksum", integrityChecksum, "expected_checksum", expectedIntegrityHash)
@@ -150,7 +159,7 @@ func (r *ReceiveModular) HandleDoneReceivePieceTask(ctx context.Context, task ta
 	}
 	signTime := time.Now()
 	signature, err := r.baseApp.GfSpClient().SignSecondarySealBls(ctx, task.GetObjectInfo().Id.Uint64(),
-		task.GetGlobalVirtualGroupId(), chainObjectInfo.GetChecksums())
+		task.GetGlobalVirtualGroupId(), expectedChecksums)
 	metrics.PerfReceivePieceTimeHistogram.WithLabelValues("receive_piece_server_done_sign_time").Observe(time.Since(signTime).Seconds())
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to sign the integrity hash", "task", task, "error", err)
@@ -235,6 +244,36 @@ func (r *ReceiveModular) HandleDoneReceivePieceTask(ctx context.Context, task ta
 	}()
 	log.CtxDebugw(ctx, "succeed to done receive piece")
 	return signature, nil
+}
+
+// expectedSealChecksums returns the checksum list the received pieces are verified against and
+// that the secondary seal signature attests to. The chain record is authoritative whenever it
+// carries checksums: the shadow object for an object under update, the object itself otherwise.
+// A delegated (agent upload) object is created on chain without checksums and only gets them at
+// SealObjectV2, so while it is still unsealed the checksums the primary SP computed and put on
+// the task are used instead; the integrity hash of the pieces actually received must still match.
+func (r *ReceiveModular) expectedSealChecksums(ctx context.Context, task task.ReceivePieceTask, chainObjectInfo *storagetypes.ObjectInfo) ([][]byte, error) {
+	chainChecksums := chainObjectInfo.GetChecksums()
+	if chainObjectInfo.GetIsUpdating() {
+		shadowObjectInfo, err := r.baseApp.Consensus().QueryShadowObjectInfo(ctx, chainObjectInfo.GetBucketName(), chainObjectInfo.GetObjectName())
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to query shadow object info from chain", "task", task, "error", err)
+			return nil, err
+		}
+		chainChecksums = shadowObjectInfo.GetChecksums()
+	}
+	if len(chainChecksums) > 0 {
+		log.CtxDebugw(ctx, "verify received pieces against chain checksums", "task", task, "is_updating", chainObjectInfo.GetIsUpdating())
+		return chainChecksums, nil
+	}
+	unsealed := chainObjectInfo.GetObjectStatus() == storagetypes.OBJECT_STATUS_CREATED || chainObjectInfo.GetIsUpdating()
+	if !task.GetIsAgentUploadTask() || !unsealed {
+		log.CtxErrorw(ctx, "no checksums on chain for object", "task", task, "is_agent_upload", task.GetIsAgentUploadTask(),
+			"object_status", chainObjectInfo.GetObjectStatus(), "is_updating", chainObjectInfo.GetIsUpdating())
+		return nil, ErrInvalidDataChecksum
+	}
+	log.CtxInfow(ctx, "no checksums on chain for delegated object yet, verify received pieces against task checksums", "task", task)
+	return task.GetObjectInfo().GetChecksums(), nil
 }
 
 func (r *ReceiveModular) QueryTasks(ctx context.Context, subKey task.TKey) ([]task.Task, error) {
