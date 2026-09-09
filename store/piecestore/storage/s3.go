@@ -30,14 +30,18 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
-var (
-	// re-used AWS sessions dramatically improve performance
-	s3SessionCache = &SessionCache{
-		sessions: map[ObjectStorageConfig]*session.Session{},
-	}
-	disableSSL         bool
-	isVirtualHostStyle bool
-)
+// re-used AWS sessions dramatically improve performance
+var s3SessionCache = &SessionCache{
+	sessions: map[ObjectStorageConfig]*session.Session{},
+}
+
+type endpointOptions struct {
+	endpoint         string
+	bucketName       string
+	region           string
+	disableSSL       bool
+	virtualHostStyle bool
+}
 
 type s3Store struct {
 	bucketName string
@@ -127,7 +131,7 @@ func (s *s3Store) DeleteObject(ctx context.Context, key string) error {
 		Key:    aws.String(key),
 	}
 	_, err := s.api.DeleteObjectWithContext(ctx, param)
-	if err != nil && strings.Contains(err.Error(), "NoSuckKey") {
+	if err != nil && strings.Contains(err.Error(), s3.ErrCodeNoSuchKey) {
 		log.Errorw("S3 failed to delete object", "error", err)
 		err = nil
 	}
@@ -272,15 +276,15 @@ func (sc *SessionCache) newSession(cfg ObjectStorageConfig) (*session.Session, s
 	sc.Lock()
 	defer sc.Unlock()
 
-	endpoint, bucketName, region, err := parseS3Endpoint(cfg.BucketURL)
+	options, err := parseS3EndpointOptions(cfg.BucketURL)
 	if err != nil {
 		log.Errorw("failed to parse S3 endpoint", "error", err)
 		return &session.Session{}, "", err
 	}
-	log.Debugw("S3 storage info", "endpoint", endpoint, "bucketName", bucketName, "region", region)
+	log.Debugw("S3 storage info", "endpoint", options.endpoint, "bucketName", options.bucketName, "region", options.region)
 
 	if sess, ok := sc.sessions[cfg]; ok {
-		return sess, bucketName, nil
+		return sess, options.bucketName, nil
 	}
 
 	// If you want to access s3 bucket, you must set IAM type in config.toml.
@@ -288,11 +292,11 @@ func (sc *SessionCache) newSession(cfg ObjectStorageConfig) (*session.Session, s
 	// If you want to access public bucket, you should set IAM type to AKSK and accessKey to be NoSignRequest
 	// If IAM type is SA, you can visit your s3 straightly
 	awsConfig := &aws.Config{
-		Region:           aws.String(region),
-		Endpoint:         aws.String(endpoint),
-		DisableSSL:       aws.Bool(disableSSL),
+		Region:           aws.String(options.region),
+		Endpoint:         aws.String(options.endpoint),
+		DisableSSL:       aws.Bool(options.disableSSL),
 		HTTPClient:       getHTTPClient(cfg.TLSInsecureSkipVerify),
-		S3ForcePathStyle: aws.Bool(!isVirtualHostStyle),
+		S3ForcePathStyle: aws.Bool(!options.virtualHostStyle),
 		Retryer:          newCustomS3Retryer(cfg.MaxRetries, time.Duration(cfg.MinRetryDelay)),
 	}
 	var sess *session.Session
@@ -329,7 +333,7 @@ func (sc *SessionCache) newSession(cfg ObjectStorageConfig) (*session.Session, s
 	}
 
 	sc.sessions[cfg] = sess
-	return sess, bucketName, nil
+	return sess, options.bucketName, nil
 }
 
 // IRSA is IAM Roles for Service Account in Kubernetes
@@ -355,45 +359,41 @@ func (sc *SessionCache) clear() {
 }
 
 func parseS3Endpoint(endpoint string) (string, string, string, error) {
-	endpoint = strings.Trim(endpoint, "/")
-	uri, err := url.ParseRequestURI(endpoint)
+	options, err := parseS3EndpointOptions(endpoint)
+	return options.endpoint, options.bucketName, options.region, err
+}
+
+func parseS3EndpointOptions(endpoint string) (endpointOptions, error) {
+	options := endpointOptions{endpoint: strings.Trim(endpoint, "/")}
+	uri, err := url.ParseRequestURI(options.endpoint)
 	if err != nil {
-		log.Errorw("failed to parse request uri", "endpoint", endpoint, "error", err)
-		return "", "", "", err
+		log.Errorw("failed to parse request uri", "endpoint", options.endpoint, "error", err)
+		return endpointOptions{}, err
 	}
 
-	var (
-		bucketName string
-		region     string
-	)
 	if uri.Path != "" { // Path style: https://s3.<region>.amazonaws.com(.cn)/<bucket>
 		pathParts := strings.Split(uri.Path, "/")
-		bucketName = pathParts[1]
+		options.bucketName = pathParts[1]
 		if strings.Contains(uri.Host, ".amazonaws.com") {
-			endpoint = uri.Host
-			region = parseS3Region(endpoint)
+			options.endpoint = uri.Host
+			options.region = parseS3Region(options.endpoint)
 		}
-		isVirtualHostStyle = false
 	} else { // Virtual hosted style: https://<bucketName>.s3.<region>.amazonaws.com(.cn)
 		if strings.Contains(uri.Host, ".amazonaws.com") {
 			hostParts := strings.SplitN(uri.Host, ".s3", 2)
-			bucketName = hostParts[0]
-			endpoint = "s3" + hostParts[1]
-			region = parseS3Region(endpoint)
-			isVirtualHostStyle = true
+			options.bucketName = hostParts[0]
+			options.endpoint = "s3" + hostParts[1]
+			options.region = parseS3Region(options.endpoint)
+			options.virtualHostStyle = true
 		}
 	}
 
-	if region == "" {
-		region = endpoints.UsEast1RegionID
+	if options.region == "" {
+		options.region = endpoints.UsEast1RegionID
 	}
 
-	ssl := strings.ToLower(uri.Scheme) == "https"
-	if !ssl {
-		disableSSL = true
-	}
-
-	return endpoint, bucketName, region, nil
+	options.disableSSL = strings.ToLower(uri.Scheme) != "https"
+	return options, nil
 }
 
 func parseS3Region(endpoint string) string {

@@ -74,13 +74,13 @@ func TestSpDBImpl_UpdateAuthKeySuccess(t *testing.T) {
 		ModifiedTime:     time.Now(),
 	}
 	s, mock := setupDB(t)
+	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
 		WithArgs(userAddress, domain, oldNonce).WillReturnRows(sqlmock.NewRows([]string{
 		"user_address", "domain", "current_nonce",
 		"current_public_key", "next_nonce", "expiry_date", "created_time", "modified_time",
 	}).AddRow(
 		o.UserAddress, o.Domain, o.CurrentNonce, o.CurrentPublicKey, o.NextNonce, o.ExpiryDate, o.CreatedTime, o.ModifiedTime))
-	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `off_chain_auth_key` SET `current_nonce`=?,`current_public_key`=?,`next_nonce`=?,`expiry_date`=?,`modified_time`=? WHERE `user_address` = ? AND `domain` = ?").
 		WithArgs(newNonce, newPublicKey, newNonce+1, newExpiryDate, AnyTime{}, userAddress, domain).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
@@ -108,21 +108,41 @@ func TestSpDBImpl_UpdateAuthKeySuccess2(t *testing.T) {
 		ModifiedTime:     time.Now(),
 	}
 	s, mock := setupDB(t)
+	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
 		WithArgs(userAddress, domain, oldNonce).WillReturnError(gorm.ErrRecordNotFound)
 
-	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `off_chain_auth_key` (`user_address`,`domain`,`current_nonce`,`current_public_key`,`next_nonce`,`expiry_date`,`created_time`,`modified_time`) VALUES (?,?,?,?,?,?,?,?)").
 		WithArgs(o.UserAddress, o.Domain, 0, "", 1, AnyTime{}, AnyTime{}, AnyTime{}).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `off_chain_auth_key` SET `current_nonce`=?,`current_public_key`=?,`next_nonce`=?,`expiry_date`=?,`modified_time`=? WHERE `user_address` = ? AND `domain` = ?").
 		WithArgs(newNonce, newPublicKey, newNonce+1, newExpiryDate, AnyTime{}, userAddress, domain).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	err := s.UpdateAuthKey(userAddress, domain, oldNonce, newNonce, newPublicKey, newExpiryDate)
 	assert.Nil(t, err)
+}
+
+func TestSpDBImpl_UpdateAuthKeyRollsBackInitialInsertWhenUpdateFails(t *testing.T) {
+	const (
+		userAddress = "mockUserAddress"
+		domain      = "mockDomain"
+	)
+	newExpiryDate := time.Now()
+	s, mock := setupDB(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
+		WithArgs(userAddress, domain, int32(0)).WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectExec("INSERT INTO `off_chain_auth_key` (`user_address`,`domain`,`current_nonce`,`current_public_key`,`next_nonce`,`expiry_date`,`created_time`,`modified_time`) VALUES (?,?,?,?,?,?,?,?)").
+		WithArgs(userAddress, domain, 0, "", 1, AnyTime{}, AnyTime{}, AnyTime{}).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("UPDATE `off_chain_auth_key` SET `current_nonce`=?,`current_public_key`=?,`next_nonce`=?,`expiry_date`=?,`modified_time`=? WHERE `user_address` = ? AND `domain` = ?").
+		WillReturnError(mockDBInternalError)
+	mock.ExpectRollback()
+
+	err := s.UpdateAuthKey(userAddress, domain, 0, 1, "newPublicKey", newExpiryDate)
+	assert.ErrorContains(t, err, mockDBInternalError.Error())
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestSpDBImpl_UpdateAuthKeyFailure1(t *testing.T) {
@@ -136,8 +156,10 @@ func TestSpDBImpl_UpdateAuthKeyFailure1(t *testing.T) {
 		newExpiryDate = time.Now()
 	)
 	s, mock := setupDB(t)
+	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
 		WillReturnError(mockDBInternalError)
+	mock.ExpectRollback()
 	err := s.UpdateAuthKey(userAddress, domain, oldNonce, newNonce, newPublicKey, newExpiryDate)
 	assert.Contains(t, err.Error(), mockDBInternalError.Error())
 }
@@ -163,17 +185,16 @@ func TestSpDBImpl_UpdateAuthKeyFailure2(t *testing.T) {
 		ModifiedTime:     time.Now(),
 	}
 	s, mock := setupDB(t)
+	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
 		WithArgs(userAddress, domain, oldNonce).WillReturnRows(sqlmock.NewRows([]string{
 		"user_address", "domain", "current_nonce",
 		"current_public_key", "next_nonce", "expiry_date", "created_time", "modified_time",
 	}).AddRow(
 		o.UserAddress, o.Domain, o.CurrentNonce, o.CurrentPublicKey, o.NextNonce, o.ExpiryDate, o.CreatedTime, o.ModifiedTime))
-	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `off_chain_auth_key` SET `current_nonce`=?,`current_public_key`=?,`next_nonce`=?,`expiry_date`=?,`modified_time`=? WHERE `user_address` = ? AND `domain` = ?").
 		WillReturnError(mockDBInternalError)
 	mock.ExpectRollback()
-	mock.ExpectCommit()
 	err := s.UpdateAuthKey(userAddress, domain, oldNonce, newNonce, newPublicKey, newExpiryDate)
 	assert.Contains(t, err.Error(), mockDBInternalError.Error())
 }
@@ -189,14 +210,13 @@ func TestSpDBImpl_UpdateAuthKeyFailure3(t *testing.T) {
 		newExpiryDate = time.Now()
 	)
 	s, mock := setupDB(t)
+	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT * FROM `off_chain_auth_key` WHERE user_address = ? and domain =? and current_nonce=? ORDER BY `off_chain_auth_key`.`user_address` LIMIT 1").
 		WillReturnError(gorm.ErrRecordNotFound)
-	mock.ExpectBegin()
 
 	mock.ExpectExec("INSERT INTO `off_chain_auth_key` (`user_address`,`domain`,`current_nonce`,`current_public_key`,`next_nonce`,`expiry_date`,`created_time`,`modified_time`) VALUES (?,?,?,?,?,?,?,?)").
 		WillReturnError(mockDBInternalError)
 	mock.ExpectRollback()
-	mock.ExpectCommit()
 
 	err := s.UpdateAuthKey(userAddress, domain, oldNonce, newNonce, newPublicKey, newExpiryDate)
 	assert.Contains(t, err.Error(), mockDBInternalError.Error())

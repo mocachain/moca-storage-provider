@@ -31,46 +31,47 @@ func (s *SpDBImpl) InsertAuthKey(newRecord *corespdb.OffChainAuthKey) error {
 
 // UpdateAuthKey update OffChainAuthKey from OffChainAuthKeyTable
 func (s *SpDBImpl) UpdateAuthKey(userAddress string, domain string, oldNonce int32, newNonce int32, newPublicKey string, newExpiryDate time.Time) error {
-	queryKeyReturn := &OffChainAuthKeyTable{}
-	result := s.db.First(queryKeyReturn, "user_address = ? and domain =? and current_nonce=?", userAddress, domain, oldNonce)
-	if result.Error != nil {
-		if errIsNotFound(result.Error) {
-			// this is a new initial record, not containing any public key but just generate the first nonce as 1
-			newRecord := &corespdb.OffChainAuthKey{
-				UserAddress:      userAddress,
-				Domain:           domain,
-				CurrentNonce:     0,
-				CurrentPublicKey: "",
-				NextNonce:        1,
-				ExpiryDate:       time.Now(),
-				CreatedTime:      time.Now(),
-				ModifiedTime:     time.Now(),
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		queryKeyReturn := &OffChainAuthKeyTable{}
+		result := tx.First(queryKeyReturn, "user_address = ? and domain =? and current_nonce=?", userAddress, domain, oldNonce)
+		if result.Error != nil {
+			if errIsNotFound(result.Error) {
+				now := time.Now()
+				result = tx.Create(&OffChainAuthKeyTable{
+					UserAddress:      userAddress,
+					Domain:           domain,
+					CurrentNonce:     0,
+					CurrentPublicKey: "",
+					NextNonce:        1,
+					ExpiryDate:       now,
+					CreatedTime:      now,
+					ModifiedTime:     now,
+				})
+				if result.Error != nil || result.RowsAffected != 1 {
+					return fmt.Errorf("failed to InsertAuthKey: failed to insert record in service config table: %s", result.Error)
+				}
+			} else {
+				return fmt.Errorf("failed to query OffChainAuthKey table: %s", result.Error)
 			}
-			insertError := s.InsertAuthKey(newRecord)
-			if insertError != nil {
-				return fmt.Errorf("failed to InsertAuthKey: %s", insertError)
-			}
-		} else {
-			return fmt.Errorf("failed to query OffChainAuthKey table: %s", result.Error)
 		}
-	}
-	queryCondition := &OffChainAuthKeyTable{
-		UserAddress:  userAddress,
-		Domain:       domain,
-		CurrentNonce: oldNonce,
-	}
-	updateFields := &OffChainAuthKeyTable{
-		CurrentPublicKey: newPublicKey,
-		CurrentNonce:     newNonce,
-		NextNonce:        newNonce + 1, // increase the Nonce for future use
-		ExpiryDate:       newExpiryDate,
-		ModifiedTime:     time.Now(),
-	}
-	result = s.db.Model(queryCondition).Updates(updateFields)
-	if result.Error != nil || result.RowsAffected != 1 {
-		return fmt.Errorf("failed to update OffChainAuthKeyTable record's state: %s", result.Error)
-	}
-	return nil
+		queryCondition := &OffChainAuthKeyTable{
+			UserAddress:  userAddress,
+			Domain:       domain,
+			CurrentNonce: oldNonce,
+		}
+		updateFields := &OffChainAuthKeyTable{
+			CurrentPublicKey: newPublicKey,
+			CurrentNonce:     newNonce,
+			NextNonce:        newNonce + 1,
+			ExpiryDate:       newExpiryDate,
+			ModifiedTime:     time.Now(),
+		}
+		result = tx.Model(queryCondition).Updates(updateFields)
+		if result.Error != nil || result.RowsAffected != 1 {
+			return fmt.Errorf("failed to update OffChainAuthKeyTable record's state: %s", result.Error)
+		}
+		return nil
+	})
 }
 
 func errIsNotFound(err error) bool {

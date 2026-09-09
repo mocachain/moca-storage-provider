@@ -73,7 +73,7 @@ func (m mockS3Client) PutObjectWithContext(aws.Context, *s3.PutObjectInput, ...r
 func (m mockS3Client) DeleteObjectWithContext(aws.Context, *s3.DeleteObjectInput, ...request.Option) (
 	*s3.DeleteObjectOutput, error) {
 	if *m.deleteObjectReq.Key == "non_existed_object" {
-		return nil, errors.New("NoSuckKey")
+		return nil, errors.New(s3.ErrCodeNoSuchKey)
 	}
 	return &m.deleteObjectResp, nil
 }
@@ -957,6 +957,18 @@ func TestS3Store_parseEndpoint(t *testing.T) {
 			assert.Equal(t, tt.wantedResult3, result3)
 		})
 	}
+}
+
+func TestParseS3EndpointDoesNotRetainPreviousTransportSettings(t *testing.T) {
+	first, err := parseS3EndpointOptions("http://s3.us-east-1.amazonaws.com/first-bucket")
+	assert.NoError(t, err)
+	assert.True(t, first.disableSSL)
+	assert.False(t, first.virtualHostStyle)
+
+	second, err := parseS3EndpointOptions("https://second-bucket.s3.us-east-1.amazonaws.com")
+	assert.NoError(t, err)
+	assert.False(t, second.disableSSL)
+	assert.True(t, second.virtualHostStyle)
 }
 
 func TestS3Store_parseRegion(t *testing.T) {

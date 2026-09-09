@@ -21,10 +21,10 @@ func TestContinuationTokenFilter(t *testing.T) {
 func TestPrefixFilter(t *testing.T) {
 	db, mock := setupDB(t)
 
-	expectedSQL := "SELECT * FROM `objects` WHERE object_name LIKE ?"
-	mock.ExpectQuery(expectedSQL).WithArgs("prefix%").WillReturnRows(sqlmock.NewRows([]string{}))
+	expectedSQL := "SELECT * FROM `objects` WHERE object_name LIKE ? ESCAPE '\\\\'"
+	mock.ExpectQuery(expectedSQL).WithArgs(`prefix\%\_%`).WillReturnRows(sqlmock.NewRows([]string{}))
 
-	db.db.Table(ObjectTableName).Scopes(PrefixFilter("prefix")).Find(&[]struct{}{})
+	db.db.Table(ObjectTableName).Scopes(PrefixFilter("prefix%_")).Find(&[]struct{}{})
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

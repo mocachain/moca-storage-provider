@@ -379,14 +379,14 @@ func (i *Impl) Processed(ctx context.Context, height uint64) (bool, error) {
 		return false, err
 	}
 	// log.Infof("epoch height:%d, cur height: %d", ep.BlockHeight, height)
-	if ep.BlockHeight > int64(height) {
+	if ep.BlockHeight >= int64(height) {
 		heightKey := fmt.Sprintf("%s-%d", i.GetServiceName(), height)
 		blockMap.Delete(heightKey)
 		eventMap.Delete(heightKey)
 		txMap.Delete(heightKey)
 		txHashMap.Delete(heightKey)
 	}
-	return ep.BlockHeight > int64(height), nil
+	return ep.BlockHeight >= int64(height), nil
 }
 
 // GetBlockRecordNum returns total number of blocks stored in database.
