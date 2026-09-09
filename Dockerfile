@@ -3,10 +3,7 @@ FROM golang:1.26.5-bookworm AS builder
 ENV CGO_CFLAGS="-O -D__BLST_PORTABLE__"
 ENV CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 
-ENV GOPRIVATE=github.com/mocachain
 ENV GOPROXY=https://proxy.golang.org,direct
-ENV GONOSUMDB=github.com/mocachain/*
-ENV GONOSUMCHECK=github.com/mocachain/*
 
 ARG GITHUB_TOKEN
 RUN git config --global url."https://${GITHUB_TOKEN}:@github.com/".insteadOf "https://github.com/"
