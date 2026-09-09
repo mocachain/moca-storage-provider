@@ -496,28 +496,29 @@ func (g *GateModular) deleteUserPublicKeyV2Handler(w http.ResponseWriter, r *htt
 
 // parseSignedMsgAndSigFromRequest get sig for personal auth, it expects the auth string should look like "Signature=xxxxx,SignedMsg=xxx".
 func parseSignedMsgAndSigFromRequest(requestSignature string) (*string, *string, error) {
-	var (
-		signedMsg string
-		signature string
-	)
 	requestSignature = strings.ReplaceAll(requestSignature, "\\n", "\n")
-	signatureItems := strings.Split(requestSignature, ",")
-	if len(signatureItems) != 2 { // requestSignature should be "Signature=xxxxx,SignedMsg=xxxxx"
+	var signedMsg, signature string
+	if strings.HasPrefix(requestSignature, Signature+"=") {
+		parts := strings.SplitN(strings.TrimPrefix(requestSignature, Signature+"="), ","+SignedMsg+"=", 2)
+		if len(parts) != 2 || strings.Contains(parts[0], ",") {
+			return nil, nil, ErrAuthorizationHeaderFormat
+		}
+		signature, signedMsg = parts[0], parts[1]
+	} else if strings.HasPrefix(requestSignature, SignedMsg+"=") {
+		value := strings.TrimPrefix(requestSignature, SignedMsg+"=")
+		separator := "," + Signature + "="
+		index := strings.LastIndex(value, separator)
+		if index < 0 || strings.Contains(value[index+len(separator):], ",") {
+			return nil, nil, ErrAuthorizationHeaderFormat
+		}
+		signedMsg, signature = value[:index], value[index+len(separator):]
+	} else {
 		return nil, nil, ErrAuthorizationHeaderFormat
 	}
-	for _, item := range signatureItems {
-		pair := strings.Split(item, "=")
-		if len(pair) != 2 {
-			return nil, nil, ErrAuthorizationHeaderFormat
-		}
-		switch pair[0] {
-		case SignedMsg:
-			signedMsg = pair[1]
-		case Signature:
-			signature = pair[1]
-		default:
-			return nil, nil, ErrAuthorizationHeaderFormat
-		}
+	if signedMsg == "" || signature == "" ||
+		strings.Contains(signedMsg, ","+SignedMsg+"=") ||
+		strings.Contains(signedMsg, ","+Signature+"=") {
+		return nil, nil, ErrAuthorizationHeaderFormat
 	}
 
 	return &signedMsg, &signature, nil
