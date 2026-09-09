@@ -913,7 +913,7 @@ func TestSpDBImpl_GetBucketReadRecordSuccess1(t *testing.T) {
 		ReadSize:        1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ?").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ? ORDER BY read_timestamp_us ASC LIMIT 100").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"read_record_id", "bucket_id", "object_id", "user_address", "read_timestamp_us",
 			"bucket_name", "object_name", "read_size",
@@ -943,7 +943,7 @@ func TestSpDBImpl_GetBucketReadRecordSuccess2(t *testing.T) {
 		ReadSize:        1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ? LIMIT 1").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ? ORDER BY read_timestamp_us ASC LIMIT 1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"read_record_id", "bucket_id", "object_id", "user_address", "read_timestamp_us",
 			"bucket_name", "object_name", "read_size",
@@ -963,7 +963,7 @@ func TestSpDBImpl_GetBucketReadRecordFailure(t *testing.T) {
 		LimitNum:         1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ? LIMIT 1").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and bucket_id = ? ORDER BY read_timestamp_us ASC LIMIT 1").
 		WillReturnError(mockDBInternalError)
 	result, err := s.GetBucketReadRecord(objectID, timeRange)
 	assert.Contains(t, err.Error(), mockDBInternalError.Error())
@@ -989,7 +989,7 @@ func TestSpDBImpl_GetObjectReadRecordSuccess1(t *testing.T) {
 		ReadSize:        1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ?").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ? ORDER BY read_timestamp_us ASC LIMIT 100").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"read_record_id", "bucket_id", "object_id", "user_address", "read_timestamp_us",
 			"bucket_name", "object_name", "read_size",
@@ -1019,7 +1019,7 @@ func TestSpDBImpl_GetObjectReadRecordSuccess2(t *testing.T) {
 		ReadSize:        1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ? LIMIT 1").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ? ORDER BY read_timestamp_us ASC LIMIT 1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"read_record_id", "bucket_id", "object_id", "user_address", "read_timestamp_us",
 			"bucket_name", "object_name", "read_size",
@@ -1039,7 +1039,7 @@ func TestSpDBImpl_GetObjectReadRecordFailure(t *testing.T) {
 		LimitNum:         1,
 	}
 	s, mock := setupDB(t)
-	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ? LIMIT 1").
+	mock.ExpectQuery("SELECT * FROM `read_record` WHERE read_timestamp_us >= ? and read_timestamp_us < ? and object_id = ? ORDER BY read_timestamp_us ASC LIMIT 1").
 		WillReturnError(mockDBInternalError)
 	result, err := s.GetObjectReadRecord(objectID, timeRange)
 	assert.Contains(t, err.Error(), mockDBInternalError.Error())
