@@ -14,7 +14,7 @@ type resourceManager struct {
 	transient *resourceScope
 
 	svc map[string]*resourceScope
-	mux sync.Mutex
+	mux sync.RWMutex
 }
 
 var _ corercmgr.ResourceManager = &resourceManager{}
@@ -65,7 +65,9 @@ func (r *resourceManager) ViewTransient(f func(corercmgr.ResourceScope) error) e
 
 // ViewService retrieves a service-specific scope.
 func (r *resourceManager) ViewService(name string, f func(corercmgr.ResourceScope) error) error {
+	r.mux.RLock()
 	scop, ok := r.svc[name]
+	r.mux.RUnlock()
 	if !ok {
 		return nil
 	}
@@ -88,7 +90,9 @@ func (r *resourceManager) TransientState() string {
 
 // ServiceState output a service-specific resource scope and limit readable
 func (r *resourceManager) ServiceState(name string) string {
+	r.mux.RLock()
 	scop, ok := r.svc[name]
+	r.mux.RUnlock()
 	if !ok {
 		return ""
 	}

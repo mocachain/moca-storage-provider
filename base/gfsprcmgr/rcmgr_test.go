@@ -1,6 +1,7 @@
 package gfsprcmgr
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,31 @@ import (
 
 	corercmgr "github.com/mocachain/moca-storage-provider/core/rcmgr"
 )
+
+func TestResourceManagerConcurrentServiceAccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	limiter := corercmgr.NewMockLimiter(ctrl)
+	limit := corercmgr.NewMockLimit(ctrl)
+	limiter.EXPECT().GetSystemLimits().Return(limit).AnyTimes()
+	limiter.EXPECT().GetServiceLimits(gomock.Any()).Return(limit).AnyTimes()
+	limit.EXPECT().String().Return("test").AnyTimes()
+
+	r := NewResourceManager(limiter)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = r.OpenService("svc")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = r.ViewService("svc", func(corercmgr.ResourceScope) error { return nil })
+			_ = r.ServiceState("svc")
+		}()
+	}
+	wg.Wait()
+}
 
 func TestResourceManager_OpenService1(t *testing.T) {
 	ctrl := gomock.NewController(t)
