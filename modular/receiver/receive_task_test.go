@@ -723,3 +723,42 @@ func TestQueryTasks(t *testing.T) {
 	q.EXPECT().ScanTask(gomock.Any()).Times(1)
 	r.QueryTasks(context.TODO(), "")
 }
+
+func TestHandleDoneReceivePieceTask_RejectsUpdatingObjectWhenShadowRecordMissing(t *testing.T) {
+	r := setup(t)
+	r.spID = 2
+	ctrl := gomock.NewController(t)
+	q := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	r.receiveQueue = q
+	r.baseApp.SetPieceOp(&gfsppieceop.GfSpPieceOp{})
+	q.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	q.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(1)
+
+	pieceChecksums := [][]byte{{1, 2, 3}}
+	taskChecksums := [][]byte{{4, 5, 6}, hash.GenerateIntegrityHash(pieceChecksums)}
+	// an agent-upload task for an object under update: without a shadow record the task
+	// checksums must not be trusted, even though the object is unsealed for update purposes.
+	mockTask := newDoneReceiveTask(taskChecksums, true, true)
+	mockSPDB := spdb.NewMockSPDB(ctrl)
+	r.baseApp.SetGfSpDB(mockSPDB)
+	mockSPDB.EXPECT().GetAllReplicatePieceChecksumOptimized(gomock.Any(), gomock.Any(), gomock.Any()).Return(pieceChecksums, nil).Times(1)
+
+	mockConsensus := consensus.NewMockConsensus(ctrl)
+	r.baseApp.SetConsensus(mockConsensus)
+	mockConsensus.EXPECT().QueryObjectInfoByID(gomock.Any(), "100").Return(&storagetypes.ObjectInfo{
+		Id:           sdkmath.NewUint(100),
+		BucketName:   "bucket",
+		ObjectName:   "object",
+		ObjectStatus: storagetypes.OBJECT_STATUS_SEALED,
+		IsUpdating:   true,
+		Checksums:    [][]byte{{7, 8, 9}, []byte("previous-content-integrity")},
+	}, nil).Times(1)
+	// the consensus interface reports a missing shadow record as (nil, nil)
+	mockConsensus.EXPECT().QueryShadowObjectInfo(gomock.Any(), "bucket", "object").Return(nil, nil).Times(1)
+
+	mockGRPCAPI := gfspclient.NewMockGfSpClientAPI(ctrl)
+	r.baseApp.SetGfSpClient(mockGRPCAPI)
+
+	_, err := r.HandleDoneReceivePieceTask(context.TODO(), mockTask)
+	assert.ErrorIs(t, err, ErrInvalidDataChecksum)
+}

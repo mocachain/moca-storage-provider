@@ -260,6 +260,10 @@ func (r *ReceiveModular) expectedSealChecksums(ctx context.Context, task task.Re
 			log.CtxErrorw(ctx, "failed to query shadow object info from chain", "task", task, "error", err)
 			return nil, err
 		}
+		if shadowObjectInfo == nil {
+			log.CtxErrorw(ctx, "shadow object info not found on chain for object under update", "task", task)
+			return nil, ErrInvalidDataChecksum
+		}
 		chainChecksums = shadowObjectInfo.GetChecksums()
 	}
 	if len(chainChecksums) > 0 {
