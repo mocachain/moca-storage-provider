@@ -11,6 +11,9 @@ on:
     branches:
 
 
+permissions:
+  contents: read
+
 jobs:
   e2e-test:
     name: SP E2E (go-sdk)
