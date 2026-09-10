@@ -7,9 +7,11 @@ workspace=${GITHUB_WORKSPACE}
 
 # some constants
 # Keep refs override-friendly and default the whole e2e stack to main so the
-# chain, cmd and go-sdk all move in lockstep.
+# chain, cmd and go-sdk all move in lockstep. moca-cmd is pinned to the branch
+# of mocachain/moca-cmd#23 until it lands: the delegated object case needs its
+# `object put --delegate` and `object update --delegate`.
 MOCA_TAG="${MOCA_TAG:-main}"
-MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
+MOCA_CMD_TAG="${MOCA_CMD_TAG:-feat/object-delegated-upload}"
 MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
@@ -23,6 +25,9 @@ echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
 E2E_SP_NUM=8
+CHAIN_RPC="http://localhost:26657"
+CHAIN_REST="http://localhost:1317"
+EVM_RPC="http://localhost:8545"
 
 function dump_sp_logs() {
   if [ ! -d "${workspace}/deployment/localup/local_env" ]; then
@@ -261,7 +266,6 @@ function transfer_account() {
   exit 1
 }
 
-
 #################################
 # build and start Moca SP #
 #################################
@@ -457,6 +461,423 @@ function get_object_until_match() {
   return 1
 }
 
+##########################################################
+# chain query and tx helpers shared by the storage cases #
+##########################################################
+# chain queries are retried on transient rpc failures (the local rpc times out
+# under load); a "not found" answer is returned at once so deletion polls work
+function mocad_q() {
+  local attempt out
+  for attempt in $(seq 1 5); do
+    if out=$("${workspace}"/moca/build/mocad q "$@" --node "${CHAIN_RPC}" --output json 2>&1); then
+      echo "${out}"
+      return 0
+    fi
+    if echo "${out}" | grep -qiE "not found|not exist|no such"; then
+      echo "${out}" >&2
+      return 1
+    fi
+    sleep 2
+  done
+  echo "${out}" >&2
+  return 1
+}
+
+function evm_rpc() {
+  local method=$1
+  local params=$2
+  curl -s -X POST -H 'Content-Type: application/json' \
+    --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"${method}\",\"params\":${params}}" "${EVM_RPC}"
+}
+
+function evm_nonce() {
+  evm_rpc eth_getTransactionCount "[\"$1\",\"latest\"]" | jq -r '.result'
+}
+
+# amoca balances exceed 2^63, so integer maths goes through python
+function bigsub() {
+  python3 -c 'import sys; print(int(sys.argv[1]) - int(sys.argv[2]))' "$1" "$2"
+}
+
+function bigcmp() {
+  python3 -c '
+import operator, sys
+ops = {"<": operator.lt, "<=": operator.le, "==": operator.eq, ">=": operator.ge, ">": operator.gt}
+sys.exit(0 if ops[sys.argv[2]](int(sys.argv[1]), int(sys.argv[3])) else 1)
+' "$1" "$2" "$3"
+}
+
+function bank_balance() {
+  mocad_q bank balances "$1" | jq -r '.balances[] | select(.denom == "amoca") | .amount'
+}
+
+# stream records are read over REST: the CLI query goes through the payment
+# precompile, whose ABI cannot return the negative netflow of a paying account
+function stream_field() {
+  local attempt rec
+  for attempt in $(seq 1 5); do
+    if rec=$(curl -sf --max-time 10 "${CHAIN_REST}/moca/payment/stream_record/$1"); then
+      echo "${rec}" | jq -r ".stream_record.$2 // empty"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "failed to read the stream record of $1" >&2
+  return 1
+}
+
+function payment_accounts_of() {
+  local json
+  json=$(mocad_q payment get-payment-accounts-by-owner "$1" 2>/dev/null || echo '{}')
+  echo "${json}" | jq -c '.paymentAccounts // .payment_accounts // []'
+}
+
+function moca_cmd() {
+  ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt "$@"
+}
+
+# moca-cmd would otherwise take the first SP the chain lists as the bucket's
+# primary, whatever its status
+function in_service_primary_sp() {
+  mocad_q sp storage-providers | jq -r '[.sps[] | select(.status == "STATUS_IN_SERVICE")][0].operator_address // empty'
+}
+
+# The last 64-hex hash moca-cmd printed must be confirmed on chain, as an EVM
+# receipt with status 0x1 or a cosmos tx with code 0. The exit code alone does
+# not prove inclusion: bucket create never waits for its EVM receipt.
+function assert_tx_ok() {
+  local out=$1
+  local label=$2
+  local hash status code attempt
+
+  hash=$(echo "${out}" | grep -oiE '(0x)?[0-9a-f]{64}' | tail -1 | sed 's/^0x//')
+  if [ -z "${hash}" ]; then
+    echo "${label}: no tx hash in the command output"
+    return 1
+  fi
+  for attempt in $(seq 1 30); do
+    status=$(evm_rpc eth_getTransactionReceipt "[\"0x${hash}\"]" | jq -r '.result.status // empty')
+    if [ "${status}" = "0x1" ]; then
+      echo "${label}: EVM receipt status=0x1 (0x${hash:0:12}...)"
+      return 0
+    fi
+    if [ "${status}" = "0x0" ]; then
+      echo "${label}: EVM tx 0x${hash} reverted"
+      return 1
+    fi
+    code=$(curl -s "${CHAIN_RPC}/tx?hash=0x${hash}" | jq -r '.result.tx_result.code // empty')
+    if [ "${code}" = "0" ]; then
+      echo "${label}: cosmos tx code=0 (0x${hash:0:12}...)"
+      return 0
+    fi
+    if [ -n "${code}" ]; then
+      echo "${label}: cosmos tx 0x${hash} failed with code ${code}"
+      return 1
+    fi
+    sleep 2
+  done
+  echo "${label}: tx 0x${hash} not found on chain"
+  return 1
+}
+
+# object rm prints no hash and swallows a failed result: gate deletes on the
+# resource actually disappearing from chain state
+function wait_gone() {
+  local label=$1
+  shift
+  local attempt
+
+  for attempt in $(seq 1 30); do
+    if ! mocad_q "$@" >/dev/null 2>&1; then
+      echo "${label}: gone on chain"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "${label}: still on chain after deletion"
+  return 1
+}
+
+function assert_object_sealed() {
+  local bucket=$1
+  local object=$2
+  local want_size=$3
+  local want_type=$4
+  local info status is_updating size ctype
+
+  info=$(mocad_q storage head-object "${bucket}" "${object}")
+  status=$(echo "${info}" | jq -r '.object_info.object_status')
+  is_updating=$(echo "${info}" | jq -r '.object_info.is_updating')
+  size=$(echo "${info}" | jq -r '.object_info.payload_size')
+  ctype=$(echo "${info}" | jq -r '.object_info.content_type')
+  if [ "${status}" != "OBJECT_STATUS_SEALED" ] || [ "${is_updating}" = "true" ]; then
+    echo "object ${object}: status=${status} is_updating=${is_updating}, expected sealed with no update pending"
+    return 1
+  fi
+  if [ "${size}" != "${want_size}" ] || [ "${ctype}" != "${want_type}" ]; then
+    echo "object ${object}: payload_size=${size} content_type=${ctype}, expected ${want_size} / ${want_type}"
+    return 1
+  fi
+  echo "object ${object} sealed on chain with payload_size=${size} content_type=${ctype}"
+}
+
+#############################################################
+# bucket ls / object ls are served from the SP's BsDB, which #
+# only the blocksyncer populates from chain events           #
+#############################################################
+function test_list_via_metadata() {
+  set -e
+  cd "${workspace}"/moca-cmd/build/
+  retry_cmd 24 5 "bucket ls shows ${BUCKET_NAME}" \
+    bash -c "./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket ls | grep -w ${BUCKET_NAME}"
+  retry_cmd 24 5 "object ls shows example.json" \
+    bash -c "./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object ls moca://${BUCKET_NAME} | grep -w example.json"
+  retry_cmd 24 5 "object ls shows random_file" \
+    bash -c "./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object ls moca://${BUCKET_NAME} | grep -w random_file"
+}
+
+###################################################################
+# storage fee lifecycle: deposit -> store -> delete -> withdraw    #
+# fees stream from the bucket's payment account while the object  #
+# is stored, stop on delete, and the unstreamed deposit comes back #
+###################################################################
+function test_storage_fee_reclaim() {
+  set -e
+  cd "${workspace}"/moca-cmd/build/
+  local owner="${TEST_ACCOUNT_ADDRESS}"
+  local bucket
+  bucket="spfee-$(date +%s)"
+  local object="fee_reclaim_object.bin"
+  local deposit="1000000000000000000"      # 1 MOCA
+  local withdraw="500000000000000000"      # 0.5 MOCA, under the withdraw timelock threshold
+  local min_remaining="900000000000000000" # a tiny object stored for about reserve_time costs dust
+  local gas_allowance="10000000000000000"  # 0.01 MOCA for the withdraw tx gas
+  local reserve_time pa_count_before pa_addr bucket_payment object_status
+  local bank_pre bank_post static_0 sealed_at netflow buffer wait_secs
+  local netflow_after lock_after static_after bank_before bank_after static_final expected_static
+  local out
+
+  # the reserve window is the minimum charge on early deletion; the localup
+  # genesis sets 60s like the live networks, the code default is 180 days
+  reserve_time=$(mocad_q payment params | jq -r '.params.versioned_params.reserve_time // empty')
+  if [ -z "${reserve_time}" ] || [ "${reserve_time}" -gt 300 ]; then
+    echo "reserve_time is '${reserve_time}', expected the localup genesis value of at most 300s"
+    exit 1
+  fi
+  echo "reserve_time=${reserve_time}s"
+
+  echo "--- dedicated payment account ---"
+  pa_count_before=$(payment_accounts_of "${owner}" | jq 'length')
+  out=$(moca_cmd payment-account create)
+  echo "${out}"
+  assert_tx_ok "${out}" "create payment account"
+  pa_addr=""
+  for _ in $(seq 1 15); do
+    pa_addr=$(payment_accounts_of "${owner}" | jq -r "select(length > ${pa_count_before}) | .[-1] // empty")
+    if [ -n "${pa_addr}" ]; then
+      break
+    fi
+    sleep 2
+  done
+  if [ -z "${pa_addr}" ]; then
+    echo "no new payment account for ${owner}"
+    exit 1
+  fi
+  echo "payment account: ${pa_addr}"
+
+  bank_pre=$(bank_balance "${owner}")
+  out=$(moca_cmd payment-account deposit --toAddress "${pa_addr}" --amount "${deposit}")
+  echo "${out}"
+  assert_tx_ok "${out}" "deposit"
+  sleep 4
+  static_0=$(stream_field "${pa_addr}" static_balance)
+  bank_post=$(bank_balance "${owner}")
+  # a fresh account with no flows holds the deposit exactly
+  if [ "${static_0:-0}" != "${deposit}" ]; then
+    echo "fresh payment account static balance is '${static_0}', expected exactly ${deposit}"
+    exit 1
+  fi
+  if ! bigcmp "$(bigsub "${bank_pre}" "${bank_post}")" ">=" "${deposit}"; then
+    echo "owner bank did not decrease by the deposit (pre=${bank_pre} post=${bank_post})"
+    exit 1
+  fi
+  echo "deposit reflected: static_balance=${static_0}, owner bank down by at least the deposit"
+
+  echo "--- store: bucket and sealed object billed to the payment account ---"
+  out=$(moca_cmd bucket create --primarySP "$(in_service_primary_sp)" --paymentAddress "${pa_addr}" moca://${bucket})
+  echo "${out}"
+  assert_tx_ok "${out}" "create bucket"
+  retry_cmd 12 5 "head bucket ${bucket}" mocad_q storage head-bucket "${bucket}"
+  bucket_payment=$(mocad_q storage head-bucket "${bucket}" | jq -r '.bucket_info.payment_address // empty' | tr 'A-F' 'a-f')
+  if [ "${bucket_payment}" != "$(echo "${pa_addr}" | tr 'A-F' 'a-f')" ]; then
+    echo "bucket payment address is '${bucket_payment}', expected ${pa_addr}"
+    exit 1
+  fi
+  echo "bucket billed to the dedicated payment account"
+
+  echo "fee reclaim test $(date) ${RANDOM}" >./fee_reclaim_object.bin
+  # object put polls until OBJECT_STATUS_SEALED; the timeout caps its one-hour
+  # wait when a regression leaves the object unsealed
+  timeout 600 ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./fee_reclaim_object.bin moca://${bucket}/${object}
+  sealed_at=$(date +%s)
+  object_status=$(mocad_q storage head-object "${bucket}" "${object}" | jq -r '.object_info.object_status // empty')
+  if [ "${object_status}" != "OBJECT_STATUS_SEALED" ]; then
+    echo "object status is '${object_status}', expected OBJECT_STATUS_SEALED"
+    exit 1
+  fi
+  netflow=$(stream_field "${pa_addr}" netflow_rate)
+  buffer=$(stream_field "${pa_addr}" buffer_balance)
+  echo "stored: netflow_rate=${netflow} buffer_balance=${buffer}"
+  if ! bigcmp "${netflow:-0}" "<" 0; then
+    echo "expected a negative netflow rate while the object is stored, got '${netflow}'"
+    exit 1
+  fi
+  if ! bigcmp "${buffer:-0}" ">" 0; then
+    echo "expected a positive buffer balance while the object is stored, got '${buffer}'"
+    exit 1
+  fi
+
+  echo "--- delete after the reserve window ---"
+  wait_secs=$((reserve_time - ($(date +%s) - sealed_at) + 10))
+  if [ "${wait_secs}" -gt 0 ]; then
+    echo "waiting ${wait_secs}s for the reserve window to lapse"
+    sleep "${wait_secs}"
+  fi
+  moca_cmd object rm moca://${bucket}/${object}
+  wait_gone "object ${object}" storage head-object "${bucket}" "${object}"
+  out=$(moca_cmd bucket rm moca://${bucket})
+  echo "${out}"
+  assert_tx_ok "${out}" "delete bucket"
+  wait_gone "bucket ${bucket}" storage head-bucket "${bucket}"
+  sleep 4
+
+  netflow_after=$(stream_field "${pa_addr}" netflow_rate)
+  lock_after=$(stream_field "${pa_addr}" lock_balance)
+  static_after=$(stream_field "${pa_addr}" static_balance)
+  echo "deleted: netflow_rate=${netflow_after} lock_balance=${lock_after} static_balance=${static_after}"
+  if [ "${netflow_after:-1}" != "0" ]; then
+    echo "netflow rate should return to 0 after deletion, got '${netflow_after}'"
+    exit 1
+  fi
+  if [ "${lock_after:-1}" != "0" ]; then
+    echo "lock balance should be 0 after deletion, got '${lock_after}'"
+    exit 1
+  fi
+  # storage was charged for the stored seconds, and for nothing beyond them
+  if ! bigcmp "${static_after:-0}" "<" "${deposit}"; then
+    echo "static balance did not decrease at all (${static_after}); storage was never charged"
+    exit 1
+  fi
+  if ! bigcmp "${static_after:-0}" ">=" "${min_remaining}"; then
+    echo "expected at least 90% of the deposit to remain after a short store, got ${static_after}"
+    exit 1
+  fi
+
+  echo "--- reclaim: withdraw the unstreamed deposit ---"
+  bank_before=$(bank_balance "${owner}")
+  out=$(moca_cmd payment-account withdraw --fromAddress "${pa_addr}" --amount "${withdraw}")
+  echo "${out}"
+  assert_tx_ok "${out}" "withdraw"
+  sleep 4
+  static_final=$(stream_field "${pa_addr}" static_balance)
+  bank_after=$(bank_balance "${owner}")
+  expected_static=$(bigsub "${static_after}" "${withdraw}")
+  echo "withdrawn: static_balance=${static_final}, owner bank ${bank_before} -> ${bank_after}"
+  if [ "${static_final:-0}" != "${expected_static}" ]; then
+    echo "static balance after withdraw is '${static_final}', expected ${expected_static}"
+    exit 1
+  fi
+  if ! bigcmp "$(bigsub "${bank_after}" "${bank_before}")" ">=" "$(bigsub "${withdraw}" "${gas_allowance}")"; then
+    echo "owner bank did not receive the withdrawal (before=${bank_before} after=${bank_after})"
+    exit 1
+  fi
+  echo "storage fees streamed while stored, stopped on delete, and the deposit was reclaimed"
+}
+
+##########################################################################
+# delegated object lifecycle: the primary SP creates the object on chain #
+# on the uploader's behalf (MsgDelegateCreateObject) and later replaces  #
+# its content (MsgDelegateUpdateObjectContent); the uploader signs no tx #
+##########################################################################
+function test_delegated_object() {
+  set -e
+  cd "${workspace}"/moca-cmd/build/
+  local bucket
+  bucket="spdelegated-$(date +%s)"
+  local object="delegated_object.txt"
+  local url="moca://${bucket}/${object}"
+  local content_type="application/octet-stream"
+  local put_help nonce_before out
+
+  # a moca-cmd ref that predates the flag would fail on an unknown option, not on the flow
+  put_help=$(./moca-cmd object put -h 2>/dev/null || true)
+  if ! echo "${put_help}" | grep -q -- '--delegate'; then
+    echo "moca-cmd at ${MOCA_CMD_TAG} has no 'object put --delegate'; the delegated case needs mocachain/moca-cmd#23"
+    exit 1
+  fi
+
+  echo "delegated put $(date) ${RANDOM}" >./delegated_v1.txt
+  echo "delegated update $(date) ${RANDOM} - second revision, deliberately longer than the first" >./delegated_v2.txt
+
+  echo "--- create bucket ---"
+  retry_cmd 6 10 "create bucket ${bucket}" moca_cmd bucket create --primarySP "$(in_service_primary_sp)" moca://${bucket}
+  retry_cmd 12 10 "head bucket ${bucket}" moca_cmd bucket head moca://${bucket}
+  sleep 4
+  nonce_before=$(evm_nonce "${TEST_ACCOUNT_ADDRESS}")
+
+  echo "--- object put --delegate: the SP creates the object on chain and the command blocks until SEALED ---"
+  # moca-cmd reports command errors on stdout with exit 0, so assert on the output;
+  # the timeout caps its one-hour seal wait when a regression leaves the object unsealed
+  out=$(timeout 600 ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --delegate --contentType "${content_type}" ./delegated_v1.txt "${url}" 2>&1 || true)
+  echo "${out}"
+  if ! echo "${out}" | grep -q "upload ${object} to ${url}"; then
+    echo "delegated object put did not reach OBJECT_STATUS_SEALED"
+    dump_sp_logs
+    exit 1
+  fi
+  if echo "${out}" | grep -q "transaction hash:"; then
+    echo "delegated put signed a local transaction"
+    exit 1
+  fi
+  assert_object_sealed "${bucket}" "${object}" "$(wc -c <./delegated_v1.txt | tr -d ' ')" "${content_type}"
+  if [ "$(evm_nonce "${TEST_ACCOUNT_ADDRESS}")" != "${nonce_before}" ]; then
+    echo "uploader nonce moved during the delegated put"
+    exit 1
+  fi
+  echo "uploader nonce unchanged by the delegated put (${nonce_before})"
+
+  echo "--- object get matches the delegated put ---"
+  get_object_until_match "${url}" ./downloaded_object ./delegated_v1.txt
+
+  echo "--- object update --delegate: the SP replaces the content on chain and the command blocks until re-sealed ---"
+  out=$(timeout 600 ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object update --delegate --contentType "${content_type}" ./delegated_v2.txt "${url}" 2>&1 || true)
+  echo "${out}"
+  if ! echo "${out}" | grep -q "update ${object} to ${url}"; then
+    echo "delegated object update did not reach OBJECT_STATUS_SEALED"
+    dump_sp_logs
+    exit 1
+  fi
+  if echo "${out}" | grep -q "transaction hash:"; then
+    echo "delegated update signed a local transaction"
+    exit 1
+  fi
+  assert_object_sealed "${bucket}" "${object}" "$(wc -c <./delegated_v2.txt | tr -d ' ')" "${content_type}"
+  if [ "$(evm_nonce "${TEST_ACCOUNT_ADDRESS}")" != "${nonce_before}" ]; then
+    echo "uploader nonce moved during the delegated update"
+    exit 1
+  fi
+  echo "uploader nonce unchanged by the delegated update (${nonce_before})"
+
+  echo "--- object get matches the delegated update ---"
+  get_object_until_match "${url}" ./downloaded_object ./delegated_v2.txt
+
+  echo "--- cleanup ---"
+  moca_cmd object rm "${url}"
+  wait_gone "object ${object}" storage head-object "${bucket}" "${object}"
+  moca_cmd bucket rm moca://${bucket}
+  echo "delegated put and update sealed without the uploader signing a transaction"
+}
+
 #######################
 # run sp workflow e2e #
 #######################
@@ -468,6 +889,12 @@ function run_e2e() {
   test_file_size_less_than_16_mb
   echo 'run put object case greater than 16 MB'
   test_file_size_greater_than_16_mb
+  echo 'run list buckets and objects through the SP metadata service'
+  test_list_via_metadata
+  echo 'run storage fee reclaim lifecycle'
+  test_storage_fee_reclaim
+  echo 'run delegated object put and update'
+  test_delegated_object
 }
 
 ###################
@@ -515,6 +942,12 @@ function main() {
     ;;
   --runTest)
     run_e2e
+    ;;
+  --runFeeReclaim)
+    test_storage_fee_reclaim
+    ;;
+  --runDelegated)
+    test_delegated_object
     ;;
   --runSPExit)
     run_sp_exit_e2e
