@@ -241,10 +241,26 @@ function moca_chain() {
 function transfer_account() {
   set -e
   cd "${workspace}"/moca/
-  ./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 -y
-  sleep 2
-  ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657
+  local result attempt
+  # the chain rejects a cosmos tx without the global minimum fee (code 13), and
+  # the CLI exits 0 either way, so the broadcast result is checked explicitly
+  result=$(./build/mocad tx bank send validator0 "${TEST_ACCOUNT_ADDRESS}" 500000000000000000000amoca --fees 5000000000000000amoca --home "${workspace}"/moca/deployment/localup/.local/validator0 --keyring-backend test --node http://localhost:26657 -y --output json)
+  echo "${result}"
+  if [ "$(echo "${result}" | jq -r '.code')" != "0" ]; then
+    echo "funding transfer to ${TEST_ACCOUNT_ADDRESS} was rejected"
+    exit 1
+  fi
+  for attempt in $(seq 1 15); do
+    if ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657 --output json | jq -e '.balances[] | select(.denom == "amoca") | (.amount | tonumber) > 0' >/dev/null; then
+      ./build/mocad q bank balances "${TEST_ACCOUNT_ADDRESS}" --node http://localhost:26657
+      return 0
+    fi
+    sleep 2
+  done
+  echo "test account ${TEST_ACCOUNT_ADDRESS} still has no amoca balance after the funding transfer"
+  exit 1
 }
+
 
 #################################
 # build and start Moca SP #
