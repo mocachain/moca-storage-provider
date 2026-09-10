@@ -364,9 +364,7 @@ function test_file_size_less_than_16_mb() {
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://${BUCKET_NAME}
   retry_cmd 12 10 "head example.json" \
     ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/example.json
-  retry_cmd 12 10 "get example.json" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/example.json ./test_data.json
-  check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./test_data.json
+  get_object_until_match moca://${BUCKET_NAME}/example.json ./test_data.json "${workspace}"/test/e2e/spworkflow/testdata/example.json
   cat test_data.json
 }
 
@@ -381,9 +379,7 @@ function test_file_size_greater_than_16_mb() {
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://${BUCKET_NAME}/random_file
   retry_cmd 12 10 "head random_file" \
     ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/random_file
-  retry_cmd 12 10 "get random_file" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://${BUCKET_NAME}/random_file ./new_random_file
-  check_md5 ./random_file ./new_random_file
+  get_object_until_match moca://${BUCKET_NAME}/random_file ./new_random_file ./random_file
 }
 
 ################
@@ -415,15 +411,10 @@ function test_sp_exit() {
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://spexit/example.json
   retry_cmd 12 10 "head spexit random_file" \
     ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/random_file
-  retry_cmd 12 10 "get spexit random_file" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file
+  get_object_until_match moca://spexit/random_file ./new_random_file ./random_file
   retry_cmd 12 10 "head spexit example.json" \
     ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  retry_cmd 12 10 "get spexit example.json" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new.json
-
-  check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new.json
-  check_md5 ./random_file ./new_random_file
+  get_object_until_match moca://spexit/example.json ./new.json "${workspace}"/test/e2e/spworkflow/testdata/example.json
 
   # start exiting the selected non-primary SP
   cd "${exit_sp_dir}"
@@ -435,36 +426,35 @@ function test_sp_exit() {
     ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
   retry_cmd 24 10 "head spexit example.json after exit" \
     ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  retry_cmd 24 10 "get spexit example.json after exit" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/example.json ./new1.json
-  retry_cmd 24 10 "get spexit random_file after exit" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get moca://spexit/random_file ./new_random_file1
-  check_md5 "${workspace}"/test/e2e/spworkflow/testdata/example.json ./new1.json
-  check_md5 ./random_file ./new_random_file1
+  get_object_until_match moca://spexit/example.json ./new1.json "${workspace}"/test/e2e/spworkflow/testdata/example.json 40
+  get_object_until_match moca://spexit/random_file ./new_random_file1 ./random_file 40
 }
 
-##################################
-# check two md5 whether is equal #
-##################################
-function check_md5() {
-  set -e
-  if [ $# != 2 ]; then
-    echo "failed to check md5 value; this function needs two args"
-    exit 1
-  fi
-  file1=$1
-  file2=$2
-  md5_1=$(md5sum "${file1}" | cut -d ' ' -f 1)
-  md5_2=$(md5sum "${file2}" | cut -d ' ' -f 1)
-  echo "${md5_1}"
-  echo "${md5_2}"
+#######################################################################
+# download an object until it matches the expected file: reads go     #
+# through the primary SP's metadata service, which can lag the seal   #
+# by a few blocks, and moca-cmd exits 0 on a failed get, so a plain   #
+# retry_cmd never retries it                                          #
+#######################################################################
+function get_object_until_match() {
+  local url=$1
+  local dest=$2
+  local expected=$3
+  local attempts=${4:-20}
+  local attempt
 
-  if [ "$md5_1" = "$md5_2" ]; then
-    echo "The md5 values are the same."
-  else
-    echo "The md5 values are different."
-    exit 1
-  fi
+  for attempt in $(seq 1 "${attempts}"); do
+    rm -f "${dest}" "$(dirname "${dest}")/.$(basename "${dest}").tmp"
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get "${url}" "${dest}" || true
+    if [ -f "${dest}" ] && [ "$(md5sum "${dest}" | cut -d ' ' -f 1)" = "$(md5sum "${expected}" | cut -d ' ' -f 1)" ]; then
+      echo "downloaded ${url} matches ${expected}"
+      return 0
+    fi
+    sleep 5
+  done
+  echo "downloaded ${url} never matched ${expected} after ${attempts} attempts"
+  dump_sp_logs
+  return 1
 }
 
 #######################
