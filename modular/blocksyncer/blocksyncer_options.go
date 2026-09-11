@@ -27,6 +27,7 @@ import (
 	parserconfig "github.com/forbole/juno/v4/parser/config"
 	"github.com/forbole/juno/v4/types"
 	"github.com/forbole/juno/v4/types/config"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm/schema"
 
@@ -102,6 +103,18 @@ func NewBlockSyncerModular(app *gfspapp.GfSpBaseApp, cfg *gfspconfig.GfSpConfig)
 	return MainService, nil
 }
 
+// redactDSN masks the password of a MySQL DSN before it is logged.
+func redactDSN(dsn string) string {
+	parsed, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		return "<unparseable dsn>"
+	}
+	if parsed.Passwd != "" {
+		parsed.Passwd = "***"
+	}
+	return parsed.FormatDSN()
+}
+
 // initClient initialize a juno client using given configs
 func (b *BlockSyncerModular) initClient(cfg *gfspconfig.GfSpConfig) error {
 	// JunoConfig the runner
@@ -139,7 +152,7 @@ func (b *BlockSyncerModular) initClient(cfg *gfspconfig.GfSpConfig) error {
 		return err
 	}
 	b.parserCtx = ctx
-	log.Infof("blocksyncer dsn : %s", config.Cfg.Database.DSN)
+	log.Infof("blocksyncer dsn : %s", redactDSN(config.Cfg.Database.DSN))
 	commitNumber := uint64(CommitNumber)
 	if cfg.BlockSyncer.CommitNumber != 0 {
 		commitNumber = cfg.BlockSyncer.CommitNumber
