@@ -7,11 +7,9 @@ workspace=${GITHUB_WORKSPACE}
 
 # some constants
 # Keep refs override-friendly and default the whole e2e stack to main so the
-# chain, cmd and go-sdk all move in lockstep. moca-cmd is pinned to the branch
-# of mocachain/moca-cmd#23 until it lands: the delegated object case needs its
-# `object put --delegate` and `object update --delegate`.
+# chain, cmd and go-sdk all move in lockstep.
 MOCA_TAG="${MOCA_TAG:-main}"
-MOCA_CMD_TAG="${MOCA_CMD_TAG:-feat/object-delegated-upload}"
+MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
 MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
