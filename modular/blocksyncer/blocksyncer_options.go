@@ -239,6 +239,9 @@ func (b *BlockSyncerModular) serve(ctx context.Context) {
 	}
 	log.Infow("blocksyncer will start syncing", "start_height", lastDbBlockHeight+1)
 
+	// Seed the prefetch throttle with the last exported height so a restart cannot fetch unbounded.
+	Cast(b.parserCtx.Indexer).setProcessedHeight(lastDbBlockHeight)
+
 	// fetch block data
 	go b.quickFetchBlockData(ctx, lastDbBlockHeight+1)
 
@@ -335,7 +338,7 @@ func (b *BlockSyncerModular) quickFetchBlockData(ctx context.Context, startHeigh
 				endBlock = count*(cycle+1) + startHeight - 1
 				flag = 1
 				processedHeight := Cast(b.parserCtx.Indexer).processedHeight()
-				if processedHeight != 0 && int64(startBlock)-int64(processedHeight) > int64(MaxHeightGapFactor*count) {
+				if prefetchTooFarAhead(startBlock, processedHeight, count) {
 					log.Infof("processedHeight: %d", processedHeight)
 					time.Sleep(time.Second)
 					continue
@@ -356,6 +359,12 @@ func (b *BlockSyncerModular) quickFetchBlockData(ctx context.Context, startHeigh
 			b.fetchData(ctx, startBlock, endBlock)
 		}
 	}
+}
+
+// prefetchTooFarAhead reports whether fetching from startBlock would hold more than
+// MaxHeightGapFactor*workers unexported blocks in memory; a zero processed height is not exempt.
+func prefetchTooFarAhead(startBlock, processedHeight, workers uint64) bool {
+	return startBlock > processedHeight && startBlock-processedHeight > MaxHeightGapFactor*workers
 }
 
 func (b *BlockSyncerModular) fetchData(ctx context.Context, start, end uint64) {

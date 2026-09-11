@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+BUGFIXES
+
+* fix(blocksyncer): keep the block prefetch bounded after a restart so a block that repeatedly fails to export cannot exhaust memory
+
 ## v1.7.0
 
 BUGFIXES
