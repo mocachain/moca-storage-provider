@@ -8,6 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
@@ -787,4 +789,26 @@ func TestGfSpBaseApp_GfSpSignFailure23(t *testing.T) {
 	result, err := g.GfSpSign(context.TODO(), req)
 	assert.Nil(t, err)
 	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
+}
+
+func TestGfSpBaseApp_GfSpSignRejectsDepositWithoutAuthorization(t *testing.T) {
+	g := setup(t)
+	g.SetOperatorAddress(sdk.AccAddress(make([]byte, 20)).String())
+
+	ctrl := gomock.NewController(t)
+	m := module.NewMockSigner(ctrl)
+	g.signer = m
+	m.EXPECT().DepositEvm(gomock.Any(), gomock.Any()).Times(0)
+
+	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_Deposit{
+		Deposit: &virtual_types.MsgDeposit{
+			GlobalVirtualGroupId: 1,
+			Deposit:              sdk.NewCoin("amoca", sdkmath.NewInt(1)),
+		},
+	}}
+
+	resp, err := g.GfSpSign(context.Background(), req)
+
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
