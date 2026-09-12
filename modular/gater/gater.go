@@ -33,6 +33,16 @@ type GateModular struct {
 	// operational status endpoint; an empty map closes it to everyone.
 	statusAllowedAccounts map[string]struct{}
 
+	// authNonces enforces single use of signed requests carrying a nonce; nil
+	// only in tests that construct the modular directly.
+	authNonces *nonceCache
+	// requireAuthNonce rejects authenticated requests without a nonce once
+	// every client ships one.
+	requireAuthNonce bool
+	// mutatingExpiryCapSec caps how far ahead the signed expiry may lie for
+	// state-changing methods; zero disables the cap.
+	mutatingExpiryCapSec int32
+
 	spID        uint32
 	spCachePool *SPCachePool
 }

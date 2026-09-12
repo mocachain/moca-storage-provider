@@ -1,9 +1,12 @@
 package gater
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -89,7 +92,66 @@ func NewRequestContext(r *http.Request, g *GateModular) (*RequestContext, error)
 		return reqCtx, err
 	}
 	reqCtx.account = account
+	if err = reqCtx.enforceSingleUse(); err != nil {
+		return reqCtx, err
+	}
+	if err = reqCtx.verifySignedContentHash(); err != nil {
+		return reqCtx, err
+	}
 	return reqCtx, nil
+}
+
+// enforceSingleUse honors a signed request carrying a nonce exactly once
+// within its expiry; requests without a nonce pass until the gateway is
+// configured to require one.
+func (r *RequestContext) enforceSingleUse() error {
+	nonce := r.request.Header.Get(commonhttp.HTTPHeaderNonce)
+	if nonce == "" {
+		nonce = r.request.URL.Query().Get(commonhttp.HTTPHeaderNonce)
+	}
+	if nonce == "" {
+		if r.g.requireAuthNonce {
+			return ErrMissingAuthNonce
+		}
+		return nil
+	}
+	if r.g.authNonces == nil {
+		return nil
+	}
+	expiryStr := r.request.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	if expiryStr == "" {
+		expiryStr = r.request.URL.Query().Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	}
+	expiry, parseErr := time.Parse(ExpiryDateFormat, expiryStr)
+	if parseErr != nil {
+		return ErrInvalidExpiryDateHeader
+	}
+	key := strings.ToLower(r.account) + "|" + nonce
+	if !r.g.authNonces.checkAndStore(key, expiry.Unix()) {
+		return ErrReusedAuthRequest
+	}
+	return nil
+}
+
+// verifySignedContentHash checks a bounded request body against the signed
+// content hash header and hands the handlers an equivalent replayable body.
+func (r *RequestContext) verifySignedContentHash() error {
+	signedSum := r.request.Header.Get(commonhttp.HTTPHeaderContentSHA256)
+	if signedSum == "" || r.request.Body == nil || r.request.ContentLength < 0 ||
+		r.request.ContentLength > maxHashableBodyBytes {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(r.request.Body, maxHashableBodyBytes+1))
+	_ = r.request.Body.Close()
+	if err != nil {
+		return ErrContentHashMismatch
+	}
+	sum := sha256.Sum256(data)
+	if !strings.EqualFold(hex.EncodeToString(sum[:]), signedSum) {
+		return ErrContentHashMismatch
+	}
+	r.request.Body = io.NopCloser(bytes.NewReader(data))
+	return nil
 }
 
 // Context returns the RequestContext runtime context.
@@ -201,6 +263,12 @@ func (r *RequestContext) CheckIfSigExpiry() error {
 	expiryAge := int32(time.Until(expiryDate).Seconds())
 	if MaxExpiryAgeInSec < expiryAge || expiryAge < 0 {
 		return ErrInvalidExpiryDateHeader
+	}
+	switch r.request.Method {
+	case http.MethodPut, http.MethodPost, http.MethodDelete:
+		if r.g.mutatingExpiryCapSec > 0 && expiryAge > r.g.mutatingExpiryCapSec {
+			return ErrExpiryTooFarAhead
+		}
 	}
 	return nil
 }

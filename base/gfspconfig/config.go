@@ -225,6 +225,12 @@ type GatewayConfig struct {
 	// and anyone can create an account, so the endpoint stays closed until this is
 	// populated.
 	StatusAllowedAccounts []string `comment:"optional"`
+	// RequireAuthNonce rejects authenticated requests that do not carry the
+	// signed nonce header once all clients send it.
+	RequireAuthNonce bool `comment:"optional"`
+	// MutatingExpiryCapSec caps how far ahead the signed expiry timestamp may
+	// lie for state-changing requests; zero keeps the protocol-wide limit.
+	MutatingExpiryCapSec int32 `comment:"optional"`
 }
 
 type ExecutorConfig struct {
