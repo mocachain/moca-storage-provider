@@ -68,6 +68,12 @@ Build   : go1.20.3 darwin arm64 2023-06-20 10:31
 ./moca-sp -h
 ```
 
+Run the unit tests with `make test`. The blocksyncer tests need a MySQL 8 server on
+`127.0.0.1:3306` with `root`/`root`; `make test` provides one through `make test-mysql`,
+which uses a server already listening there or starts a loopback-bound `mysql:8.0`
+container (`make test-mysql-down` removes it). Set `BLOCKSYNCER_TEST_DB_ADDRESS` (and
+`BLOCKSYNCER_TEST_DB_USER`, `_PASSWORD`, `_NAME`) to use another server.
+
 ### Note
 
 If you've already executed `make install-tools` command in your shell, but you failed to make build and encountered one of the following error messages:
