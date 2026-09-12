@@ -2549,13 +2549,41 @@ func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scop
 		return "", false, nil
 	}
 
+	// When the receipt cannot be fetched, check whether the account's on-chain
+	// nonce moved past the pending tx. A consumed nonce can never be replayed,
+	// so the double-send guard no longer applies — the receipt is merely
+	// unavailable from the configured RPC (e.g. a node without a tx indexer).
+	// Without this, one unfetchable receipt wedges every subsequent operation
+	// in the scope until the process restarts. The nonce is read through the
+	// cosmos account query, which does not depend on the EVM tx indexer.
+	pendingNonceConsumed := func() bool {
+		gnfdCli := client.mocaClients[scope]
+		if gnfdCli == nil {
+			return false
+		}
+		chainNonce, nonceErr := getCosmosNonceFn(gnfdCli, ctx)
+		return nonceErr == nil && chainNonce > pending.nonce
+	}
+
 	receipt, err := transactionReceiptFn(ctx, client.evmClient, pending.hash)
 	if err != nil {
+		if pendingNonceConsumed() {
+			log.CtxWarnw(ctx, "pending EVM tx nonce consumed on chain but receipt unavailable, clearing pending state",
+				"scope", scope, "nonce", pending.nonce, "tx_hash", pending.hash.Hex(), "receipt_error", err.Error())
+			client.clearPendingEvmTx(scope, pending.hash)
+			return "", false, nil
+		}
 		return pending.hash.String(), true, fmt.Errorf(
 			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s: %w",
 			scope, pending.nonce, pending.hash.Hex(), err)
 	}
 	if receipt == nil {
+		if pendingNonceConsumed() {
+			log.CtxWarnw(ctx, "pending EVM tx nonce consumed on chain but receipt unavailable, clearing pending state",
+				"scope", scope, "nonce", pending.nonce, "tx_hash", pending.hash.Hex())
+			client.clearPendingEvmTx(scope, pending.hash)
+			return "", false, nil
+		}
 		return pending.hash.String(), true, fmt.Errorf(
 			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s: receipt unavailable",
 			scope, pending.nonce, pending.hash.Hex())
