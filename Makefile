@@ -175,7 +175,7 @@ mock-gen:
 # only run unit tests, exclude e2e tests
 test: check-go-env
 	@echo "--> Running local unit tests with coverage..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -covermode=atomic -coverprofile=./coverage.out -timeout 99999s
 	# go test -cover ./...
 	# go test -coverprofile=coverage.out ./...
@@ -185,7 +185,7 @@ test: check-go-env
 # artifacts, so pre-commit checks do not modify the worktree.
 test-local: check-go-env
 	@echo "--> Running local unit tests..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s
 
 P2P_COVERAGE_MIN ?= 5
@@ -202,13 +202,13 @@ test-changed: check-go-env
 	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
 	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$changed_dirs" ]; then \
 		echo "--> No local changed Go packages to test"; \
 	else \
 		echo "--> Running unit tests for local changed Go packages..."; \
-		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | grep -v modular/blocksyncer | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | sort -u)"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the local changed files"; \
 		else \
@@ -220,13 +220,13 @@ test-staged: check-go-env
 	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$staged_dirs" ]; then \
 		echo "--> No staged Go packages to test"; \
 	else \
 		echo "--> Running unit tests for staged Go packages..."; \
-		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | grep -v modular/blocksyncer | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | sort -u)"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the staged files"; \
 		else \
