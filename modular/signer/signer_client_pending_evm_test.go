@@ -296,3 +296,78 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 		t.Fatalf("EVM submission methods missing ordered fingerprint/recovery/record/clear calls: %s", strings.Join(missing, ", "))
 	}
 }
+
+func TestResolvePendingEvmTxConsumedNonceClearsPendingWhenReceiptUnavailable(t *testing.T) {
+	originalReceipt := transactionReceiptFn
+	originalNonce := getCosmosNonceFn
+	defer func() {
+		transactionReceiptFn = originalReceipt
+		getCosmosNonceFn = originalNonce
+	}()
+
+	pendingHash := ethcmn.HexToHash("0x899")
+	operation := ethcmn.HexToHash("0x01")
+	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, _ ethcmn.Hash) (*ethtypes.Receipt, error) {
+		return nil, errors.New("not found")
+	}
+	getCosmosNonceFn = func(_ *client.MocaClient, _ context.Context) (uint64, error) {
+		return 18, nil // chain moved past the pending nonce: 17 was consumed
+	}
+
+	signerClient := &MocaChainSignClient{
+		mocaClients: map[SignType]*client.MocaClient{SignOperator: {}},
+		pendingEvmTxs: map[SignType]pendingEvmTx{
+			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
+		},
+	}
+
+	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
+	if err != nil {
+		t.Fatalf("unexpected recovery error: %v", err)
+	}
+	if handled {
+		t.Fatalf("consumed nonce must permit a new submission, got handled with hash %s", txHash)
+	}
+	if _, ok := signerClient.pendingEvmTxs[SignOperator]; ok {
+		t.Fatal("pending state must be cleared once its nonce is consumed on chain")
+	}
+}
+
+func TestResolvePendingEvmTxUnconsumedNonceStillBlocksWhenReceiptUnavailable(t *testing.T) {
+	originalReceipt := transactionReceiptFn
+	originalNonce := getCosmosNonceFn
+	defer func() {
+		transactionReceiptFn = originalReceipt
+		getCosmosNonceFn = originalNonce
+	}()
+
+	pendingHash := ethcmn.HexToHash("0x899")
+	operation := ethcmn.HexToHash("0x01")
+	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, _ ethcmn.Hash) (*ethtypes.Receipt, error) {
+		return nil, errors.New("not found")
+	}
+	getCosmosNonceFn = func(_ *client.MocaClient, _ context.Context) (uint64, error) {
+		return 17, nil // pending nonce not consumed: the tx may still land
+	}
+
+	signerClient := &MocaChainSignClient{
+		mocaClients: map[SignType]*client.MocaClient{SignOperator: {}},
+		pendingEvmTxs: map[SignType]pendingEvmTx{
+			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
+		},
+	}
+
+	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
+	if !handled {
+		t.Fatal("unconsumed pending nonce must still block a new submission")
+	}
+	if txHash != pendingHash.String() {
+		t.Fatalf("expected submitted hash %s, got %s", pendingHash.String(), txHash)
+	}
+	if err == nil || !strings.Contains(err.Error(), "submitted but unconfirmed") {
+		t.Fatalf("unexpected recovery error: %v", err)
+	}
+	if _, ok := signerClient.pendingEvmTxs[SignOperator]; !ok {
+		t.Fatal("unconfirmed transaction was removed from pending state")
+	}
+}
