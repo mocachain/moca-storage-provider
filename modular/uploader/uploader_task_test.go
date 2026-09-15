@@ -10,6 +10,7 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
@@ -601,6 +602,117 @@ func TestUploadModular_PreResumableUploadObjectFailure5(t *testing.T) {
 	}
 	err := u.PreResumableUploadObject(context.TODO(), uploadObjectTask)
 	assert.Equal(t, ErrInvalidUploadRequest, err)
+}
+
+func TestUploadModular_validateResumableUploadOffset(t *testing.T) {
+	tests := []struct {
+		name          string
+		offset        uint64
+		payloadSize   uint64
+		segmentSize   uint64
+		persistedSize uint64
+		queryErr      error
+		wantErr       error
+	}{
+		{
+			name:        "first upload starts at zero",
+			payloadSize: 32,
+			segmentSize: 8,
+			queryErr:    gorm.ErrRecordNotFound,
+		},
+		{
+			name:        "first upload rejects a non-zero offset",
+			offset:      8,
+			payloadSize: 32,
+			segmentSize: 8,
+			queryErr:    gorm.ErrRecordNotFound,
+			wantErr:     ErrInvalidResumeOffset,
+		},
+		{
+			name:          "resume matches persisted progress",
+			offset:        16,
+			payloadSize:   32,
+			segmentSize:   8,
+			persistedSize: 16,
+		},
+		{
+			name:          "resume cannot skip persisted progress",
+			offset:        24,
+			payloadSize:   32,
+			segmentSize:   8,
+			persistedSize: 16,
+			wantErr:       ErrInvalidResumeOffset,
+		},
+		{
+			name:          "resume cannot overwrite persisted progress",
+			offset:        8,
+			payloadSize:   32,
+			segmentSize:   8,
+			persistedSize: 16,
+			wantErr:       ErrInvalidResumeOffset,
+		},
+		{
+			name:          "resume offset must be segment aligned",
+			offset:        15,
+			payloadSize:   32,
+			segmentSize:   8,
+			persistedSize: 15,
+			wantErr:       ErrInvalidResumeOffset,
+		},
+		{
+			name:          "resume offset cannot reach payload end",
+			offset:        32,
+			payloadSize:   32,
+			segmentSize:   8,
+			persistedSize: 32,
+			wantErr:       ErrInvalidResumeOffset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := setup(t)
+			ctrl := gomock.NewController(t)
+			db := corespdb.NewMockSPDB(ctrl)
+			u.baseApp.SetGfSpDB(db)
+
+			db.EXPECT().GetObjectIntegrity(uint64(1), piecestore.PrimarySPRedundancyIndex).
+				Return(&corespdb.IntegrityMeta{ObjectSize: tt.persistedSize}, tt.queryErr)
+
+			task := &gfsptask.GfSpResumableUploadObjectTask{
+				ObjectInfo: &storagetypes.ObjectInfo{
+					Id:          sdkmath.NewUint(1),
+					PayloadSize: tt.payloadSize,
+				},
+				StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: tt.segmentSize}},
+				Offset:        tt.offset,
+			}
+
+			err := u.validateResumableUploadOffset(task)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestUploadModular_validateResumableUploadOffsetUsesShadowProgressForUpdate(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetShadowObjectIntegrity(uint64(1), piecestore.PrimarySPRedundancyIndex).
+		Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 16}, nil)
+
+	task := &gfsptask.GfSpResumableUploadObjectTask{
+		ObjectInfo: &storagetypes.ObjectInfo{
+			Id:          sdkmath.NewUint(1),
+			PayloadSize: 32,
+			IsUpdating:  true,
+		},
+		StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}},
+		Offset:        16,
+	}
+
+	assert.NoError(t, u.validateResumableUploadOffset(task))
 }
 
 func TestUploadModular_HandleResumableUploadObjectTaskSuccess(t *testing.T) {
