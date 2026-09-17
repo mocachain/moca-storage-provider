@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"gorm.io/gorm"
 
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
@@ -40,6 +42,7 @@ var (
 	ErrInvalidUploadRequest = gfsperrors.Register(module.UploadModularName, http.StatusConflict, 110006, "the object had already been fully uploaded and any further uploading attempt is not allowed")
 	ErrGetObjectUploadState = gfsperrors.Register(module.UploadModularName, http.StatusInternalServerError, 110007, "failed to get upload object state")
 	ErrPayloadSize          = gfsperrors.Register(module.UploadModularName, http.StatusBadRequest, 110008, "The file payload size is inconsistent with the parameter payload size")
+	ErrInvalidResumeOffset  = gfsperrors.Register(module.UploadModularName, http.StatusBadRequest, 110009, "invalid resumable upload offset")
 )
 
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
@@ -252,6 +255,12 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to pre upload object, task repeated")
 		return ErrRepeatedTask
 	}
+	if task.GetObjectInfo().GetPayloadSize() > 0 {
+		if err := u.validateResumableUploadOffset(task); err != nil {
+			log.CtxErrorw(ctx, "failed to pre upload object, invalid resume offset", "error", err)
+			return err
+		}
+	}
 	if err := u.baseApp.GfSpClient().CreateResumableUploadObject(ctx, task); err != nil {
 		log.CtxErrorw(ctx, "failed to begin upload object task")
 		return err
@@ -346,7 +355,7 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 					log.CtxErrorw(ctx, "failed to get object integrity hash", "error", err)
 					return err
 				}
-				if task.GetIsAgentUpload() && pieceSize != task.GetObjectInfo().GetPayloadSize() {
+				if task.GetObjectInfo().GetPayloadSize() > 0 && pieceSize != task.GetObjectInfo().GetPayloadSize() {
 					log.CtxErrorw(ctx, "payload size error", "expected", pieceSize, "actual", task.GetObjectInfo().GetPayloadSize())
 					go u.rejectCreateObject(ctx, task.GetObjectInfo())
 					err = ErrPayloadSize
@@ -394,6 +403,54 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		}
 		segIdx++
 	}
+}
+
+func (u *UploadModular) validateResumableUploadOffset(task coretask.ResumableUploadObjectTask) error {
+	objectInfo := task.GetObjectInfo()
+	payloadSize := objectInfo.GetPayloadSize()
+	offset := task.GetResumeOffset()
+	maxSegmentSize := task.GetStorageParams().GetMaxSegmentSize()
+	if maxSegmentSize == 0 {
+		return ErrInvalidResumeOffset
+	}
+	segmentSize := payloadSize
+	if payloadSize > maxSegmentSize {
+		segmentSize = maxSegmentSize
+	}
+	if offset >= payloadSize || offset%segmentSize != 0 {
+		return ErrInvalidResumeOffset
+	}
+
+	var (
+		persistedSize uint64
+		err           error
+	)
+	if objectInfo.GetIsUpdating() {
+		var meta *corespdb.ShadowIntegrityMeta
+		meta, err = u.baseApp.GfSpDB().GetShadowObjectIntegrity(objectInfo.Id.Uint64(), piecestore.PrimarySPRedundancyIndex)
+		if err == nil {
+			persistedSize = meta.ObjectSize
+		}
+	} else {
+		var meta *corespdb.IntegrityMeta
+		meta, err = u.baseApp.GfSpDB().GetObjectIntegrity(objectInfo.Id.Uint64(), piecestore.PrimarySPRedundancyIndex)
+		if err == nil {
+			persistedSize = meta.ObjectSize
+		}
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if offset != 0 {
+			return ErrInvalidResumeOffset
+		}
+		return nil
+	}
+	if err != nil {
+		return ErrGfSpDBWithDetail("failed to get resumable upload progress, error: " + err.Error())
+	}
+	if offset != persistedSize {
+		return ErrInvalidResumeOffset
+	}
+	return nil
 }
 
 func (*UploadModular) PostResumableUploadObject(ctx context.Context, task coretask.ResumableUploadObjectTask) {

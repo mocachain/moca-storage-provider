@@ -676,8 +676,8 @@ func TestUploadModular_validateResumableUploadOffset(t *testing.T) {
 			db := corespdb.NewMockSPDB(ctrl)
 			u.baseApp.SetGfSpDB(db)
 
-			db.EXPECT().GetObjectIntegrity(uint64(1), piecestore.PrimarySPRedundancyIndex).
-				Return(&corespdb.IntegrityMeta{ObjectSize: tt.persistedSize}, tt.queryErr)
+			db.EXPECT().GetObjectIntegrity(uint64(1), int32(piecestore.PrimarySPRedundancyIndex)).
+				Return(&corespdb.IntegrityMeta{ObjectSize: tt.persistedSize}, tt.queryErr).AnyTimes()
 
 			task := &gfsptask.GfSpResumableUploadObjectTask{
 				ObjectInfo: &storagetypes.ObjectInfo{
@@ -699,7 +699,7 @@ func TestUploadModular_validateResumableUploadOffsetUsesShadowProgressForUpdate(
 	ctrl := gomock.NewController(t)
 	db := corespdb.NewMockSPDB(ctrl)
 	u.baseApp.SetGfSpDB(db)
-	db.EXPECT().GetShadowObjectIntegrity(uint64(1), piecestore.PrimarySPRedundancyIndex).
+	db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(piecestore.PrimarySPRedundancyIndex)).
 		Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 16}, nil)
 
 	task := &gfsptask.GfSpResumableUploadObjectTask{
