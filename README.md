@@ -322,6 +322,8 @@ MaxPayloadSize = 0
 DomainName = ''
 # required
 HTTPAddress = ''
+# optional; reject authenticated requests without X-Gnfd-Nonce after clients migrate
+RequireAuthNonce = false
 
 [Executor]
 # optional
@@ -680,6 +682,8 @@ DomainName = 'region.sp-name.com'
 ```
 
 The correct configuration should not include the protocol prefix `https://`.
+
+Signed requests can carry `X-Gnfd-Nonce`, which must be 32 hexadecimal characters encoding 16 bytes. The gateway stores a normalized account/nonce claim and its Unix expiry in SPDB, so duplicate signed requests are rejected consistently across gateway instances and database failures fail closed. Expired claims are cleaned up hourly. Keep `RequireAuthNonce = false` while clients migrate, then enable it after all signed clients send nonces. Reusable pre-signed GET URLs continue to work without a nonce.
 
 ## BlockSyncer
 

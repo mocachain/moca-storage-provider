@@ -225,6 +225,9 @@ type GatewayConfig struct {
 	// and anyone can create an account, so the endpoint stays closed until this is
 	// populated.
 	StatusAllowedAccounts []string `comment:"optional"`
+	// RequireAuthNonce rejects authenticated requests that do not carry the
+	// signed nonce header once all clients send it.
+	RequireAuthNonce bool `comment:"optional"`
 }
 
 type ExecutorConfig struct {
