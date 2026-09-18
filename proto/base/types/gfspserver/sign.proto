@@ -45,35 +45,30 @@ message GfSpSignRequest {
     GfSpSignSecondarySealBls sign_secondary_seal_bls = 6;
     base.types.gfspp2p.GfSpPing ping_msg = 7;
     base.types.gfspp2p.GfSpPong pong_msg = 8;
-    base.types.gfsptask.GfSpReplicatePieceApprovalTask
-        gfsp_replicate_piece_approval_task = 9;
+    base.types.gfsptask.GfSpReplicatePieceApprovalTask gfsp_replicate_piece_approval_task = 9;
     base.types.gfsptask.GfSpReceivePieceTask gfsp_receive_piece_task = 10;
     base.types.gfsptask.GfSpRecoverPieceTask gfsp_recover_piece_task = 11;
     moca.storage.MsgRejectSealObject reject_object_info = 12;
     GfSpCreateGlobalVirtualGroup create_global_virtual_group = 13;
     base.types.gfsptask.GfSpMigratePieceTask gfsp_migrate_piece_task = 14;
     moca.storage.MsgCompleteMigrateBucket complete_migrate_bucket = 15;
-    moca.storage.SecondarySpMigrationBucketSignDoc
-        sign_secondary_sp_migration_bucket = 16;
+    moca.storage.SecondarySpMigrationBucketSignDoc sign_secondary_sp_migration_bucket = 16;
     moca.virtualgroup.MsgSwapOut swap_out = 17;
     moca.virtualgroup.MsgSwapOut sign_swap_out = 18;
     moca.virtualgroup.MsgCompleteSwapOut complete_swap_out = 19;
     moca.virtualgroup.MsgStorageProviderExit sp_exit = 20;
-    moca.virtualgroup.MsgCompleteStorageProviderExit complete_sp_exit =
-        21;
+    moca.virtualgroup.MsgCompleteStorageProviderExit complete_sp_exit = 21;
     moca.sp.MsgUpdateSpStoragePrice sp_storage_price = 22;
     base.types.gfsptask.GfSpMigrateGVGTask gfsp_migrate_gvg_task = 23;
     base.types.gfsptask.GfSpBucketMigrationInfo gfsp_bucket_migrate_info = 24;
     moca.storage.MsgRejectMigrateBucket reject_migrate_bucket = 25;
     moca.virtualgroup.MsgDeposit deposit = 26;
-    moca.virtualgroup.MsgDeleteGlobalVirtualGroup
-        delete_global_virtual_group = 27;
+    moca.virtualgroup.MsgDeleteGlobalVirtualGroup delete_global_virtual_group = 27;
     moca.virtualgroup.MsgReserveSwapIn reserve_swap_in = 28;
     moca.virtualgroup.MsgCompleteSwapIn complete_swap_in = 29;
     moca.virtualgroup.MsgCancelSwapIn cancel_swap_in = 30;
     moca.storage.MsgDelegateCreateObject delegate_create_object = 31;
-    moca.storage.MsgDelegateUpdateObjectContent
-        delegate_update_object_content = 32;
+    moca.storage.MsgDelegateUpdateObjectContent delegate_update_object_content = 32;
     moca.storage.MsgSealObjectV2 seal_object_info_v2 = 33;
     GfSpSignPeerApprovalRequest peer_approval_request = 34;
   }
