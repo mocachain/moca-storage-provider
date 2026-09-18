@@ -10183,7 +10183,6 @@ func _GfSpMetadataService_GfSpGetBsDBInfo_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-var GfSpMetadataService_serviceDesc = _GfSpMetadataService_serviceDesc
 var _GfSpMetadataService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "modular.metadata.types.GfSpMetadataService",
 	HandlerType: (*GfSpMetadataServiceServer)(nil),
