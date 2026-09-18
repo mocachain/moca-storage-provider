@@ -19,10 +19,15 @@ func (g *GateModular) authenticatePeerApprovalRequest(r *http.Request, reqCtx *R
 	if mode == "disabled" {
 		return nil
 	}
+	authorization := r.Header.Get(commonhttp.HTTPHeaderAuthorization)
+	expiryHeader := r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	if mode == "permissive" && authorization == "" && expiryHeader == "" {
+		return nil
+	}
+	if authorization != "" && !strings.HasPrefix(authorization, commonhttp.Gnfd1Ecdsa+",") {
+		return ErrUnsupportedSignType
+	}
 	if authErr != nil {
-		if mode == "permissive" && r.Header.Get(commonhttp.HTTPHeaderAuthorization) == "" && r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp) == "" {
-			return nil
-		}
 		return authErr
 	}
 	expiry, err := time.Parse(ExpiryDateFormat, r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp))

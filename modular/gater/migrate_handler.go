@@ -12,6 +12,7 @@ import (
 
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
 
+	commonhttp "github.com/mocachain/moca-common/go/http"
 	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
@@ -398,6 +399,8 @@ func (g *GateModular) getSecondaryBlsMigrationBucketApprovalHandler(w http.Respo
 	reqCtx, authErr := NewRequestContext(r, g)
 	migrationBucketApprovalHeader := r.Header.Get(GnfdSecondarySPMigrationBucketMsgHeader)
 	if g.peerApprovalAuthMode != "" && g.peerApprovalAuthMode != "disabled" &&
+		(g.peerApprovalAuthMode != "permissive" ||
+			r.Header.Get(commonhttp.HTTPHeaderAuthorization) != "" || r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp) != "") &&
 		migrationBucketApprovalHeader != r.Header.Get(GnfdUnsignedApprovalMsgHeader) {
 		err = ErrValidateMsg
 		return
