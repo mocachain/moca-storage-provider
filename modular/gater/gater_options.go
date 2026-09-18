@@ -43,6 +43,10 @@ func defaultGaterOptions(gater *GateModular, cfg *gfspconfig.GfSpConfig) error {
 	gater.httpAddress = cfg.Gateway.HTTPAddress
 	gater.maxListReadQuota = cfg.Bucket.MaxListReadQuotaNumber
 	gater.statusAllowedAccounts = makeStatusAllowlist(cfg.Gateway.StatusAllowedAccounts)
+	gater.peerApprovalAuthMode = cfg.Gateway.PeerApprovalAuthMode
+	if gater.peerApprovalAuthMode == "" {
+		gater.peerApprovalAuthMode = "required"
+	}
 	rateCfg := makeAPIRateLimitCfg(cfg.APIRateLimiter)
 	if err := mwhttp.NewAPILimiter(rateCfg); err != nil {
 		log.Errorw("failed to new api limiter", "err", err)

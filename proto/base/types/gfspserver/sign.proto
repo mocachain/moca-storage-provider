@@ -26,6 +26,15 @@ message GfSpCreateGlobalVirtualGroup {
   cosmos.base.v1beta1.Coin deposit = 4;
 }
 
+message GfSpSignPeerApprovalRequest {
+  string host = 1;
+  string expiry_timestamp = 2;
+  oneof request {
+    moca.storage.SecondarySpMigrationBucketSignDoc secondary_migration_bucket = 3;
+    moca.virtualgroup.MsgSwapOut swap_out_approval = 4;
+  }
+}
+
 message GfSpSignRequest {
   oneof request {
     moca.storage.MsgCreateBucket create_bucket_info = 1;
@@ -66,6 +75,7 @@ message GfSpSignRequest {
     moca.storage.MsgDelegateUpdateObjectContent
         delegate_update_object_content = 32;
     moca.storage.MsgSealObjectV2 seal_object_info_v2 = 33;
+    GfSpSignPeerApprovalRequest peer_approval_request = 34;
   }
 }
 

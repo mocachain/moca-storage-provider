@@ -2,6 +2,7 @@ package gfspclient
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,10 +11,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
+
+func TestGfSpClient_GetSecondarySPMigrationBucketApprovalSignsBoundPeerRequest(t *testing.T) {
+	s := setup(t, context.Background())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, SecondarySPMigrationBucketApprovalPath, r.URL.Path)
+		assert.Equal(t, r.Header.Get(GnfdSecondarySPMigrationBucketMsgHeader), r.Header.Get(GnfdUnsignedApprovalMsgHeader))
+		assert.Contains(t, r.Header.Get(commonhttp.HTTPHeaderAuthorization), commonhttp.Gnfd1Ecdsa+",Signature=")
+		expiry, err := time.Parse(time.RFC3339, r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp))
+		require.NoError(t, err)
+		assert.Greater(t, time.Until(expiry), time.Duration(0))
+		assert.LessOrEqual(t, time.Until(expiry), peerApprovalExpiry)
+		w.Header().Set(GnfdSecondarySPMigrationBucketApprovalHeader, hex.EncodeToString(mockSignature))
+	}))
+	defer server.Close()
+
+	signature, err := s.GetSecondarySPMigrationBucketApproval(context.Background(), server.URL, &storagetypes.SecondarySpMigrationBucketSignDoc{})
+
+	require.NoError(t, err)
+	assert.Equal(t, mockSignature, signature)
+}
+
+func TestGfSpClient_GetSecondarySPMigrationBucketApprovalDoesNotDispatchWhenSignerFails(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer server.Close()
+
+	_, err := mockBufClient().GetSecondarySPMigrationBucketApproval(context.Background(), server.URL, &storagetypes.SecondarySpMigrationBucketSignDoc{})
+
+	require.Error(t, err)
+	assert.False(t, called)
+}
 
 func TestGfSpClient_ReplicatePieceToSecondary(t *testing.T) {
 	cases := []struct {
@@ -395,7 +428,7 @@ func TestGfSpClient_GetSecondarySPMigrationBucketApproval(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			s := mockBufClient()
+			s := setup(t, context.Background())
 			if tt.server != nil {
 				defer tt.server.Close()
 				result, err := s.GetSecondarySPMigrationBucketApproval(context.TODO(), tt.server.URL, &storagetypes.SecondarySpMigrationBucketSignDoc{})
@@ -470,7 +503,7 @@ func TestGfSpClient_GetSwapOutApproval(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			s := mockBufClient()
+			s := setup(t, context.Background())
 			if tt.server != nil {
 				defer tt.server.Close()
 				result, err := s.GetSwapOutApproval(context.TODO(), tt.server.URL, &virtualgrouptypes.MsgSwapOut{})

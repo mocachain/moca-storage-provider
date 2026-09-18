@@ -1,6 +1,7 @@
 package gater
 
 import (
+	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	commonhttp "github.com/mocachain/moca-common/go/http"
@@ -748,6 +751,7 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 
 func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler_rejectsMalformedCallerAuthenticationBeforeSigning(t *testing.T) {
 	g := setup(t)
+	g.peerApprovalAuthMode = "required"
 	ctrl := gomock.NewController(t)
 	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
 	g.baseApp.SetGfSpClient(clientMock)
@@ -759,7 +763,49 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler_rejectsMalfor
 
 	mockGetSecondaryBlsMigrationBucketApprovalHandlerRoute(t, g).ServeHTTP(w, req)
 
-	assert.Contains(t, w.Body.String(), "invalid expiry date header")
+	assert.Contains(t, w.Body.String(), "gnfd msg validate error")
+}
+
+func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler_rejectsMissingSignedPayloadHeader(t *testing.T) {
+	g := setup(t)
+	g.peerApprovalAuthMode = "required"
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QuerySPByID(gomock.Any(), mockSelfSPID).
+		Return(&sptypes.StorageProvider{Id: mockSelfSPID, OperatorAddress: crypto.PubkeyToAddress(key.PublicKey).Hex()}, nil).AnyTimes()
+	g.baseApp.SetConsensus(consensusMock)
+
+	req := signedSecondaryBlsMigrationRequest(t, key, time.Now().Add(time.Minute))
+	req.Header.Del(GnfdUnsignedApprovalMsgHeader)
+	w := httptest.NewRecorder()
+
+	mockGetSecondaryBlsMigrationBucketApprovalHandlerRoute(t, g).ServeHTTP(w, req)
+
+	assert.Contains(t, w.Body.String(), "gnfd msg validate error")
+}
+
+func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler_acceptsAuthorizedDestinationPrimary(t *testing.T) {
+	g := setup(t)
+	g.peerApprovalAuthMode = "required"
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	clientMock.EXPECT().SignSecondarySPMigrationBucket(gomock.Any(), gomock.Any()).Return([]byte("signature"), nil)
+	g.baseApp.SetGfSpClient(clientMock)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	setupRequiredSecondaryBlsMigrationChain(t, g, ctrl, clientMock, crypto.PubkeyToAddress(key.PublicKey).Hex())
+
+	w := httptest.NewRecorder()
+	mockGetSecondaryBlsMigrationBucketApprovalHandlerRoute(t, g).ServeHTTP(w, signedSecondaryBlsMigrationRequest(t, key, time.Now().Add(time.Minute)))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, hex.EncodeToString([]byte("signature")), w.Header().Get(GnfdSecondarySPMigrationBucketApprovalHeader))
 }
 
 func mockGetSwapOutApprovalRoute(t *testing.T, g *GateModular) *mux.Router {
@@ -971,6 +1017,18 @@ func newSecondaryBlsMigrationRequest() *http.Request {
 	return req
 }
 
+func signedSecondaryBlsMigrationRequest(t *testing.T, key *ecdsa.PrivateKey, expiry time.Time) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "https://"+testDomain+SecondarySPMigrationBucketApprovalPath, nil)
+	req.Header.Set(GnfdSecondarySPMigrationBucketMsgHeader, mockSecondaryBlsSignDocHeader)
+	req.Header.Set(GnfdUnsignedApprovalMsgHeader, mockSecondaryBlsSignDocHeader)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, expiry.UTC().Format(time.RFC3339))
+	signature, err := crypto.Sign(commonhttp.GetMsgToSignInGNFD1Auth(req), key)
+	require.NoError(t, err)
+	req.Header.Set(GnfdAuthorizationHeader, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
+	return req
+}
+
 func newSwapOutApprovalRequest() *http.Request {
 	path := fmt.Sprintf("%s%s%s", scheme, testDomain, SwapOutApprovalPath)
 	req := httptest.NewRequest(http.MethodGet, path, strings.NewReader(""))
@@ -996,6 +1054,25 @@ func setupSecondaryBlsMigrationChain(t *testing.T, g *GateModular, clientMock *g
 	g.spCachePool = NewSPCachePool(consensusMock)
 	clientMock.EXPECT().VerifyMigrateGVGPermission(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&effect, nil).AnyTimes()
+}
+
+func setupRequiredSecondaryBlsMigrationChain(t *testing.T, g *GateModular, ctrl *gomock.Controller,
+	clientMock *gfspclient.MockGfSpClientAPI, operator string,
+) {
+	t.Helper()
+	g.baseApp.SetChainID(mockChainID)
+	consensusMock := consensus.NewMockConsensus(ctrl)
+	consensusMock.EXPECT().QuerySPByID(gomock.Any(), mockSelfSPID).
+		Return(&sptypes.StorageProvider{Id: mockSelfSPID, OperatorAddress: operator}, nil).Times(1)
+	consensusMock.EXPECT().QuerySP(gomock.Any(), gomock.Any()).
+		Return(&sptypes.StorageProvider{Id: mockSecondarySPID}, nil).AnyTimes()
+	consensusMock.EXPECT().QueryGlobalVirtualGroup(gomock.Any(), uint32(3)).
+		Return(&virtual_types.GlobalVirtualGroup{Id: 3, PrimarySpId: mockSelfSPID, SecondarySpIds: []uint32{mockSecondarySPID}}, nil).Times(1)
+	g.baseApp.SetConsensus(consensusMock)
+	g.spCachePool = NewSPCachePool(consensusMock)
+	effect := permissiontypes.EFFECT_ALLOW
+	clientMock.EXPECT().VerifyMigrateGVGPermission(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&effect, nil).Times(1)
 }
 
 // setupSwapOutChain wires the chain state the swap out in mockSwapOutMsgHeader

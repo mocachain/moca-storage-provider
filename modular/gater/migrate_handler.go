@@ -395,8 +395,13 @@ func (g *GateModular) getSecondaryBlsMigrationBucketApprovalHandler(w http.Respo
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, authErr := NewRequestContext(r, g)
 	migrationBucketApprovalHeader := r.Header.Get(GnfdSecondarySPMigrationBucketMsgHeader)
+	if g.peerApprovalAuthMode != "" && g.peerApprovalAuthMode != "disabled" &&
+		migrationBucketApprovalHeader != r.Header.Get(GnfdUnsignedApprovalMsgHeader) {
+		err = ErrValidateMsg
+		return
+	}
 	migrationBucketApprovalMsg, err = hex.DecodeString(migrationBucketApprovalHeader)
 	if err != nil {
 		log.CtxErrorw(reqCtx.Context(), "failed to parse secondary migration bucket approval header", "error", err)
@@ -409,6 +414,16 @@ func (g *GateModular) getSecondaryBlsMigrationBucketApprovalHandler(w http.Respo
 		log.CtxErrorw(reqCtx.Context(), "failed to unmarshal migration bucket approval msg", "error", err)
 		err = ErrDecodeMsg
 		return
+	}
+	if g.peerApprovalAuthMode != "" && g.peerApprovalAuthMode != "disabled" {
+		operator, operatorErr := g.peerApprovalOperatorByID(reqCtx, signDoc.GetDstPrimarySpId())
+		if operatorErr != nil {
+			err = operatorErr
+			return
+		}
+		if err = g.authenticatePeerApprovalRequest(r, reqCtx, authErr, operator); err != nil {
+			return
+		}
 	}
 	if err = g.checkSecondaryBlsMigrationBucketApproval(reqCtx.Context(), signDoc); err != nil {
 		log.CtxErrorw(reqCtx.Context(), "refuse to sign secondary sp migration bucket approval",
@@ -444,7 +459,7 @@ func (g *GateModular) getSwapOutApproval(w http.ResponseWriter, r *http.Request)
 		log.CtxDebugw(reqCtx.Context(), reqCtx.String())
 	}()
 
-	reqCtx, _ = NewRequestContext(r, g)
+	reqCtx, authErr := NewRequestContext(r, g)
 	swapOutApprovalHeader := r.Header.Get(GnfdUnsignedApprovalMsgHeader)
 	swapOutApprovalMsg, err = hex.DecodeString(swapOutApprovalHeader)
 	if err != nil {
@@ -465,6 +480,16 @@ func (g *GateModular) getSwapOutApproval(w http.ResponseWriter, r *http.Request)
 		log.Errorw("failed to basic check approval msg", "swap_out_approval", swapOutApproval, "error", err)
 		err = ErrValidateMsg
 		return
+	}
+	if g.peerApprovalAuthMode != "" && g.peerApprovalAuthMode != "disabled" {
+		operator, operatorErr := g.peerApprovalSwapOutOperator(reqCtx, swapOutApproval.GetStorageProvider())
+		if operatorErr != nil {
+			err = operatorErr
+			return
+		}
+		if err = g.authenticatePeerApprovalRequest(r, reqCtx, authErr, operator); err != nil {
+			return
+		}
 	}
 
 	if err = g.checkSwapOutApproval(reqCtx.Context(), swapOutApproval); err != nil {
