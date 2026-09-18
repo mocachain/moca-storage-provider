@@ -8,6 +8,31 @@ Signer uses the SP's private keys to sign the message, the messages to form a tr
 
 Signer is an abstract interface to handle the signature of SP and on moca chain operator. It holds all private keys of one SP. Considering the SP account's sequence number, it must be a singleton.
 
+## Content authorization guard
+
+The signer server rejects the following workflows with gRPC `PermissionDenied` before accessing a private key because they accept caller-controlled financial or governance content and no content authorization decision is available:
+
+- create or delete a global virtual group, and deposit into a global virtual group;
+- complete or reject a bucket migration;
+- sign, submit, or complete a swap out;
+- reserve, complete, or cancel a swap in;
+- start or complete a storage provider exit;
+- update storage prices; and
+- delegate object creation or content updates to a caller-selected recipient.
+
+This guard intentionally interrupts both automated manager flows and operator CLI commands that use those signer requests. Ordinary bucket and object data-plane signatures, P2P signatures, and deterministic piece, recovery, and migration task approvals remain enabled.
+
+A future enabling design must require a one-time exact permit containing all of these fields:
+
+- a canonical digest of the complete request content;
+- the exact operation;
+- the authenticated caller identity;
+- an expiry time or chain height;
+- a unique nonce; and
+- durable, atomic nonce consumption before the signer or private key is called.
+
+No permit issuer or approval authority is defined here. mTLS identity, `ValidateBasic`, and amount limits do not authorize request content and must not bypass the guard.
+
 ```go
 type Signer interface {
     Modular
