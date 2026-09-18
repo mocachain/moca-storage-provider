@@ -746,6 +746,22 @@ func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler(t *testing.T)
 	}
 }
 
+func TestGateModular_getSecondaryBlsMigrationBucketApprovalHandler_rejectsMalformedCallerAuthenticationBeforeSigning(t *testing.T) {
+	g := setup(t)
+	ctrl := gomock.NewController(t)
+	clientMock := gfspclient.NewMockGfSpClientAPI(ctrl)
+	g.baseApp.SetGfSpClient(clientMock)
+	setupSecondaryBlsMigrationChain(t, g, clientMock, permissiontypes.EFFECT_ALLOW)
+
+	req := httptest.NewRequest(http.MethodGet, SecondarySPMigrationBucketApprovalPath, nil)
+	req.Header.Set(GnfdSecondarySPMigrationBucketMsgHeader, mockSecondaryBlsSignDocHeader)
+	w := httptest.NewRecorder()
+
+	mockGetSecondaryBlsMigrationBucketApprovalHandlerRoute(t, g).ServeHTTP(w, req)
+
+	assert.Contains(t, w.Body.String(), "invalid expiry date header")
+}
+
 func mockGetSwapOutApprovalRoute(t *testing.T, g *GateModular) *mux.Router {
 	t.Helper()
 	router := mux.NewRouter().SkipClean(true)
