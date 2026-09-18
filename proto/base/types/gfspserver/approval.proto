@@ -8,10 +8,14 @@ option go_package = "github.com/mocachain/moca-storage-provider/base/types/gfsps
 
 message GfSpAskApprovalRequest {
   oneof request {
-    base.types.gfsptask.GfSpCreateBucketApprovalTask create_bucket_approval_task = 1;
-    base.types.gfsptask.GfSpMigrateBucketApprovalTask migrate_bucket_approval_task = 2;
-    base.types.gfsptask.GfSpCreateObjectApprovalTask create_object_approval_task = 3;
-    base.types.gfsptask.GfSpDelegateCreateObjectApprovalTask delegate_create_object_approval_task = 4;
+    base.types.gfsptask.GfSpCreateBucketApprovalTask
+        create_bucket_approval_task = 1;
+    base.types.gfsptask.GfSpMigrateBucketApprovalTask
+        migrate_bucket_approval_task = 2;
+    base.types.gfsptask.GfSpCreateObjectApprovalTask
+        create_object_approval_task = 3;
+    base.types.gfsptask.GfSpDelegateCreateObjectApprovalTask
+        delegate_create_object_approval_task = 4;
   }
 }
 
@@ -19,13 +23,18 @@ message GfSpAskApprovalResponse {
   base.types.gfsperrors.GfSpError err = 1;
   bool allowed = 2;
   oneof response {
-    base.types.gfsptask.GfSpCreateBucketApprovalTask create_bucket_approval_task = 3;
-    base.types.gfsptask.GfSpMigrateBucketApprovalTask migrate_bucket_approval_task = 4;
-    base.types.gfsptask.GfSpCreateObjectApprovalTask create_object_approval_task = 5;
-    base.types.gfsptask.GfSpDelegateCreateObjectApprovalTask delegate_create_object_approval_task = 6;
+    base.types.gfsptask.GfSpCreateBucketApprovalTask
+        create_bucket_approval_task = 3;
+    base.types.gfsptask.GfSpMigrateBucketApprovalTask
+        migrate_bucket_approval_task = 4;
+    base.types.gfsptask.GfSpCreateObjectApprovalTask
+        create_object_approval_task = 5;
+    base.types.gfsptask.GfSpDelegateCreateObjectApprovalTask
+        delegate_create_object_approval_task = 6;
   }
 }
 
 service GfSpApprovalService {
-  rpc GfSpAskApproval(GfSpAskApprovalRequest) returns (GfSpAskApprovalResponse) {}
+  rpc GfSpAskApproval(GfSpAskApprovalRequest)
+      returns (GfSpAskApprovalResponse) {}
 }

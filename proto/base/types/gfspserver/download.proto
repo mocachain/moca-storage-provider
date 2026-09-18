@@ -42,9 +42,7 @@ message GfSpReimburseQuotaRequest {
   string year_month = 3;
 }
 
-message GfSpReimburseQuotaResponse {
-  base.types.gfsperrors.GfSpError err = 1;
-}
+message GfSpReimburseQuotaResponse { base.types.gfsperrors.GfSpError err = 1; }
 
 message GfSpDeductQuotaForBucketMigrateRequest {
   uint64 bucket_id = 1;
@@ -58,9 +56,14 @@ message GfSpDeductQuotaForBucketMigrateResponse {
 }
 
 service GfSpDownloadService {
-  rpc GfSpDownloadObject(GfSpDownloadObjectRequest) returns (GfSpDownloadObjectResponse) {}
-  rpc GfSpDownloadPiece(GfSpDownloadPieceRequest) returns (GfSpDownloadPieceResponse) {}
-  rpc GfSpGetChallengeInfo(GfSpGetChallengeInfoRequest) returns (GfSpGetChallengeInfoResponse) {}
-  rpc GfSpReimburseQuota(GfSpReimburseQuotaRequest) returns (GfSpReimburseQuotaResponse) {}
-  rpc GfSpDeductQuotaForBucketMigrate(GfSpDeductQuotaForBucketMigrateRequest) returns (GfSpDeductQuotaForBucketMigrateResponse) {}
+  rpc GfSpDownloadObject(GfSpDownloadObjectRequest)
+      returns (GfSpDownloadObjectResponse) {}
+  rpc GfSpDownloadPiece(GfSpDownloadPieceRequest)
+      returns (GfSpDownloadPieceResponse) {}
+  rpc GfSpGetChallengeInfo(GfSpGetChallengeInfoRequest)
+      returns (GfSpGetChallengeInfoResponse) {}
+  rpc GfSpReimburseQuota(GfSpReimburseQuotaRequest)
+      returns (GfSpReimburseQuotaResponse) {}
+  rpc GfSpDeductQuotaForBucketMigrate(GfSpDeductQuotaForBucketMigrateRequest)
+      returns (GfSpDeductQuotaForBucketMigrateResponse) {}
 }

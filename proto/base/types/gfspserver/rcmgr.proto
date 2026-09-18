@@ -6,9 +6,7 @@ import "base/types/gfsplimit/limit.proto";
 
 option go_package = "github.com/mocachain/moca-storage-provider/base/types/gfspserver";
 
-message GfSpQueryResourceLimitRequest {
-  repeated string module = 1;
-}
+message GfSpQueryResourceLimitRequest { repeated string module = 1; }
 
 message GfSpQueryResourceLimitResponse {
   base.types.gfsperrors.GfSpError err = 1;
@@ -25,6 +23,8 @@ message GfSpSetResourceLimitResponse {
 }
 
 service GfSpResourceService {
-  rpc GfSpSetResourceLimit(GfSpSetResourceLimitRequest) returns (GfSpSetResourceLimitResponse) {}
-  rpc GfSpQueryResourceLimit(GfSpQueryResourceLimitRequest) returns (GfSpQueryResourceLimitResponse) {}
+  rpc GfSpSetResourceLimit(GfSpSetResourceLimitRequest)
+      returns (GfSpSetResourceLimitResponse) {}
+  rpc GfSpQueryResourceLimit(GfSpQueryResourceLimitRequest)
+      returns (GfSpQueryResourceLimitResponse) {}
 }

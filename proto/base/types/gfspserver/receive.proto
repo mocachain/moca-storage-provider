@@ -11,9 +11,7 @@ message GfSpReplicatePieceRequest {
   bytes piece_data = 2;
 }
 
-message GfSpReplicatePieceResponse {
-  base.types.gfsperrors.GfSpError err = 1;
-}
+message GfSpReplicatePieceResponse { base.types.gfsperrors.GfSpError err = 1; }
 
 message GfSpDoneReplicatePieceRequest {
   base.types.gfsptask.GfSpReceivePieceTask receive_piece_task = 1;
@@ -26,6 +24,8 @@ message GfSpDoneReplicatePieceResponse {
 }
 
 service GfSpReceiveService {
-  rpc GfSpReplicatePiece(GfSpReplicatePieceRequest) returns (GfSpReplicatePieceResponse) {}
-  rpc GfSpDoneReplicatePiece(GfSpDoneReplicatePieceRequest) returns (GfSpDoneReplicatePieceResponse) {}
+  rpc GfSpReplicatePiece(GfSpReplicatePieceRequest)
+      returns (GfSpReplicatePieceResponse) {}
+  rpc GfSpDoneReplicatePiece(GfSpDoneReplicatePieceRequest)
+      returns (GfSpDoneReplicatePieceResponse) {}
 }
