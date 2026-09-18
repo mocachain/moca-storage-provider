@@ -2292,6 +2292,21 @@ func (mr *MockGfSpClientAPIMockRecorder) SignP2PPongMsg(ctx, pong any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignP2PPongMsg", reflect.TypeOf((*MockGfSpClientAPI)(nil).SignP2PPongMsg), ctx, pong)
 }
 
+// SignPeerApprovalRequest mocks base method.
+func (m *MockGfSpClientAPI) SignPeerApprovalRequest(ctx context.Context, request *gfspserver.GfSpSignPeerApprovalRequest) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignPeerApprovalRequest", ctx, request)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignPeerApprovalRequest indicates an expected call of SignPeerApprovalRequest.
+func (mr *MockGfSpClientAPIMockRecorder) SignPeerApprovalRequest(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignPeerApprovalRequest", reflect.TypeOf((*MockGfSpClientAPI)(nil).SignPeerApprovalRequest), ctx, request)
+}
+
 // SignReceiveTask mocks base method.
 func (m *MockGfSpClientAPI) SignReceiveTask(ctx context.Context, receiveTask task.ReceivePieceTask) ([]byte, error) {
 	m.ctrl.T.Helper()
@@ -5110,6 +5125,21 @@ func (m *MockSignerAPI) SignP2PPongMsg(ctx context.Context, pong *gfspp2p.GfSpPo
 func (mr *MockSignerAPIMockRecorder) SignP2PPongMsg(ctx, pong any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignP2PPongMsg", reflect.TypeOf((*MockSignerAPI)(nil).SignP2PPongMsg), ctx, pong)
+}
+
+// SignPeerApprovalRequest mocks base method.
+func (m *MockSignerAPI) SignPeerApprovalRequest(ctx context.Context, request *gfspserver.GfSpSignPeerApprovalRequest) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignPeerApprovalRequest", ctx, request)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignPeerApprovalRequest indicates an expected call of SignPeerApprovalRequest.
+func (mr *MockSignerAPIMockRecorder) SignPeerApprovalRequest(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignPeerApprovalRequest", reflect.TypeOf((*MockSignerAPI)(nil).SignPeerApprovalRequest), ctx, request)
 }
 
 // SignReceiveTask mocks base method.

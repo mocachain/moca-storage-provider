@@ -197,6 +197,8 @@ func (g *GfSpBaseApp) GfSpSign(ctx context.Context, req *gfspserver.GfSpSignRequ
 			metrics.ReqCounter.WithLabelValues(SignerSuccessSecondarySPMigrationBucket).Inc()
 			metrics.ReqTime.WithLabelValues(SignerSuccessSecondarySPMigrationBucket).Observe(time.Since(startTime).Seconds())
 		}
+	case *gfspserver.GfSpSignRequest_PeerApprovalRequest:
+		signature, err = g.signer.SignPeerApprovalRequest(ctx, t.PeerApprovalRequest)
 	case *gfspserver.GfSpSignRequest_SwapOut:
 		txHash, err = g.signer.SwapOutEvm(ctx, t.SwapOut)
 		if err != nil {

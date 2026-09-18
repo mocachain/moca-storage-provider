@@ -2493,6 +2493,21 @@ func (mr *MockSignerMockRecorder) SignP2PPongMsg(ctx, pong any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignP2PPongMsg", reflect.TypeOf((*MockSigner)(nil).SignP2PPongMsg), ctx, pong)
 }
 
+// SignPeerApprovalRequest mocks base method.
+func (m *MockSigner) SignPeerApprovalRequest(ctx context.Context, request *gfspserver.GfSpSignPeerApprovalRequest) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SignPeerApprovalRequest", ctx, request)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SignPeerApprovalRequest indicates an expected call of SignPeerApprovalRequest.
+func (mr *MockSignerMockRecorder) SignPeerApprovalRequest(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SignPeerApprovalRequest", reflect.TypeOf((*MockSigner)(nil).SignPeerApprovalRequest), ctx, request)
+}
+
 // SignReceivePieceTask mocks base method.
 func (m *MockSigner) SignReceivePieceTask(ctx context.Context, task task.ReceivePieceTask) ([]byte, error) {
 	m.ctrl.T.Helper()
