@@ -77,6 +77,9 @@ func (cfg *GfSpConfig) Validate() error {
 	if cfg.SpAccount.FundingPrivateKey != "" {
 		return fmt.Errorf("FundingPrivateKey is not supported; the signer uses OperatorPrivateKey for funding operations")
 	}
+	if mode := cfg.Gateway.PeerApprovalAuthMode; mode != "" && mode != "disabled" && mode != "permissive" && mode != "required" {
+		return fmt.Errorf("Gateway.PeerApprovalAuthMode must be disabled, permissive, or required")
+	}
 	return nil
 }
 
@@ -225,6 +228,7 @@ type GatewayConfig struct {
 	// and anyone can create an account, so the endpoint stays closed until this is
 	// populated.
 	StatusAllowedAccounts []string `comment:"optional"`
+	PeerApprovalAuthMode  string   `comment:"optional, default: required"`
 }
 
 type ExecutorConfig struct {
@@ -356,6 +360,9 @@ type LogConfig struct {
 // DefaultConfig returns a GfSpConfig with safe defaults for fields that must not be empty.
 func DefaultConfig() *GfSpConfig {
 	return &GfSpConfig{
+		Gateway: GatewayConfig{
+			PeerApprovalAuthMode: "required",
+		},
 		Chain: ChainConfig{
 			MaxEvmGasPriceWei: DefaultMaxEvmGasPriceWei,
 		},

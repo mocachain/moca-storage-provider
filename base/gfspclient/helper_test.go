@@ -726,6 +726,8 @@ func (mockSignerServer) GfSpSign(ctx context.Context, req *gfspserver.GfSpSignRe
 		} else {
 			return &gfspserver.GfSpSignResponse{Signature: mockSignature}, nil
 		}
+	case *gfspserver.GfSpSignRequest_PeerApprovalRequest:
+		return &gfspserver.GfSpSignResponse{Signature: mockSignature}, nil
 	case *gfspserver.GfSpSignRequest_SwapOut:
 		if req.GetSwapOut().GetGlobalVirtualGroupFamilyId() == 0 {
 			return nil, mockRPCErr

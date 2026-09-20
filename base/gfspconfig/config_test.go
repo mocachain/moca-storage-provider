@@ -27,6 +27,18 @@ func TestGfSpConfig_ParsesLegacyFundingPrivateKey(t *testing.T) {
 	assert.Equal(t, "legacy-key", cfg.SpAccount.FundingPrivateKey)
 }
 
+func TestGfSpConfig_ValidatePeerApprovalAuthMode(t *testing.T) {
+	for _, mode := range []string{"", "disabled", "permissive", "required"} {
+		t.Run(mode, func(t *testing.T) {
+			err := (&GfSpConfig{Gateway: GatewayConfig{PeerApprovalAuthMode: mode}}).Validate()
+			assert.NoError(t, err)
+		})
+	}
+
+	err := (&GfSpConfig{Gateway: GatewayConfig{PeerApprovalAuthMode: "legacy"}}).Validate()
+	assert.EqualError(t, err, "Gateway.PeerApprovalAuthMode must be disabled, permissive, or required")
+}
+
 var mockErr = errors.New("mock error")
 
 func TestGfSpConfig_ApplySuccess(t *testing.T) {
@@ -53,6 +65,7 @@ func TestDefaultConfigIncludesExplicitEvmGasPriceWei(t *testing.T) {
 	cfg := DefaultConfig()
 
 	assert.Equal(t, uint64(20_000_000_000), cfg.Chain.MaxEvmGasPriceWei)
+	assert.Equal(t, "required", cfg.Gateway.PeerApprovalAuthMode)
 }
 
 func TestGfSpConfig_StringRedactsSecrets(t *testing.T) {
