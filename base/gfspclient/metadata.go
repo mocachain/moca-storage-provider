@@ -558,7 +558,7 @@ func (s *GfSpClient) ListObjectsByIDsInternal(ctx context.Context, objectIDs []u
 		return nil, ErrRPCUnknownWithDetail("client failed to connect metadata, error: ", connErr)
 	}
 	defer conn.Close()
-	req := &types.GfSpListObjectsByIDsRequest{
+	req := &types.GfSpListObjectsByIDsInternalRequest{
 		ObjectIds:      objectIDs,
 		IncludeRemoved: includeRemoved,
 	}

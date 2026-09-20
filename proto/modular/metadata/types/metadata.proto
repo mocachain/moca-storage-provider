@@ -643,6 +643,23 @@ message GfSpListObjectsByIDsResponse {
   map<uint64, Object> objects = 1;
 }
 
+// GfSpListObjectsByIDsInternalRequest is the request type for the
+// GfSpListObjectsByIDsInternal RPC method.
+message GfSpListObjectsByIDsInternalRequest {
+  // object_ids is the list of unique identifier for objects
+  repeated uint64 object_ids = 1;
+  // include_removed indicates whether this request can get the removed objects
+  // information
+  bool include_removed = 2;
+}
+
+// GfSpListObjectsByIDsInternalResponse is the response type for the
+// GfSpListObjectsByIDsInternal RPC method.
+message GfSpListObjectsByIDsInternalResponse {
+  // objects defines the information of a object map
+  map<uint64, Object> objects = 1;
+}
+
 // GfSpVerifyPermissionByIDRequest is request type for the
 // GfSpVerifyPermissionByID RPC method
 message GfSpVerifyPermissionByIDRequest {
@@ -1304,8 +1321,8 @@ service GfSpMetadataService {
       returns (GfSpListObjectsByIDsResponse) {}
   // GfSpListObjectsByIDsInternal is the private-visibility counterpart of
   // GfSpListObjectsByIDs, for internal callers only.
-  rpc GfSpListObjectsByIDsInternal(GfSpListObjectsByIDsRequest)
-      returns (GfSpListObjectsByIDsResponse) {}
+  rpc GfSpListObjectsByIDsInternal(GfSpListObjectsByIDsInternalRequest)
+      returns (GfSpListObjectsByIDsInternalResponse) {}
   rpc GfSpVerifyPermissionByID(GfSpVerifyPermissionByIDRequest)
       returns (GfSpVerifyPermissionByIDResponse) {}
   rpc GfSpListVirtualGroupFamiliesBySpID(
