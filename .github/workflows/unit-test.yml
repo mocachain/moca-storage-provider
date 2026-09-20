@@ -30,6 +30,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # the blocksyncer tests run against the runner's MySQL (root/root)
+      - name: Run MySQL
+        run: |
+          sudo /etc/init.d/mysql start
+
       - uses: actions/cache@v4
         with:
           # In order:
