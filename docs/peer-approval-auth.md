@@ -13,7 +13,7 @@ PeerApprovalAuthMode = "permissive"
 
 Use `permissive` only while upgrading peers; new configuration templates use `required`.
 
-Use a five-minute `X-Gnfd-Expiry-Timestamp`. The signature covers the request method, path, Host, expiry, and `X-Gnfd-Unsigned-Msg`.
+Use a five-minute `X-Gnfd-Expiry-Timestamp`. Receivers allow up to 30 seconds of clock skew above this limit, so a slightly slower receiver clock does not reject a fresh request. Requests that are already expired according to the receiver clock are still rejected. The signature covers the request method, path, Host, expiry, and `X-Gnfd-Unsigned-Msg`.
 
 For a BLS migration request, send the identical hexadecimal sign-doc bytes in both `X-Gnfd-Secondary-Migration-Bucket-Msg` and `X-Gnfd-Unsigned-Msg`. Receivers reject mismatches. For swap-out, use its existing `X-Gnfd-Unsigned-Msg` header.
 

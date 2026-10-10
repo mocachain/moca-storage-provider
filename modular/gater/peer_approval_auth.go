@@ -9,7 +9,10 @@ import (
 	commonhttp "github.com/mocachain/moca-common/go/http"
 )
 
-const peerApprovalMaxExpiry = 5 * time.Minute
+const (
+	peerApprovalMaxExpiry = 5 * time.Minute
+	peerApprovalClockSkew = 30 * time.Second
+)
 
 func (g *GateModular) authenticatePeerApprovalRequest(r *http.Request, reqCtx *RequestContext, authErr error, expectedOperator string) error {
 	mode := g.peerApprovalAuthMode
@@ -31,7 +34,9 @@ func (g *GateModular) authenticatePeerApprovalRequest(r *http.Request, reqCtx *R
 		return authErr
 	}
 	expiry, err := time.Parse(ExpiryDateFormat, r.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp))
-	if err != nil || time.Until(expiry) <= 0 || time.Until(expiry) > peerApprovalMaxExpiry {
+	// Allow a slightly slower receiver clock without accepting expired requests.
+	remaining := time.Until(expiry)
+	if err != nil || remaining <= 0 || remaining > peerApprovalMaxExpiry+peerApprovalClockSkew {
 		return ErrInvalidExpiryDateHeader
 	}
 	if !strings.EqualFold(reqCtx.Account(), expectedOperator) {
