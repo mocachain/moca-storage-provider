@@ -32,6 +32,7 @@ type GateModular struct {
 	// statusAllowedAccounts holds the lower-cased accounts allowed to read the
 	// operational status endpoint; an empty map closes it to everyone.
 	statusAllowedAccounts map[string]struct{}
+	peerApprovalAuthMode  string
 
 	spID        uint32
 	spCachePool *SPCachePool

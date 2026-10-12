@@ -453,6 +453,10 @@ func (*NilModular) SignBucketMigrationInfo(ctx context.Context, task *gfsptask.G
 	return nil, ErrNilModular
 }
 
+func (*NilModular) SignPeerApprovalRequest(context.Context, *gfspserver.GfSpSignPeerApprovalRequest) ([]byte, error) {
+	return nil, ErrNilModular
+}
+
 func (m *NilModular) ReserveSwapIn(ctx context.Context, reserveSwapIn *virtualgrouptypes.MsgReserveSwapIn) (string, error) {
 	return "", ErrNilModular
 }

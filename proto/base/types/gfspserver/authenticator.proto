@@ -186,33 +186,27 @@ message VerifyGNFD2EddsaSignatureResponse {
 }
 
 service GfSpAuthenticationService {
-  rpc GfSpVerifyAuthentication(GfSpAuthenticationRequest)
-      returns (GfSpAuthenticationResponse) {}
+  rpc GfSpVerifyAuthentication(GfSpAuthenticationRequest) returns (GfSpAuthenticationResponse) {}
   // GetAuthNonce get the auth nonce for which the Dapp or client can generate
   // EDDSA key pairs.
   rpc GetAuthNonce(GetAuthNonceRequest) returns (GetAuthNonceResponse) {}
   // UpdateUserPublicKey updates the user public key once the Dapp or client
   // generates the EDDSA key pairs.
-  rpc UpdateUserPublicKey(UpdateUserPublicKeyRequest)
-      returns (UpdateUserPublicKeyResponse) {}
+  rpc UpdateUserPublicKey(UpdateUserPublicKeyRequest) returns (UpdateUserPublicKeyResponse) {}
   // VerifyGNFD1EddsaSignature verifies the signature signed by user's EDDSA
   // private key.
-  rpc VerifyGNFD1EddsaSignature(VerifyGNFD1EddsaSignatureRequest)
-      returns (VerifyGNFD1EddsaSignatureResponse) {}
+  rpc VerifyGNFD1EddsaSignature(VerifyGNFD1EddsaSignatureRequest) returns (VerifyGNFD1EddsaSignatureResponse) {}
   // GetAuthKeyV2 get the auth key for which the Dapp or client can generate
   // EDDSA key pairs.
   rpc GetAuthKeyV2(GetAuthKeyV2Request) returns (GetAuthKeyV2Response) {}
   // ListAuthKeysV2 list the user public keys
   rpc ListAuthKeysV2(ListAuthKeysV2Request) returns (ListAuthKeysV2Response) {}
   // DeleteAuthKeysV2 delete the user public keys
-  rpc DeleteAuthKeysV2(DeleteAuthKeysV2Request)
-      returns (DeleteAuthKeysV2Response) {}
+  rpc DeleteAuthKeysV2(DeleteAuthKeysV2Request) returns (DeleteAuthKeysV2Response) {}
   // UpdateUserPublicKeyV2 updates the user public key once the Dapp or client
   // generates the EDDSA key pairs.
-  rpc UpdateUserPublicKeyV2(UpdateUserPublicKeyV2Request)
-      returns (UpdateUserPublicKeyV2Response) {}
+  rpc UpdateUserPublicKeyV2(UpdateUserPublicKeyV2Request) returns (UpdateUserPublicKeyV2Response) {}
   // VerifyGNFD2EddsaSignature verifies the signature signed by user's EDDSA
   // private key.
-  rpc VerifyGNFD2EddsaSignature(VerifyGNFD2EddsaSignatureRequest)
-      returns (VerifyGNFD2EddsaSignatureResponse) {}
+  rpc VerifyGNFD2EddsaSignature(VerifyGNFD2EddsaSignatureRequest) returns (VerifyGNFD2EddsaSignatureResponse) {}
 }

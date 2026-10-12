@@ -5,7 +5,9 @@ import "base/types/gfsperrors/error.proto";
 
 option go_package = "github.com/mocachain/moca-storage-provider/base/types/gfspserver";
 
-message GfSpQueryTasksRequest { string task_sub_key = 1; }
+message GfSpQueryTasksRequest {
+  string task_sub_key = 1;
+}
 
 message GfSpQueryTasksResponse {
   base.types.gfsperrors.GfSpError err = 1;
@@ -55,8 +57,6 @@ message GfSpQuerySpExitResponse {
 
 service GfSpQueryTaskService {
   rpc GfSpQueryTasks(GfSpQueryTasksRequest) returns (GfSpQueryTasksResponse) {}
-  rpc GfSpQueryBucketMigrate(GfSpQueryBucketMigrateRequest)
-      returns (GfSpQueryBucketMigrateResponse) {}
-  rpc GfSpQuerySpExit(GfSpQuerySpExitRequest)
-      returns (GfSpQuerySpExitResponse) {}
+  rpc GfSpQueryBucketMigrate(GfSpQueryBucketMigrateRequest) returns (GfSpQueryBucketMigrateResponse) {}
+  rpc GfSpQuerySpExit(GfSpQuerySpExitRequest) returns (GfSpQuerySpExitResponse) {}
 }

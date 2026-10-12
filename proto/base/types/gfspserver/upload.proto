@@ -11,11 +11,12 @@ message GfSpUploadObjectRequest {
   bytes payload = 2;
 }
 
-message GfSpUploadObjectResponse { base.types.gfsperrors.GfSpError err = 1; }
+message GfSpUploadObjectResponse {
+  base.types.gfsperrors.GfSpError err = 1;
+}
 
 message GfSpResumableUploadObjectRequest {
-  base.types.gfsptask.GfSpResumableUploadObjectTask
-      resumable_upload_object_task = 1;
+  base.types.gfsptask.GfSpResumableUploadObjectTask resumable_upload_object_task = 1;
   bytes payload = 2;
 }
 
@@ -24,11 +25,9 @@ message GfSpResumableUploadObjectResponse {
 }
 
 service GfSpUploadService {
-  rpc GfSpUploadObject(stream GfSpUploadObjectRequest)
-      returns (GfSpUploadObjectResponse) {}
+  rpc GfSpUploadObject(stream GfSpUploadObjectRequest) returns (GfSpUploadObjectResponse) {}
   // TODO(chris): It is recommended to use the segment buffer as a single
   // request instead of the GRPC stream, as the performance
   //  of the GRPC stream is not satisfactory.
-  rpc GfSpResumableUploadObject(stream GfSpResumableUploadObjectRequest)
-      returns (GfSpResumableUploadObjectResponse) {}
+  rpc GfSpResumableUploadObject(stream GfSpResumableUploadObjectRequest) returns (GfSpResumableUploadObjectResponse) {}
 }
