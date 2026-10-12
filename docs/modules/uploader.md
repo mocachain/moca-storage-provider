@@ -66,6 +66,12 @@ The corresponding `protobuf` definition is shown below:
 - [ObjectInfo](./common/proto.md#objectinfo-proto)
 - [Params](./common/proto.md#params-proto)
 
+### Resuming interrupted requests
+
+For objects with a declared payload size, resume offsets must match persisted progress and a segment boundary. A non-final request that ends partway through a segment returns a closed-stream error without storing that partial segment. Previously completed segments remain available; retry from the last complete segment boundary and resend the discarded bytes. A final request may store a short last segment, but completion requires the total stored size to match the declared payload for both agent and non-agent uploads.
+
+The uploader checks upload state before validating the offset or notifying the manager. Requests for objects already uploaded or being replicated return the existing upload-state conflict error.
+
 ## GfSp Framework Uploader Code
 
 Uploader module code implementation: [Uploader](https://github.com/mocachain/moca-storage-provider/tree/master/modular/uploader)

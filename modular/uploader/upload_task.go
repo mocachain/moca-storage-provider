@@ -255,17 +255,6 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to pre upload object, task repeated")
 		return ErrRepeatedTask
 	}
-	if task.GetObjectInfo().GetPayloadSize() > 0 {
-		if err := u.validateResumableUploadOffset(task); err != nil {
-			log.CtxErrorw(ctx, "failed to pre upload object, invalid resume offset", "error", err)
-			return err
-		}
-	}
-	if err := u.baseApp.GfSpClient().CreateResumableUploadObject(ctx, task); err != nil {
-		log.CtxErrorw(ctx, "failed to begin upload object task")
-		return err
-	}
-
 	taskState, _, errGetUploadObjectState := u.baseApp.GfSpClient().GetUploadObjectState(ctx, task.GetObjectInfo().Id.Uint64())
 	if errGetUploadObjectState != nil {
 		log.CtxErrorw(ctx, "failed to get upload object state")
@@ -277,6 +266,17 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to put object as the target object had already fully uploaded")
 		return ErrInvalidUploadRequest
 	}
+	if task.GetObjectInfo().GetPayloadSize() > 0 {
+		if err := u.validateResumableUploadOffset(task); err != nil {
+			log.CtxErrorw(ctx, "failed to pre upload object, invalid resume offset", "error", err)
+			return err
+		}
+	}
+	if err := u.baseApp.GfSpClient().CreateResumableUploadObject(ctx, task); err != nil {
+		log.CtxErrorw(ctx, "failed to begin upload object task")
+		return err
+	}
+
 	return nil
 }
 
@@ -333,6 +333,11 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		data = data[0:readN]
 
 		if err == io.EOF {
+			// Keep resumable progress on a segment boundary until the final request.
+			if readN > 0 && int64(readN) < segmentSize && !task.GetCompleted() {
+				err = ErrClosedStream
+				return err
+			}
 			err = nil
 			if readN != 0 {
 				pieceKey = u.baseApp.PieceOp().SegmentPieceKey(task.GetObjectInfo().Id.Uint64(), segIdx, task.GetObjectInfo().Version)
