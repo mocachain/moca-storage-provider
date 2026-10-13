@@ -43,6 +43,7 @@ var (
 	ErrGetObjectUploadState = gfsperrors.Register(module.UploadModularName, http.StatusInternalServerError, 110007, "failed to get upload object state")
 	ErrPayloadSize          = gfsperrors.Register(module.UploadModularName, http.StatusBadRequest, 110008, "The file payload size is inconsistent with the parameter payload size")
 	ErrInvalidResumeOffset  = gfsperrors.Register(module.UploadModularName, http.StatusBadRequest, 110009, "invalid resumable upload offset")
+	ErrResumableInFlight    = gfsperrors.Register(module.UploadModularName, http.StatusConflict, 110010, "another resumable upload request for this object is in flight")
 )
 
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
@@ -266,6 +267,10 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to put object as the target object had already fully uploaded")
 		return ErrInvalidUploadRequest
 	}
+	if _, inflight := u.resumableInflight.Load(task.GetObjectInfo().Id.Uint64()); inflight {
+		log.CtxErrorw(ctx, "failed to pre upload object, another resumable request for the object is in flight")
+		return ErrResumableInFlight
+	}
 	if task.GetObjectInfo().GetPayloadSize() > 0 {
 		if err := u.validateResumableUploadOffset(task); err != nil {
 			log.CtxErrorw(ctx, "failed to pre upload object, invalid resume offset", "error", err)
@@ -288,6 +293,14 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		return err
 	}
 	defer u.resumeableUploadQueue.PopByKey(task.Key())
+	// Handle one resumable request per object at a time, so the persisted progress a request
+	// reads cannot be moved by another request appending to the same object.
+	objectID := task.GetObjectInfo().Id.Uint64()
+	if _, inflight := u.resumableInflight.LoadOrStore(objectID, struct{}{}); inflight {
+		log.CtxErrorw(ctx, "failed to handle resumable upload, another request for the object is in flight")
+		return ErrResumableInFlight
+	}
+	defer u.resumableInflight.Delete(objectID)
 	segmentSize := u.baseApp.PieceOp().MaxSegmentPieceSize(task.GetObjectInfo().GetPayloadSize(), task.GetStorageParams().GetMaxSegmentSize())
 	offset := task.GetResumeOffset()
 	isUpdate := task.GetObjectInfo().GetIsUpdating()

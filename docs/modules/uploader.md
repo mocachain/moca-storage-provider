@@ -72,6 +72,8 @@ For objects with a declared payload size, resume offsets must be at a segment bo
 
 The uploader checks upload state before validating the offset or notifying the manager. Requests for objects already uploaded or being replicated return the existing upload-state conflict error.
 
+Only one resumable request per object is handled at a time. A request that arrives while another request for the same object is still streaming is rejected with a conflict error (code 110010) before anything is persisted; retry it once the in-flight request has finished.
+
 ## GfSp Framework Uploader Code
 
 Uploader module code implementation: [Uploader](https://github.com/mocachain/moca-storage-provider/tree/master/modular/uploader)

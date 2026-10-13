@@ -1360,3 +1360,54 @@ func TestResumableUploadRetriesPersistedFinalRequest(t *testing.T) {
 		}
 	}
 }
+
+// TestResumableUploadRejectsOverlappingRequests holds one request open mid-stream and checks
+// that a second request for the same object is refused before the manager is notified or any
+// data is read or persisted, and is accepted again once the first request has finished.
+func TestResumableUploadRejectsOverlappingRequests(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	// The overlapping request enters and leaves the queue but is refused before anything is read.
+	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(2)
+	queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(2)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	reported := make(chan struct{}, 1)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, coretask.Task) error { reported <- struct{}{}; return nil }).Times(1)
+	op := piecestore.NewMockPieceOp(ctrl)
+	u.baseApp.SetPieceOp(op)
+	op.EXPECT().MaxSegmentPieceSize(uint64(16), uint64(8)).Return(int64(8)).Times(1)
+	op.EXPECT().SegmentPieceKey(uint64(1), uint32(0), int64(0)).Return("segment0")
+	pieces := piecestore.NewMockPieceStore(ctrl)
+	u.baseApp.SetPieceStore(pieces)
+	pieces.EXPECT().PutPiece(gomock.Any(), "segment0", []byte("abcdefgh")).Return(nil)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("abcdefgh")), uint64(8)).Return(nil)
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	first := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+	overlapping := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- u.HandleResumableUploadObjectTask(context.Background(), first, pr) }()
+	// The write returns once the handler has consumed the segment, so the first request is in flight.
+	_, err := pw.Write([]byte("abcdefgh"))
+	require.NoError(t, err)
+
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), overlapping), ErrResumableInFlight)
+	require.ErrorIs(t, u.HandleResumableUploadObjectTask(context.Background(), overlapping, strings.NewReader("")), ErrResumableInFlight)
+
+	require.NoError(t, pw.Close())
+	require.NoError(t, <-done)
+	<-reported
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), overlapping))
+}
