@@ -68,7 +68,7 @@ The corresponding `protobuf` definition is shown below:
 
 ### Resuming interrupted requests
 
-For objects with a declared payload size, resume offsets must match persisted progress and a segment boundary. A non-final request that ends partway through a segment returns a closed-stream error without storing that partial segment. Previously completed segments remain available; retry from the last complete segment boundary and resend the discarded bytes. A final request may store a short last segment, but completion requires the total stored size to match the declared payload for both agent and non-agent uploads.
+For objects with a declared payload size, resume offsets must be at a segment boundary at or before persisted progress. Replayed segments must match their stored checksums and are not written or counted again. This lets a final request be retried if its pieces were saved but recording completion failed. Once all declared bytes are stored, a completed request at the payload end with an empty body can also retry finalization. A non-final request that ends partway through a segment returns a closed-stream error without storing that partial segment. Previously completed segments remain available; retry from the last complete segment boundary and resend the discarded bytes. A final request may store a short last segment, but completion requires the total stored size to match the declared payload for both agent and non-agent uploads.
 
 The uploader checks upload state before validating the offset or notifying the manager. Requests for objects already uploaded or being replicated return the existing upload-state conflict error.
 

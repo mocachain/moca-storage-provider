@@ -323,6 +323,18 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		}()
 	}()
 
+	// Snapshot the committed pieces so a retry can verify and skip them.
+	var persistedChecksums [][]byte
+	var persistedSize uint64
+	if task.GetObjectInfo().GetPayloadSize() > 0 {
+		persistedChecksums, persistedSize, err = u.getPieceCheckSumListAndPieceSize(task, isUpdate)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+		} else if err != nil {
+			return err
+		}
+	}
+
 	for {
 		if err != nil {
 			return err
@@ -331,6 +343,25 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		readN, err = StreamReadAt(stream, data)
 		readSize += readN
 		data = data[0:readN]
+
+		if task.GetObjectInfo().GetPayloadSize() > 0 && (err == nil || err == io.EOF) && readN > 0 {
+			if uint64(readSize) > task.GetObjectInfo().GetPayloadSize()-offset {
+				err = ErrPayloadSize
+				return err
+			}
+			if uint64(segIdx)*uint64(segmentSize) < persistedSize {
+				if int(segIdx) >= len(persistedChecksums) || !bytes.Equal(hash.GenerateChecksum(data), persistedChecksums[segIdx]) {
+					err = ErrInvalidIntegrity
+					return err
+				}
+				// A matching replay must not append bytes or checksums twice.
+				if err == nil {
+					segIdx++
+					continue
+				}
+				readN = 0
+			}
+		}
 
 		if err == io.EOF {
 			// Keep resumable progress on a segment boundary until the final request.
@@ -422,7 +453,8 @@ func (u *UploadModular) validateResumableUploadOffset(task coretask.ResumableUpl
 	if payloadSize > maxSegmentSize {
 		segmentSize = maxSegmentSize
 	}
-	if offset >= payloadSize || offset%segmentSize != 0 {
+	if offset > payloadSize || (offset == payloadSize && !task.GetCompleted()) ||
+		(offset < payloadSize && offset%segmentSize != 0) {
 		return ErrInvalidResumeOffset
 	}
 
@@ -452,7 +484,7 @@ func (u *UploadModular) validateResumableUploadOffset(task coretask.ResumableUpl
 	if err != nil {
 		return ErrGfSpDBWithDetail("failed to get resumable upload progress, error: " + err.Error())
 	}
-	if offset != persistedSize {
+	if offset > persistedSize {
 		return ErrInvalidResumeOffset
 	}
 	return nil

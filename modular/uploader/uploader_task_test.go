@@ -642,12 +642,11 @@ func TestUploadModular_validateResumableUploadOffset(t *testing.T) {
 			wantErr:       ErrInvalidResumeOffset,
 		},
 		{
-			name:          "resume cannot overwrite persisted progress",
+			name:          "resume can replay persisted progress",
 			offset:        8,
 			payloadSize:   32,
 			segmentSize:   8,
 			persistedSize: 16,
-			wantErr:       ErrInvalidResumeOffset,
 		},
 		{
 			name:          "resume offset must be segment aligned",
@@ -814,7 +813,7 @@ func TestUploadModular_HandleResumableUploadObjectTaskRejectsPayloadSizeMismatch
 			// the stored pieces only total 5 bytes, but the object claims a 100-byte payload
 			m3.EXPECT().GetObjectIntegrity(gomock.Any(), gomock.Any()).Return(&corespdb.IntegrityMeta{
 				ObjectSize: 5,
-			}, nil).Times(1)
+			}, nil).Times(2)
 
 			m4 := gfspclient.NewMockGfSpClientAPI(ctrl)
 			u.baseApp.SetGfSpClient(m4)
@@ -1244,15 +1243,15 @@ func TestResumableUploadDiscardsPartialSegmentAndCanResume(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
 			u.resumeableUploadQueue = queue
-			queue.EXPECT().Push(gomock.Any()).Return(nil).Times(2)
-			queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(2)
+			queue.EXPECT().Push(gomock.Any()).Return(nil).Times(3)
+			queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(3)
 			client := gfspclient.NewMockGfSpClientAPI(ctrl)
 			u.baseApp.SetGfSpClient(client)
-			reported := make(chan struct{}, 2)
-			client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, coretask.Task) error { reported <- struct{}{}; return nil }).Times(2)
+			reported := make(chan struct{}, 3)
+			client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, coretask.Task) error { reported <- struct{}{}; return nil }).Times(3)
 			op := piecestore.NewMockPieceOp(ctrl)
 			u.baseApp.SetPieceOp(op)
-			op.EXPECT().MaxSegmentPieceSize(uint64(19), uint64(8)).Return(int64(8)).Times(2)
+			op.EXPECT().MaxSegmentPieceSize(uint64(19), uint64(8)).Return(int64(8)).Times(3)
 			op.EXPECT().SegmentPieceKey(uint64(1), uint32(0), int64(0)).Return("segment0")
 			op.EXPECT().SegmentPieceKey(uint64(1), uint32(1), int64(0)).Return("segment1")
 			op.EXPECT().SegmentPieceKey(uint64(1), uint32(2), int64(0)).Return("segment2")
@@ -1263,29 +1262,101 @@ func TestResumableUploadDiscardsPartialSegmentAndCanResume(t *testing.T) {
 			pieces.EXPECT().PutPiece(gomock.Any(), "segment2", []byte("qrs")).Return(nil)
 			db := corespdb.NewMockSPDB(ctrl)
 			u.baseApp.SetGfSpDB(db)
-			db.EXPECT().UpdateUploadProgress(gomock.Any()).Return(nil)
+			gomock.InOrder(
+				db.EXPECT().UpdateUploadProgress(gomock.Any()).Return(mockErr),
+				db.EXPECT().UpdateUploadProgress(gomock.Any()).Return(nil),
+			)
 			if updating {
+				db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound)
 				db.EXPECT().UpdateShadowPieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("abcdefgh")), int64(0), uint64(8)).Return(nil)
 				db.EXPECT().UpdateShadowPieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("ijklmnop")), int64(0), uint64(8)).Return(nil)
-				db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 8}, nil)
+				db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 8, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh"))}}, nil).Times(2)
 				db.EXPECT().UpdateShadowPieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("qrs")), int64(0), uint64(3)).Return(nil)
-				db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 19}, nil)
-				db.EXPECT().UpdateShadowIntegrityChecksum(gomock.Any()).Return(nil)
+				db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.ShadowIntegrityMeta{ObjectSize: 19, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh")), hash.GenerateChecksum([]byte("ijklmnop")), hash.GenerateChecksum([]byte("qrs"))}}, nil).Times(3)
+				db.EXPECT().UpdateShadowIntegrityChecksum(gomock.Any()).Return(nil).Times(2)
 			} else {
+				db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound)
 				db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("abcdefgh")), uint64(8)).Return(nil)
 				db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("ijklmnop")), uint64(8)).Return(nil)
-				db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 8}, nil)
+				db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 8, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh"))}}, nil).Times(2)
 				db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("qrs")), uint64(3)).Return(nil)
-				db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 19}, nil)
-				db.EXPECT().UpdateIntegrityChecksum(gomock.Any()).Return(nil)
+				db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 19, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh")), hash.GenerateChecksum([]byte("ijklmnop")), hash.GenerateChecksum([]byte("qrs"))}}, nil).Times(3)
+				db.EXPECT().UpdateIntegrityChecksum(gomock.Any()).Return(nil).Times(2)
 			}
 			task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), PayloadSize: 19, IsUpdating: updating}, StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}}
 			require.ErrorIs(t, u.HandleResumableUploadObjectTask(context.Background(), task, strings.NewReader("abcdefghijk")), ErrClosedStream)
 			<-reported
-			resumed := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: task.ObjectInfo, StorageParams: task.StorageParams, Offset: 8, Completed: true, IsAgentUpload: true}
+			resumed := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: task.ObjectInfo, StorageParams: task.StorageParams, Offset: 0, Completed: true, IsAgentUpload: true}
 			require.NoError(t, u.validateResumableUploadOffset(resumed))
-			require.NoError(t, u.HandleResumableUploadObjectTask(context.Background(), resumed, strings.NewReader("ijklmnopqrs")))
+			require.Error(t, u.HandleResumableUploadObjectTask(context.Background(), resumed, strings.NewReader("abcdefghijklmnopqrs")))
+			<-reported
+			// The final pieces exist, but writing DONE failed. Replay must not append them again.
+			retryTask := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: task.ObjectInfo, StorageParams: task.StorageParams, Offset: 0, Completed: true, IsAgentUpload: true}
+			require.NoError(t, u.HandleResumableUploadObjectTask(context.Background(), retryTask, strings.NewReader("abcdefghijklmnopqrs")))
 			<-reported
 		})
+	}
+}
+
+func TestResumableUploadRetriesPersistedFinalRequest(t *testing.T) {
+	for _, updating := range []bool{false, true} {
+		for _, tc := range []struct {
+			name, payload, resent string
+			offset                uint64
+			wantErr               error
+		}{
+			{"short final", "abcdefghijk", "ijk", 8, nil},
+			{"full final", "abcdefghijklmnop", "ijklmnop", 8, nil},
+			{"multiple segments", "abcdefghijklmnopqrs", "abcdefghijklmnopqrs", 0, nil},
+			{"completion only", "abcdefghijk", "", 11, nil},
+			{"different bytes", "abcdefghijk", "xyz", 8, ErrInvalidIntegrity},
+			{"truncated replay", "abcdefghijklmnop", "ijk", 8, ErrInvalidIntegrity},
+			{"extra bytes", "abcdefghijk", "ijkl", 8, ErrPayloadSize},
+		} {
+			t.Run(fmt.Sprintf("%s/update=%t", tc.name, updating), func(t *testing.T) {
+				u := setup(t)
+				ctrl := gomock.NewController(t)
+				queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+				u.resumeableUploadQueue = queue
+				queue.EXPECT().Push(gomock.Any()).Return(nil)
+				queue.EXPECT().PopByKey(gomock.Any()).Return(nil)
+				client := gfspclient.NewMockGfSpClientAPI(ctrl)
+				u.baseApp.SetGfSpClient(client)
+				reported := make(chan struct{}, 1)
+				client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, coretask.Task) error { reported <- struct{}{}; return nil })
+				op := piecestore.NewMockPieceOp(ctrl)
+				u.baseApp.SetPieceOp(op)
+				op.EXPECT().MaxSegmentPieceSize(uint64(len(tc.payload)), uint64(8)).Return(int64(8))
+				// Persisted pieces must never be written or appended again.
+				u.baseApp.SetPieceStore(piecestore.NewMockPieceStore(ctrl))
+				var checksums [][]byte
+				for start := 0; start < len(tc.payload); start += 8 {
+					end := start + 8
+					if end > len(tc.payload) {
+						end = len(tc.payload)
+					}
+					checksums = append(checksums, hash.GenerateChecksum([]byte(tc.payload[start:end])))
+				}
+				db := corespdb.NewMockSPDB(ctrl)
+				u.baseApp.SetGfSpDB(db)
+				if updating {
+					db.EXPECT().GetShadowObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.ShadowIntegrityMeta{ObjectSize: uint64(len(tc.payload)), PieceChecksumList: checksums}, nil).AnyTimes()
+				} else {
+					db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: uint64(len(tc.payload)), PieceChecksumList: checksums}, nil).AnyTimes()
+				}
+				if tc.wantErr == nil {
+					if updating {
+						db.EXPECT().UpdateShadowIntegrityChecksum(gomock.Any()).Return(nil)
+					} else {
+						db.EXPECT().UpdateIntegrityChecksum(gomock.Any()).Return(nil)
+					}
+					db.EXPECT().UpdateUploadProgress(gomock.Any()).Return(nil)
+				}
+				task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), PayloadSize: uint64(len(tc.payload)), IsUpdating: updating, Checksums: [][]byte{hash.GenerateIntegrityHash(checksums)}}, StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}, Offset: tc.offset, Completed: true}
+				assert.NoError(t, u.validateResumableUploadOffset(task))
+				require.ErrorIs(t, u.HandleResumableUploadObjectTask(context.Background(), task, strings.NewReader(tc.resent)), tc.wantErr)
+				<-reported
+			})
+		}
 	}
 }
