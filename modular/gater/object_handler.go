@@ -1668,7 +1668,11 @@ func (g *GateModular) delegateCreateFolderHandler(w http.ResponseWriter, r *http
 
 	startTime := time.Now()
 	// if object has been created, we can skip the creation process
-	objectInfo, _ = g.baseApp.Consensus().QueryObjectInfo(reqCtx.ctx, reqCtx.bucketName, reqCtx.objectName)
+	objectInfo, err = g.baseApp.Consensus().QueryObjectInfo(reqCtx.ctx, reqCtx.bucketName, reqCtx.objectName)
+	if err != nil && !strings.Contains(err.Error(), "No such object") {
+		log.CtxErrorw(reqCtx.Context(), "failed to query object before creating folder", "error", err)
+		return
+	}
 	if objectInfo != nil {
 		err = ErrInvalidQuery
 		return

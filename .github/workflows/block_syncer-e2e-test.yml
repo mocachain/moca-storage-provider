@@ -10,8 +10,12 @@ on:
   pull_request:
     branches:
 
+permissions:
+  contents: read
+
 jobs:
   e2e-test:
+    name: BlockSyncer E2E
     strategy:
       matrix:
         go-version: [ 1.23.x ]
