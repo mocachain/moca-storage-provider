@@ -1661,13 +1661,19 @@ func TestPreResumableUploadRetiresAbandonedRegistration(t *testing.T) {
 
 // fakeResumableManager registers and retires resumable tasks in a real task queue, which
 // refuses a key that is already registered just as the manager does.
-type fakeResumableManager struct{ queue taskqueue.TQueueOnStrategy }
+type fakeResumableManager struct {
+	queue       taskqueue.TQueueOnStrategy
+	failReports bool // reports do not reach the manager
+}
 
 func (m *fakeResumableManager) create(_ context.Context, task coretask.ResumableUploadObjectTask) error {
 	return m.queue.Push(task)
 }
 
 func (m *fakeResumableManager) report(_ context.Context, task coretask.Task) error {
+	if m.failReports {
+		return errors.New("manager unavailable")
+	}
 	m.queue.PopByKey(task.Key())
 	return nil
 }
@@ -1705,6 +1711,44 @@ func TestPreResumableUploadRetriesAbandonedRegistrationAtSameOffset(t *testing.T
 	require.NoError(t, u.PreResumableUploadObject(context.Background(), retry))
 	require.True(t, manager.queue.Has(retry.Key()), "the retry must be registered with the manager")
 	require.Equal(t, 1, manager.queue.Len())
+}
+
+// TestPreResumableUploadKeepsAbandonedRegistrationWhenDropFails: when retiring an abandoned
+// registration fails, the request stops before registering its own task and the abandoned one
+// stays on record, so a later retry at the same offset retires it and goes through.
+func TestPreResumableUploadKeepsAbandonedRegistrationWhenDropFails(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 20 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	manager := &fakeResumableManager{queue: gfsptqueue.NewGfSpTQueue("manager-resumable", 10)}
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(manager.create).AnyTimes()
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(manager.report).AnyTimes()
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	abandoned := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+	retry := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), abandoned)) // its handler never runs
+	time.Sleep(2 * resumableReserveTTL)
+	manager.failReports = true
+	require.Error(t, u.PreResumableUploadObject(context.Background(), retry))
+	require.True(t, manager.queue.Has(abandoned.Key()), "the abandoned registration is still in the manager")
+	manager.failReports = false
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), retry))
+	require.True(t, manager.queue.Has(retry.Key()))
+	require.Equal(t, 1, manager.queue.Len(), "the abandoned registration must have been retired")
 }
 
 // TestHandleResumableUploadReleasesObjectWhenQueueIsFull: a handler that cannot enter the
@@ -1762,13 +1806,17 @@ func TestPreResumableUploadBoundsManagerRegistration(t *testing.T) {
 		}
 		return nil
 	}).Times(2)
-	// The drop goes to the same stuck manager: each attempt is cut short too, so it gives up.
-	reported := make(chan coretask.ResumableUploadObjectTask, 3)
+	// The drop goes to the same stuck manager: each attempt is cut short too, so it gives up;
+	// once the manager answers again, the next request retires the task it could not drop.
+	reported := make(chan coretask.ResumableUploadObjectTask, 4)
 	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, task coretask.Task) error {
 		reported <- task.(coretask.ResumableUploadObjectTask)
-		<-ctx.Done()
-		return ctx.Err()
-	}).Times(3)
+		if stuck {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	}).Times(4)
 	db := corespdb.NewMockSPDB(ctrl)
 	u.baseApp.SetGfSpDB(db)
 	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
@@ -1777,7 +1825,11 @@ func TestPreResumableUploadBoundsManagerRegistration(t *testing.T) {
 	task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Completed: true}
 
 	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), task), context.DeadlineExceeded)
-	requireDropReport(t, awaitReport(t, reported))
+	require.Len(t, reported, 3)
 	stuck = false
 	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+	require.Len(t, reported, 4, "the next request must retire the task the stuck manager could not drop")
+	for len(reported) > 0 {
+		requireDropReport(t, <-reported)
+	}
 }

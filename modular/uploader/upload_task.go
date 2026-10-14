@@ -108,7 +108,7 @@ func (u *UploadModular) reserveResumableObject(objectID uint64, task coretask.Re
 
 // reportResumableTask tells the manager the task is done, with whatever error is set on it.
 // A positive attemptTimeout bounds each attempt.
-func (u *UploadModular) reportResumableTask(ctx context.Context, task coretask.ResumableUploadObjectTask, attemptTimeout time.Duration) {
+func (u *UploadModular) reportResumableTask(ctx context.Context, task coretask.ResumableUploadObjectTask, attemptTimeout time.Duration) error {
 	metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_before_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
 	if err := retry.Do(func() error {
 		reportCtx := context.Background()
@@ -125,19 +125,21 @@ func (u *UploadModular) reportResumableTask(ctx context.Context, task coretask.R
 			log.CtxErrorw(ctx, "failed to report upload object task", "error", err, "attempt", n, "max_attempts", rtyAttNum)
 		})); err != nil {
 		log.CtxErrorw(ctx, "failed to report upload object task", "error", err)
+		return err
 	}
 	metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_after_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
+	return nil
 }
 
 // dropResumableTask has the manager drop a registered task that will not run. It is reported
 // as an unfinished step with no error: an error would mark the object's upload as failed while
 // another request is uploading it, and a completed step would start replication. The caller
 // still holds the object, so the drop cannot reach a task registered later at the same offset.
-func (u *UploadModular) dropResumableTask(ctx context.Context, task coretask.ResumableUploadObjectTask) {
+func (u *UploadModular) dropResumableTask(ctx context.Context, task coretask.ResumableUploadObjectTask) error {
 	t, ok := task.(*gfsptask.GfSpResumableUploadObjectTask)
 	if !ok {
 		log.CtxErrorw(ctx, "failed to drop resumable upload task, unexpected task type")
-		return
+		return ErrDanglingUploadTask
 	}
 	drop := *t // a copy: the request that owns the task may still be reading it
 	drop.Completed = false
@@ -146,7 +148,13 @@ func (u *UploadModular) dropResumableTask(ctx context.Context, task coretask.Res
 		inner.Err = nil
 		drop.Task = &inner
 	}
-	u.reportResumableTask(ctx, &drop, resumableManagerTimeout)
+	return u.reportResumableTask(ctx, &drop, resumableManagerTimeout)
+}
+
+// keepForRetire replaces the caller's reservation with a stale one for task, whose registration
+// could not be dropped, so the next request for the object retires it before registering.
+func (u *UploadModular) keepForRetire(objectID uint64, held resumableReservation, task coretask.ResumableUploadObjectTask) {
+	u.resumableInflight.CompareAndSwap(objectID, held, resumableReservation{task: task, state: resumablePending})
 }
 
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
@@ -387,7 +395,10 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 	}
 	if abandoned != nil {
 		// Retire the abandoned registration first, or a retry at its offset is refused as repeated.
-		u.dropResumableTask(ctx, abandoned)
+		if err := u.dropResumableTask(ctx, abandoned); err != nil {
+			u.keepForRetire(objectID, reservation, abandoned)
+			return err
+		}
 	}
 	registerCtx, cancel := context.WithTimeout(ctx, resumableManagerTimeout)
 	err := u.baseApp.GfSpClient().CreateResumableUploadObject(registerCtx, task)
@@ -395,9 +406,10 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 	cancel()
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to begin upload object task", "error", err)
-		if cutShort {
-			// The manager may have registered the task before the call was cut short.
-			u.dropResumableTask(ctx, task)
+		// The manager may have registered the task before the call was cut short.
+		if cutShort && u.dropResumableTask(ctx, task) != nil {
+			u.keepForRetire(objectID, reservation, task)
+			return err
 		}
 		u.resumableInflight.CompareAndDelete(objectID, reservation)
 		return err
@@ -422,11 +434,16 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 	}
 	defer u.resumableInflight.CompareAndDelete(objectID, reservation)
 	if abandoned != nil {
-		u.dropResumableTask(ctx, abandoned)
+		if err := u.dropResumableTask(ctx, abandoned); err != nil {
+			u.keepForRetire(objectID, reservation, abandoned)
+			return err
+		}
 	}
 	if err := u.resumeableUploadQueue.Push(task); err != nil {
 		log.CtxErrorw(ctx, "failed to push upload queue", "error", err)
-		u.dropResumableTask(ctx, task)
+		if u.dropResumableTask(ctx, task) != nil {
+			u.keepForRetire(objectID, reservation, task)
+		}
 		return err
 	}
 	defer u.resumeableUploadQueue.PopByKey(task.Key())
