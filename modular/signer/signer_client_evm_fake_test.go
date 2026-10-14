@@ -55,6 +55,9 @@ const (
 	fakeEvmBlock
 	// fakeEvmAdmitThenBlock admits, then waits until the request context is done.
 	fakeEvmAdmitThenBlock
+	// fakeEvmAnswerHashOnly answers with the hash but admits nothing, like the
+	// experimental EVM mempool paths that return nil without queuing.
+	fakeEvmAnswerHashOnly
 )
 
 type fakeEvmAction struct {
@@ -91,6 +94,7 @@ type fakeEvmNode struct {
 	sends          []fakeEvmSend
 	receiptStatus  map[ethcmn.Hash]uint64
 	hideReceipts   bool
+	disableCache   bool
 	script         func(send int, tx *ethtypes.Transaction) fakeEvmAction
 	unknownMethods []string
 }
@@ -198,6 +202,10 @@ func (node *fakeEvmNode) serveSend(w http.ResponseWriter, r *http.Request, req f
 		record("blocked")
 		<-r.Context().Done()
 		return
+	case fakeEvmAnswerHashOnly:
+		record("hash only")
+		node.writeResult(w, req.ID, tx.Hash())
+		return
 	}
 
 	admitErr := node.admit(tx)
@@ -229,7 +237,7 @@ func (node *fakeEvmNode) serveSend(w http.ResponseWriter, r *http.Request, req f
 func (node *fakeEvmNode) admit(tx *ethtypes.Transaction) error {
 	node.mu.Lock()
 	defer node.mu.Unlock()
-	if node.cache[tx.Hash()] {
+	if !node.disableCache && node.cache[tx.Hash()] {
 		return errors.New(fakeEvmCacheError)
 	}
 	if tx.Nonce() < node.accountNonce {
@@ -253,6 +261,12 @@ func (node *fakeEvmNode) commitExternal() {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.accountNonce++
+}
+
+func (node *fakeEvmNode) setHideReceipts(hide bool) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	node.hideReceipts = hide
 }
 
 func (node *fakeEvmNode) drop(w http.ResponseWriter) {

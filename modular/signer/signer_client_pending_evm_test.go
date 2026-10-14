@@ -191,9 +191,10 @@ func TestRecordPendingEvmTxClearsOnlyExactHash(t *testing.T) {
 	operation := ethcmn.HexToHash("0x01")
 	pendingHash := ethcmn.HexToHash("0x899")
 
-	signerClient.recordPendingEvmTx(SignSeal, operation, 23, pendingHash)
+	signerClient.recordPendingEvmTx(SignSeal, operation, 23, pendingHash, []byte{0x01})
 	pending, ok := signerClient.pendingEvmTxs[SignSeal]
-	if !ok || pending.operation != operation || pending.nonce != 23 || pending.hash != pendingHash {
+	if !ok || pending.operation != operation || pending.nonce != 23 || pending.hash != pendingHash ||
+		string(pending.raw) != "\x01" || pending.ambiguous {
 		t.Fatalf("unexpected pending transaction: %+v", pending)
 	}
 
@@ -219,7 +220,8 @@ func TestPendingEvmTxStateIsSafeAcrossSigningAccounts(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
 				hash := ethcmn.BigToHash(big.NewInt(int64(i + 1)))
-				signerClient.recordPendingEvmTx(scope, hash, uint64(i), hash)
+				signerClient.recordPendingEvmTx(scope, hash, uint64(i), hash, nil)
+				signerClient.markPendingEvmTxAmbiguous(scope, hash)
 				signerClient.clearPendingEvmTx(scope, hash)
 			}
 		}()
@@ -248,6 +250,28 @@ func TestCompleteSPExitFingerprintIgnoresUnsubmittedStorageProvider(t *testing.T
 	}
 }
 
+func evmCallPositions(body ast.Node) map[string]token.Pos {
+	calls := map[string]token.Pos{}
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		var name string
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			name = fun.Name
+		case *ast.SelectorExpr:
+			name = fun.Sel.Name
+		}
+		if _, seen := calls[name]; name != "" && !seen {
+			calls[name] = call.Pos()
+		}
+		return true
+	})
+	return calls
+}
+
 func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, "signer_client.go", nil, 0)
@@ -255,44 +279,96 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 		t.Fatalf("parse signer client: %v", err)
 	}
 
-	var missing []string
+	var (
+		missing []string
+		methods int
+		helper  *ast.FuncDecl
+	)
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Recv == nil || !strings.HasSuffix(function.Name.Name, "Evm") {
+		if !ok || function.Recv == nil {
 			continue
 		}
+		if function.Name.Name == "submitEvmTx" {
+			helper = function
+		}
+		if !strings.HasSuffix(function.Name.Name, "Evm") {
+			continue
+		}
+		methods++
 
-		calls := map[string]token.Pos{}
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			switch function := call.Fun.(type) {
-			case *ast.Ident:
-				calls[function.Name] = call.Pos()
-			case *ast.SelectorExpr:
-				selector := function
-				calls[selector.Sel.Name] = call.Pos()
-			}
-			return true
-		})
-
+		calls := evmCallPositions(function.Body)
 		fingerprintPos := calls["evmOperationFingerprint"]
 		if function.Name.Name == "CompleteSPExitEvm" {
 			fingerprintPos = calls["completeSPExitEvmFingerprint"]
 		}
 		resolvePos := calls["resolvePendingEvmTx"]
-		recordPos := calls["recordPendingEvmTx"]
-		clearPos := calls["clearPendingEvmTx"]
-		if fingerprintPos == token.NoPos || resolvePos == token.NoPos || recordPos == token.NoPos || clearPos == token.NoPos ||
-			fingerprintPos >= resolvePos || resolvePos >= recordPos || recordPos >= clearPos {
+		submitPos := calls["submitEvmTx"]
+
+		noSendPos := token.NoPos
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			assign, ok := node.(*ast.AssignStmt)
+			if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+				return true
+			}
+			selector, ok := assign.Lhs[0].(*ast.SelectorExpr)
+			value, isIdent := assign.Rhs[0].(*ast.Ident)
+			if ok && selector.Sel.Name == "NoSend" && isIdent && value.Name == "true" {
+				noSendPos = assign.Pos()
+			}
+			return true
+		})
+		sessionCallPos := token.NoPos
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if receiver, ok := selector.X.(*ast.Ident); ok && receiver.Name == "session" && sessionCallPos == token.NoPos {
+					sessionCallPos = call.Pos()
+				}
+			}
+			return true
+		})
+
+		if fingerprintPos == token.NoPos || resolvePos == token.NoPos || noSendPos == token.NoPos ||
+			sessionCallPos == token.NoPos || submitPos == token.NoPos ||
+			fingerprintPos >= resolvePos || resolvePos >= noSendPos || noSendPos >= sessionCallPos || sessionCallPos >= submitPos ||
+			calls["recordPendingEvmTx"] != token.NoPos || calls["SendTransaction"] != token.NoPos {
 			missing = append(missing, function.Name.Name)
 		}
 	}
 
 	sort.Strings(missing)
 	if len(missing) != 0 {
-		t.Fatalf("EVM submission methods missing ordered fingerprint/recovery/record/clear calls: %s", strings.Join(missing, ", "))
+		t.Fatalf("EVM submission methods missing ordered fingerprint/recovery/NoSend/sign/submitEvmTx: %s", strings.Join(missing, ", "))
+	}
+	if methods != 19 {
+		t.Fatalf("expected 19 EVM submission methods, found %d", methods)
+	}
+
+	if helper == nil {
+		t.Fatal("submitEvmTx not found")
+	}
+	var ctxCheckPos token.Pos
+	ast.Inspect(helper.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Err" {
+			if receiver, ok := selector.X.(*ast.Ident); ok && receiver.Name == "ctx" && ctxCheckPos == token.NoPos {
+				ctxCheckPos = call.Pos()
+			}
+		}
+		return true
+	})
+	helperCalls := evmCallPositions(helper.Body)
+	recordPos, sendPos := helperCalls["recordPendingEvmTx"], helperCalls["sendEvmTxFn"]
+	if ctxCheckPos == token.NoPos || recordPos == token.NoPos || sendPos == token.NoPos ||
+		ctxCheckPos >= recordPos || recordPos >= sendPos {
+		t.Fatalf("submitEvmTx must check ctx, then record pending, then send: ctx=%v record=%v send=%v",
+			ctxCheckPos, recordPos, sendPos)
 	}
 }
