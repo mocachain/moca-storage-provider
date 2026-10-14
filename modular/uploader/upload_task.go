@@ -46,6 +46,46 @@ var (
 	ErrResumableInFlight    = gfsperrors.Register(module.UploadModularName, http.StatusConflict, 110010, "another resumable upload request for this object is in flight")
 )
 
+// resumableReserveTTL bounds how long a reservation made by PreResumableUploadObject may
+// wait for its HandleResumableUploadObjectTask before another request can take the object.
+var resumableReserveTTL = 30 * time.Second
+
+// resumableReservation marks an object as taken by one resumable request, from its
+// pre-check until its handler returns.
+type resumableReservation struct {
+	key     string
+	at      int64 // unix nanoseconds
+	adopted bool  // the handler is running
+}
+
+func (r resumableReservation) stale(now time.Time) bool {
+	return !r.adopted && now.Sub(time.Unix(0, r.at)) > resumableReserveTTL
+}
+
+// reserveResumableObject takes the object for the request with key, unless a live
+// reservation by another request holds it. With adopted set, the request's own
+// pre-check reservation is taken over.
+func (u *UploadModular) reserveResumableObject(objectID uint64, key string, adopted bool) (resumableReservation, bool) {
+	now := time.Now()
+	mine := resumableReservation{key: key, at: now.UnixNano(), adopted: adopted}
+	for {
+		actual, loaded := u.resumableInflight.LoadOrStore(objectID, mine)
+		if !loaded {
+			return mine, true
+		}
+		cur := actual.(resumableReservation)
+		switch {
+		case adopted && cur.key == key && !cur.adopted:
+		case cur.stale(now):
+		default:
+			return resumableReservation{}, false
+		}
+		if u.resumableInflight.CompareAndSwap(objectID, cur, mine) {
+			return mine, true
+		}
+	}
+}
+
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
 	return gfsperrors.Register(module.UploadModularName, http.StatusInternalServerError, 115101, detail)
 }
@@ -267,18 +307,23 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to put object as the target object had already fully uploaded")
 		return ErrInvalidUploadRequest
 	}
-	if _, inflight := u.resumableInflight.Load(task.GetObjectInfo().Id.Uint64()); inflight {
-		log.CtxErrorw(ctx, "failed to pre upload object, another resumable request for the object is in flight")
-		return ErrResumableInFlight
-	}
 	if task.GetObjectInfo().GetPayloadSize() > 0 {
 		if err := u.validateResumableUploadOffset(task); err != nil {
 			log.CtxErrorw(ctx, "failed to pre upload object, invalid resume offset", "error", err)
 			return err
 		}
 	}
+	// Reserve the object before the manager learns of the task, so a request that loses to
+	// another one leaves no task behind in the manager.
+	objectID := task.GetObjectInfo().Id.Uint64()
+	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), false)
+	if !ok {
+		log.CtxErrorw(ctx, "failed to pre upload object, another resumable request for the object is in flight")
+		return ErrResumableInFlight
+	}
 	if err := u.baseApp.GfSpClient().CreateResumableUploadObject(ctx, task); err != nil {
 		log.CtxErrorw(ctx, "failed to begin upload object task")
+		u.resumableInflight.CompareAndDelete(objectID, reservation)
 		return err
 	}
 
@@ -296,11 +341,12 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 	// Handle one resumable request per object at a time, so the persisted progress a request
 	// reads cannot be moved by another request appending to the same object.
 	objectID := task.GetObjectInfo().Id.Uint64()
-	if _, inflight := u.resumableInflight.LoadOrStore(objectID, struct{}{}); inflight {
+	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), true)
+	if !ok {
 		log.CtxErrorw(ctx, "failed to handle resumable upload, another request for the object is in flight")
 		return ErrResumableInFlight
 	}
-	defer u.resumableInflight.Delete(objectID)
+	defer u.resumableInflight.CompareAndDelete(objectID, reservation)
 	segmentSize := u.baseApp.PieceOp().MaxSegmentPieceSize(task.GetObjectInfo().GetPayloadSize(), task.GetStorageParams().GetMaxSegmentSize())
 	offset := task.GetResumeOffset()
 	isUpdate := task.GetObjectInfo().GetIsUpdating()
