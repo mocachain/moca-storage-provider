@@ -305,7 +305,7 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 		resolvePos := calls["resolvePendingEvmTx"]
 		submitPos := calls["submitEvmTx"]
 
-		noSendPos := token.NoPos
+		noSendPos, noSendOpts := token.NoPos, ""
 		ast.Inspect(function.Body, func(node ast.Node) bool {
 			assign, ok := node.(*ast.AssignStmt)
 			if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
@@ -315,14 +315,30 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 			value, isIdent := assign.Rhs[0].(*ast.Ident)
 			if ok && selector.Sel.Name == "NoSend" && isIdent && value.Name == "true" {
 				noSendPos = assign.Pos()
+				if opts, ok := selector.X.(*ast.Ident); ok {
+					noSendOpts = opts.Name
+				}
 			}
 			return true
 		})
-		sessionCallPos := token.NoPos
+		// Sessions copy the TransactOpts by value, so NoSend must be set before
+		// the session is created, not merely before the session method call.
+		sessionCreatePos, sessionCallPos, sessionOpts := token.NoPos, token.NoPos, ""
 		ast.Inspect(function.Body, func(node ast.Node) bool {
 			call, ok := node.(*ast.CallExpr)
 			if !ok {
 				return true
+			}
+			if ident, ok := call.Fun.(*ast.Ident); ok && strings.HasPrefix(ident.Name, "Create") &&
+				strings.HasSuffix(ident.Name, "Session") && sessionCreatePos == token.NoPos {
+				sessionCreatePos = call.Pos()
+				if len(call.Args) > 1 {
+					if star, ok := call.Args[1].(*ast.StarExpr); ok {
+						if opts, ok := star.X.(*ast.Ident); ok {
+							sessionOpts = opts.Name
+						}
+					}
+				}
 			}
 			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
 				if receiver, ok := selector.X.(*ast.Ident); ok && receiver.Name == "session" && sessionCallPos == token.NoPos {
@@ -333,8 +349,10 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 		})
 
 		if fingerprintPos == token.NoPos || resolvePos == token.NoPos || noSendPos == token.NoPos ||
-			sessionCallPos == token.NoPos || submitPos == token.NoPos ||
-			fingerprintPos >= resolvePos || resolvePos >= noSendPos || noSendPos >= sessionCallPos || sessionCallPos >= submitPos ||
+			sessionCreatePos == token.NoPos || sessionCallPos == token.NoPos || submitPos == token.NoPos ||
+			noSendOpts == "" || noSendOpts != sessionOpts ||
+			fingerprintPos >= resolvePos || resolvePos >= noSendPos || noSendPos >= sessionCreatePos ||
+			sessionCreatePos >= sessionCallPos || sessionCallPos >= submitPos ||
 			calls["recordPendingEvmTx"] != token.NoPos || calls["SendTransaction"] != token.NoPos {
 			missing = append(missing, function.Name.Name)
 		}
@@ -342,7 +360,7 @@ func TestAllEvmSubmissionMethodsTrackPendingTransactions(t *testing.T) {
 
 	sort.Strings(missing)
 	if len(missing) != 0 {
-		t.Fatalf("EVM submission methods missing ordered fingerprint/recovery/NoSend/sign/submitEvmTx: %s", strings.Join(missing, ", "))
+		t.Fatalf("EVM submission methods missing ordered fingerprint/recovery/NoSend/session/sign/submitEvmTx: %s", strings.Join(missing, ", "))
 	}
 	if methods != 19 {
 		t.Fatalf("expected 19 EVM submission methods, found %d", methods)

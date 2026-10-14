@@ -8,9 +8,14 @@ import (
 	"testing"
 	"time"
 
+	sdkmath "cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
 
 // MOCA-1284: the first deposit is committed but its response is lost, the
@@ -414,57 +419,107 @@ func TestEvmSubmitCancelledBeforeSendRecordsNothing(t *testing.T) {
 	}
 }
 
-// Scenarios 5b and 5c: cancelled while sending, with and without the server
-// having admitted the transaction. A later call with a fresh context re-sends
-// the same bytes and is released once the receipt exists.
+// Scenario 5b: cancelled while the server is handling the admitted send. A
+// later call with a fresh context re-sends the same bytes and is released once
+// the receipt exists.
 func TestEvmSubmitCancelledDuringSendRecoversWithSameBytes(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		admitted bool
-	}{
-		{"5b server admitted", true},
-		{"5c server never admitted", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			node, signClient := newScenario(t)
-			node.hideReceipts = tc.admitted
-			ctx, cancel := context.WithCancel(scenarioCtx(t))
-			kind := fakeEvmBlock
-			if tc.admitted {
-				kind = fakeEvmAdmitThenBlock
-			}
-			node.script = scriptFirst(fakeEvmAction{kind: kind})
-			go func() {
-				for {
-					if _, sends, _ := node.snapshot(); len(sends) > 0 {
-						cancel()
-						return
-					}
-					time.Sleep(time.Millisecond)
-				}
-			}()
+	node, signClient := newScenario(t)
+	node.hideReceipts = true
+	ctx, cancel := context.WithCancel(scenarioCtx(t))
+	node.script = func(send int, _ *ethtypes.Transaction) fakeEvmAction {
+		if send == 1 {
+			cancel()
+			return fakeEvmAction{kind: fakeEvmAdmitThenBlock}
+		}
+		return fakeEvmAction{kind: fakeEvmDefault}
+	}
 
-			txHash, err := signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
-			first := assertSignedOnce(t, node)
-			if err == nil || txHash != first.hash.String() {
-				t.Fatalf("expected original hash with an error, got hash=%q err=%v", txHash, err)
-			}
-			assertAmbiguousPending(t, signClient, first)
+	txHash, err := signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
+	first := assertSignedOnce(t, node)
+	if err == nil || txHash != first.hash.String() {
+		t.Fatalf("expected original hash with an error, got hash=%q err=%v", txHash, err)
+	}
+	if _, sends, _ := node.snapshot(); len(sends) != 1 {
+		t.Fatalf("expected exactly one send before cancellation; %s", node.describe())
+	}
+	assertAmbiguousPending(t, signClient, first)
 
-			fresh := scenarioCtx(t)
-			if txHash, err = signClient.DepositEvm(fresh, SignOperator, fakeDepositMsg(1000)); err == nil || txHash != first.hash.String() {
-				t.Fatalf("expected blocked call to re-send and report unconfirmed, got hash=%q err=%v", txHash, err)
-			}
-			node.setHideReceipts(false)
-			if txHash, err = signClient.DepositEvm(fresh, SignOperator, fakeDepositMsg(1000)); err != nil || txHash != first.hash.String() {
-				t.Fatalf("expected original hash after receipt, got hash=%q err=%v; %s", txHash, err, node.describe())
-			}
-			assertSignedOnce(t, node)
-			accepted, _, _ := node.snapshot()
-			if len(accepted) != 1 || accepted[0].Hash() != first.hash {
-				t.Fatalf("expected exactly the original transaction on chain; %s", node.describe())
-			}
-		})
+	fresh := scenarioCtx(t)
+	if txHash, err = signClient.DepositEvm(fresh, SignOperator, fakeDepositMsg(1000)); err == nil || txHash != first.hash.String() {
+		t.Fatalf("expected blocked call to re-send and report unconfirmed, got hash=%q err=%v", txHash, err)
+	}
+	node.setHideReceipts(false)
+	if txHash, err = signClient.DepositEvm(fresh, SignOperator, fakeDepositMsg(1000)); err != nil || txHash != first.hash.String() {
+		t.Fatalf("expected original hash after receipt, got hash=%q err=%v; %s", txHash, err, node.describe())
+	}
+	assertSignedOnce(t, node)
+	accepted, _, _ := node.snapshot()
+	if len(accepted) != 1 || accepted[0].Hash() != first.hash {
+		t.Fatalf("expected exactly the original transaction on chain; %s", node.describe())
+	}
+}
+
+// Scenario 5c: the context is cancelled after the pending entry is recorded
+// but before the first request leaves the client, so the server sees nothing.
+// The entry must still let a later call deliver the same bytes instead of
+// blocking the scope for good.
+func TestEvmSubmitCancelledBeforeDeliveryRecoversWithSameBytes(t *testing.T) {
+	node, signClient := newScenario(t)
+	ctx, cancel := context.WithCancel(scenarioCtx(t))
+	originalSend := sendEvmTxFn
+	t.Cleanup(func() { sendEvmTxFn = originalSend })
+	var seamCalls int
+	sendEvmTxFn = func(sendCtx context.Context, evmClient *ethclient.Client, tx *ethtypes.Transaction) error {
+		seamCalls++
+		if seamCalls == 1 {
+			cancel()
+		}
+		return originalSend(sendCtx, evmClient, tx)
+	}
+
+	txHash, err := signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
+	if _, sends, _ := node.snapshot(); len(sends) != 0 {
+		t.Fatalf("first call reached the server; %s", node.describe())
+	}
+	pending, ok := pendingFor(t, signClient)
+	if !ok || !pending.ambiguous || pending.nonce != scenarioNonce || len(pending.raw) == 0 {
+		t.Fatalf("expected ambiguous pending entry with raw bytes, got %+v ok=%t", pending, ok)
+	}
+	pendingTx := new(ethtypes.Transaction)
+	if err := pendingTx.UnmarshalBinary(pending.raw); err != nil || pendingTx.Hash() != pending.hash || pendingTx.Nonce() != scenarioNonce {
+		t.Fatalf("pending raw does not match its hash/nonce: err=%v", err)
+	}
+	if err == nil || txHash != pending.hash.String() {
+		t.Fatalf("expected pending hash with an error, got hash=%q err=%v", txHash, err)
+	}
+
+	fresh := scenarioCtx(t)
+	var released bool
+	for call := 0; call < 2 && !released; call++ {
+		txHash, err = signClient.DepositEvm(fresh, SignOperator, fakeDepositMsg(1000))
+		if txHash != pending.hash.String() {
+			t.Fatalf("later call returned a different hash %q; %s", txHash, node.describe())
+		}
+		released = err == nil
+	}
+	if !released {
+		t.Fatalf("scope still blocked after the receipt became available: %v; %s", err, node.describe())
+	}
+	_, sends, _ := node.snapshot()
+	if len(sends) == 0 {
+		t.Fatalf("later calls never delivered the pending bytes; %s", node.describe())
+	}
+	for _, send := range sends {
+		if string(send.raw) != string(pending.raw) {
+			t.Fatalf("later call sent different bytes; %s", node.describe())
+		}
+	}
+	accepted, _, _ := node.snapshot()
+	if len(accepted) != 1 || accepted[0].Hash() != pending.hash {
+		t.Fatalf("expected exactly the original transaction on chain; %s", node.describe())
+	}
+	if _, ok := pendingFor(t, signClient); ok {
+		t.Fatal("pending entry kept after the receipt was found")
 	}
 }
 
@@ -517,31 +572,89 @@ func TestEvmSubmitKnownLimitPendingLostOnRestart(t *testing.T) {
 }
 
 // Scenario 8 (all 19 methods use the helper) is enforced by
-// TestAllEvmSubmissionMethodsTrackPendingTransactions; this drives a method
-// without a retry loop through the same ambiguous path.
+// TestAllEvmSubmissionMethodsTrackPendingTransactions; this drives both
+// methods without a retry loop through the same ambiguous path.
 func TestEvmSubmitNoLoopMethodKeepsAmbiguousPending(t *testing.T) {
-	node := newFakeEvmNode(t, scenarioNonce)
-	installFakeEvmSeams(t, node)
-	signClient := newFakeEvmSignClient(t, node, scenarioNonce)
-	node.script = scriptFirst(fakeEvmAction{kind: fakeEvmAdmitThenDrop})
-	node.hideReceipts = true
+	for _, tc := range []struct {
+		name  string
+		scope SignType
+		call  func(context.Context, *MocaChainSignClient) (string, error)
+	}{
+		{"DiscontinueBucketEvm", SignGc, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DiscontinueBucketEvm(ctx, SignGc, &storagetypes.MsgDiscontinueBucket{BucketName: "bucket", Reason: "test"})
+		}},
+		{"UpdateSPPriceEvm", SignOperator, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.UpdateSPPriceEvm(ctx, SignOperator, &sptypes.MsgUpdateSpStoragePrice{
+				ReadPrice: sdkmath.LegacyNewDec(1), FreeReadQuota: 1, StorePrice: sdkmath.LegacyNewDec(1),
+			})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			node.script = scriptFirst(fakeEvmAction{kind: fakeEvmAdmitThenDrop})
+			node.hideReceipts = true
 
-	txHash, err := signClient.DiscontinueBucketEvm(scenarioCtx(t), SignGc, &storagetypes.MsgDiscontinueBucket{
-		BucketName: "bucket", Reason: "test",
-	})
-	_, sends, _ := node.snapshot()
-	if err == nil || len(sends) == 0 || txHash != sends[0].hash.String() {
-		t.Fatalf("expected original hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
+			txHash, err := tc.call(scenarioCtx(t), signClient)
+			_, sends, _ := node.snapshot()
+			if err == nil || len(sends) == 0 || txHash != sends[0].hash.String() {
+				t.Fatalf("expected original hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
+			}
+			signClient.pendingEvmTxMu.Lock()
+			pending, ok := signClient.pendingEvmTxs[tc.scope]
+			signClient.pendingEvmTxMu.Unlock()
+			if !ok || !pending.ambiguous || pending.hash != sends[0].hash || string(pending.raw) != string(sends[0].raw) {
+				t.Fatalf("expected ambiguous pending entry for the sent bytes, got hash=%s ambiguous=%t ok=%t",
+					pending.hash.Hex(), pending.ambiguous, ok)
+			}
+			for _, send := range sends {
+				if string(send.raw) != string(sends[0].raw) {
+					t.Fatalf("no-loop method re-signed; %s", node.describe())
+				}
+			}
+		})
 	}
-	signClient.pendingEvmTxMu.Lock()
-	pending, ok := signClient.pendingEvmTxs[SignGc]
-	signClient.pendingEvmTxMu.Unlock()
-	if !ok || !pending.ambiguous || pending.hash != sends[0].hash {
-		t.Fatalf("expected ambiguous pending entry, got %+v ok=%t", pending, ok)
-	}
-	for _, send := range sends {
-		if send.hash != sends[0].hash {
-			t.Fatalf("no-loop method re-signed; %s", node.describe())
-		}
+}
+
+// A local signing failure (here abigen's gas estimation hitting a node that
+// does not serve eth_getCode) must surface as the returned reason instead of
+// being lost behind the retry loop.
+func TestEvmLocalSignErrorIsReturned(t *testing.T) {
+	deposit := sdk.NewCoin("amoca", sdkmath.NewInt(1))
+	for _, tc := range []struct {
+		name    string
+		gasType GasInfoType
+		call    func(context.Context, *MocaChainSignClient) (string, error)
+	}{
+		{"SealObjectEvm", Seal, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.SealObjectEvm(ctx, SignSeal, &storagetypes.MsgSealObject{BucketName: "bucket", ObjectName: "object"})
+		}},
+		{"RejectUnSealObjectEvm", RejectSeal, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.RejectUnSealObjectEvm(ctx, SignSeal, &storagetypes.MsgRejectSealObject{BucketName: "bucket", ObjectName: "object"})
+		}},
+		{"CreateGlobalVirtualGroupEvm", CreateGlobalVirtualGroup, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CreateGlobalVirtualGroupEvm(ctx, SignOperator, &virtualgrouptypes.MsgCreateGlobalVirtualGroup{FamilyId: 1, Deposit: deposit})
+		}},
+		{"CompleteMigrateBucketEvm", CompleteMigrateBucket, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CompleteMigrateBucketEvm(ctx, SignOperator, &storagetypes.MsgCompleteMigrateBucket{BucketName: "bucket"})
+		}},
+		{"SwapOutEvm", SwapOut, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.SwapOutEvm(ctx, SignOperator, &virtualgrouptypes.MsgSwapOut{GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"CompleteSwapOutEvm", CompleteSwapOut, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CompleteSwapOutEvm(ctx, SignOperator, &virtualgrouptypes.MsgCompleteSwapOut{GlobalVirtualGroupFamilyId: 1})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			signClient.gasInfo[tc.gasType] = GasInfo{GasLimit: 0}
+
+			txHash, err := tc.call(scenarioCtx(t), signClient)
+			if txHash != "" || err == nil || !strings.Contains(err.Error(), "eth_getCode") {
+				t.Fatalf("expected the local signing error to be returned, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 0 {
+				t.Fatalf("a transaction was sent; %s", node.describe())
+			}
+		})
 	}
 }

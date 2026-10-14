@@ -434,6 +434,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -583,6 +584,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 		)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -851,6 +853,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1004,6 +1007,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1309,6 +1313,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1456,6 +1461,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
