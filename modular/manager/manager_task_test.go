@@ -210,6 +210,28 @@ func TestManageModular_HandleDoneResumableUploadObjectTask(t *testing.T) {
 	assert.Equal(t, nil, err)
 }
 
+// TestManageModular_HandleDoneResumableUploadObjectTaskDrop: the uploader drops a registered
+// task it will not run by reporting it unfinished and without an error; that must only remove
+// the task, leaving the object's upload state and replication alone.
+func TestManageModular_HandleDoneResumableUploadObjectTaskDrop(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	m.replicateQueue = gfsptqueue.NewGfSpTQueueWithLimit("test", 2)
+	m.resumableUploadQueue = gfsptqueue.NewGfSpTQueue("test", 2)
+	m.virtualGroupManager = vgmgr.NewMockVirtualGroupManager(ctrl) // no GVG may be picked
+	m.baseApp.SetGfSpDB(spdb.NewMockSPDB(ctrl))                    // no upload progress may be written
+
+	uploadTask := &gfsptask.GfSpResumableUploadObjectTask{
+		ObjectInfo:    &types0.ObjectInfo{Id: sdkmath.NewUint(1), BucketName: "test", ObjectName: "test"},
+		Task:          &gfsptask.GfSpTask{TaskPriority: 1},
+		StorageParams: &types0.Params{},
+	}
+	assert.NoError(t, m.resumableUploadQueue.Push(uploadTask))
+	assert.NoError(t, m.HandleDoneResumableUploadObjectTask(context.TODO(), uploadTask))
+	assert.False(t, m.resumableUploadQueue.Has(uploadTask.Key()))
+	assert.Equal(t, 0, m.replicateQueue.Len())
+}
+
 func TestManageModular_HandleReplicatePieceTask(t *testing.T) {
 	m := setup(t)
 	ctrl := gomock.NewController(t)

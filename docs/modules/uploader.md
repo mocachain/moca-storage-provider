@@ -72,7 +72,7 @@ For objects with a declared payload size, resume offsets must be at a segment bo
 
 The uploader checks upload state before validating the offset or notifying the manager. Requests for objects already uploaded or being replicated return the existing upload-state conflict error.
 
-An object is reserved for one resumable request from its pre-check until its handler returns. A request for the same object that arrives in between is rejected with a conflict error (code 110010) before the manager is notified or anything is persisted; retry it once the in-flight request has finished. Once registered with the manager, a reservation whose handler never starts expires after 30 seconds; a handler that then finds the object taken by another request reports its task so the manager drops it.
+An object is reserved for one resumable request from its pre-check until its handler returns. A request for the same object that arrives in between is rejected with a conflict error (code 110010) before the manager is notified or anything is persisted; retry it once the in-flight request has finished. Registering the task with the manager is limited to 30 seconds; a registration that times out releases the object and has the manager drop the task. Once registered, a reservation whose handler never starts expires after 30 seconds; a handler that then finds the object taken by another request has the manager drop its task, without marking the upload failed.
 
 ## GfSp Framework Uploader Code
 
