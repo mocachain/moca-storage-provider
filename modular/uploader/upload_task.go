@@ -46,28 +46,37 @@ var (
 	ErrResumableInFlight    = gfsperrors.Register(module.UploadModularName, http.StatusConflict, 110010, "another resumable upload request for this object is in flight")
 )
 
-// resumableReserveTTL bounds how long a reservation made by PreResumableUploadObject may
-// wait for its HandleResumableUploadObjectTask before another request can take the object.
+// resumableReserveTTL bounds how long a registered reservation may wait for its
+// HandleResumableUploadObjectTask before another request can take the object.
 var resumableReserveTTL = 30 * time.Second
 
+type resumableState uint8
+
+const (
+	resumableRegistering resumableState = iota // pre-check in progress, the manager is being told
+	resumablePending                           // registered with the manager, waiting for the handler
+	resumableAdopted                           // the handler is running
+)
+
 // resumableReservation marks an object as taken by one resumable request, from its
-// pre-check until its handler returns.
+// pre-check until its handler returns. Only a pending reservation can go stale: the
+// manager call of a registering one has no deadline, and an adopted one is live.
 type resumableReservation struct {
-	key     string
-	at      int64 // unix nanoseconds
-	adopted bool  // the handler is running
+	key   string
+	state resumableState
+	at    int64 // unix nanoseconds the pending state began
 }
 
 func (r resumableReservation) stale(now time.Time) bool {
-	return !r.adopted && now.Sub(time.Unix(0, r.at)) > resumableReserveTTL
+	return r.state == resumablePending && now.Sub(time.Unix(0, r.at)) > resumableReserveTTL
 }
 
-// reserveResumableObject takes the object for the request with key, unless a live
-// reservation by another request holds it. With adopted set, the request's own
-// pre-check reservation is taken over.
-func (u *UploadModular) reserveResumableObject(objectID uint64, key string, adopted bool) (resumableReservation, bool) {
+// reserveResumableObject takes the object for the request with key in the given state,
+// unless a live reservation by another request holds it. Adopting takes over the
+// request's own pending reservation.
+func (u *UploadModular) reserveResumableObject(objectID uint64, key string, state resumableState) (resumableReservation, bool) {
 	now := time.Now()
-	mine := resumableReservation{key: key, at: now.UnixNano(), adopted: adopted}
+	mine := resumableReservation{key: key, state: state, at: now.UnixNano()}
 	for {
 		actual, loaded := u.resumableInflight.LoadOrStore(objectID, mine)
 		if !loaded {
@@ -75,7 +84,7 @@ func (u *UploadModular) reserveResumableObject(objectID uint64, key string, adop
 		}
 		cur := actual.(resumableReservation)
 		switch {
-		case adopted && cur.key == key && !cur.adopted:
+		case state == resumableAdopted && cur.key == key && cur.state == resumablePending:
 		case cur.stale(now):
 		default:
 			return resumableReservation{}, false
@@ -84,6 +93,22 @@ func (u *UploadModular) reserveResumableObject(objectID uint64, key string, adop
 			return mine, true
 		}
 	}
+}
+
+// reportResumableTask tells the manager the task is done, with whatever error is set on it.
+func (u *UploadModular) reportResumableTask(ctx context.Context, task coretask.ResumableUploadObjectTask) {
+	metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_before_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
+	if err := retry.Do(func() error {
+		return u.baseApp.GfSpClient().ReportTask(context.Background(), task)
+	}, rtyAttem,
+		rtyDelay,
+		rtyErr,
+		retry.OnRetry(func(n uint, err error) {
+			log.CtxErrorw(ctx, "failed to report upload object task", "error", err, "attempt", n, "max_attempts", rtyAttNum)
+		})); err != nil {
+		log.CtxErrorw(ctx, "failed to report upload object task", "error", err)
+	}
+	metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_after_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
 }
 
 func ErrPieceStoreWithDetail(detail string) *gfsperrors.GfSpError {
@@ -314,9 +339,10 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		}
 	}
 	// Reserve the object before the manager learns of the task, so a request that loses to
-	// another one leaves no task behind in the manager.
+	// another one leaves no task behind in the manager. The reservation cannot go stale while
+	// the manager call is in progress; its deadline starts once the task is registered.
 	objectID := task.GetObjectInfo().Id.Uint64()
-	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), false)
+	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), resumableRegistering)
 	if !ok {
 		log.CtxErrorw(ctx, "failed to pre upload object, another resumable request for the object is in flight")
 		return ErrResumableInFlight
@@ -325,6 +351,13 @@ func (u *UploadModular) PreResumableUploadObject(ctx context.Context, task coret
 		log.CtxErrorw(ctx, "failed to begin upload object task")
 		u.resumableInflight.CompareAndDelete(objectID, reservation)
 		return err
+	}
+	pending := resumableReservation{key: reservation.key, state: resumablePending, at: time.Now().UnixNano()}
+	if !u.resumableInflight.CompareAndSwap(objectID, reservation, pending) {
+		log.CtxErrorw(ctx, "failed to pre upload object, lost the object while registering the task")
+		task.SetError(ErrResumableInFlight)
+		go u.reportResumableTask(ctx, task)
+		return ErrResumableInFlight
 	}
 
 	return nil
@@ -341,9 +374,13 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 	// Handle one resumable request per object at a time, so the persisted progress a request
 	// reads cannot be moved by another request appending to the same object.
 	objectID := task.GetObjectInfo().Id.Uint64()
-	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), true)
+	reservation, ok := u.reserveResumableObject(objectID, string(task.Key()), resumableAdopted)
 	if !ok {
+		// The pre-check registered this task with the manager; drop it there, or a retry at
+		// this offset is refused as repeated until the manager times the task out.
 		log.CtxErrorw(ctx, "failed to handle resumable upload, another request for the object is in flight")
+		task.SetError(ErrResumableInFlight)
+		go u.reportResumableTask(ctx, task)
 		return ErrResumableInFlight
 	}
 	defer u.resumableInflight.CompareAndDelete(objectID, reservation)
@@ -366,20 +403,7 @@ func (u *UploadModular) HandleResumableUploadObjectTask(ctx context.Context, tas
 		}
 		log.CtxDebugw(ctx, "finished to read data from stream", "info", task.Info(),
 			"read_size", readSize, "error", err)
-		go func() {
-			metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_before_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
-			if err = retry.Do(func() error {
-				return u.baseApp.GfSpClient().ReportTask(context.Background(), task)
-			}, rtyAttem,
-				rtyDelay,
-				rtyErr,
-				retry.OnRetry(func(n uint, err error) {
-					log.CtxErrorw(ctx, "failed to report upload object task", "error", err, "attempt", n, "max_attempts", rtyAttNum)
-				})); err != nil {
-				log.CtxErrorw(ctx, "failed to report upload object task", "error", err)
-			}
-			metrics.PerfPutObjectTime.WithLabelValues("uploader_put_object_after_report_manager_end").Observe(time.Since(time.Unix(task.GetCreateTime(), 0)).Seconds())
-		}()
+		go u.reportResumableTask(ctx, task)
 	}()
 
 	// Snapshot the committed pieces so a retry can verify and skip them.
