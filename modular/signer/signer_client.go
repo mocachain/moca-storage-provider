@@ -40,6 +40,7 @@ var (
 	waitForEvmTxFn       = client.WaitForEvmTx
 	getCosmosNonceFn     = (*client.MocaClient).GetNonce
 	broadcastCosmosTxFn  = (*client.MocaClient).BroadcastTx
+	getNonceOnChainFn    = waitNextBlockAndGetNonce
 	transactionReceiptFn = func(ctx context.Context, evmClient *ethclient.Client,
 		txHash ethcmn.Hash,
 	) (*types.Receipt, error) {
@@ -2443,7 +2444,11 @@ func isNonceError(err error) bool {
 }
 
 func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClient *client.MocaClient) (uint64, error) {
-	err := client.signer.baseApp.Consensus().WaitForNextBlock(ctx)
+	return getNonceOnChainFn(ctx, client, gnfdClient)
+}
+
+func waitNextBlockAndGetNonce(ctx context.Context, signClient *MocaChainSignClient, gnfdClient *client.MocaClient) (uint64, error) {
+	err := signClient.signer.baseApp.Consensus().WaitForNextBlock(ctx)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to wait next block", "error", err)
 		return 0, err
