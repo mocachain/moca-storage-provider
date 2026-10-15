@@ -244,6 +244,67 @@ func TestEvmSubmitNonceConsumedElsewhereKeepsScopeBlocked(t *testing.T) {
 	}
 }
 
+// The deposit was admitted at nonce N, so the account nonce is N+1, but no
+// receipt can be read yet. "Nonce consumed" must not release the scope here:
+// clearing pending lets the next call re-sign the same deposit at N+1, and
+// MsgDeposit has no on-chain dedup, so it would be paid twice. Combining this
+// branch with a nonce-consumed shortcut (as in PR #188) must keep this passing.
+func TestEvmSubmitConsumedNonceWithoutReceiptKeepsScopeBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		nilReceipt bool
+	}{
+		{"receipt not found", false},
+		{"nil receipt without error", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			node.script = scriptFirst(fakeEvmAction{kind: fakeEvmAdmitThenDrop})
+			node.hideReceipts = true
+			if tc.nilReceipt {
+				transactionReceiptFn = func(context.Context, *ethclient.Client, ethcmn.Hash) (*ethtypes.Receipt, error) {
+					return nil, nil
+				}
+			}
+			ctx := scenarioCtx(t)
+
+			txHash, err := signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
+			first := assertSignedOnce(t, node)
+			if err == nil || txHash != first.hash.String() {
+				t.Fatalf("expected original hash with an unconfirmed error, got hash=%q err=%v", txHash, err)
+			}
+			accepted, before, _ := node.snapshot()
+			if len(accepted) != 1 {
+				t.Fatalf("first deposit must be admitted exactly once; %s", node.describe())
+			}
+			assertAmbiguousPending(t, signClient, first)
+			for name, nonceFn := range map[string]func() (uint64, error){
+				"evm":    func() (uint64, error) { return getNonceOnChainFn(ctx, signClient, nil) },
+				"cosmos": func() (uint64, error) { return getCosmosNonceFn(nil, ctx) },
+			} {
+				if nonce, err := nonceFn(); err != nil || nonce != scenarioNonce+1 {
+					t.Fatalf("%s nonce = %d err=%v, want %d (consumed)", name, nonce, err, scenarioNonce+1)
+				}
+			}
+
+			txHash, err = signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
+			if err == nil || txHash != first.hash.String() || !strings.Contains(err.Error(), "submitted but unconfirmed") {
+				t.Fatalf("repeat deposit must stay blocked on %s, got hash=%q err=%v; %s",
+					first.hash.Hex(), txHash, err, node.describe())
+			}
+			assertSignedOnce(t, node)
+			accepted, after, _ := node.snapshot()
+			if len(accepted) != 1 {
+				t.Fatalf("deposit was admitted twice; %s", node.describe())
+			}
+			if len(after) != len(before)+1 {
+				t.Fatalf("blocked call must re-broadcast the stored bytes once; %s", node.describe())
+			}
+			assertAmbiguousPending(t, signClient, first)
+		})
+	}
+}
+
 // Scenario 3: receipt wait timed out; the next call is blocked and
 // re-broadcasts, and is released once the receipt shows up.
 func TestEvmSubmitReceiptTimeoutBlocksUntilReceipt(t *testing.T) {

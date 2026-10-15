@@ -333,12 +333,16 @@ func (node *fakeEvmNode) describe() string {
 }
 
 // installFakeEvmSeams routes receipt lookups and nonce refreshes to the fake.
-// Receipt waiting returns at once instead of polling blocks.
+// Receipt waiting returns at once instead of polling blocks. The Cosmos nonce
+// query is routed too: otherwise it dials 127.0.0.1:1 and fails, so any code
+// that branches on "nonce already consumed" is never exercised here.
 func installFakeEvmSeams(t *testing.T, node *fakeEvmNode) {
 	t.Helper()
-	originalWait, originalReceipt, originalNonce := waitForEvmTxFn, transactionReceiptFn, getNonceOnChainFn
+	originalWait, originalReceipt, originalNonce, originalCosmosNonce :=
+		waitForEvmTxFn, transactionReceiptFn, getNonceOnChainFn, getCosmosNonceFn
 	t.Cleanup(func() {
-		waitForEvmTxFn, transactionReceiptFn, getNonceOnChainFn = originalWait, originalReceipt, originalNonce
+		waitForEvmTxFn, transactionReceiptFn, getNonceOnChainFn, getCosmosNonceFn =
+			originalWait, originalReceipt, originalNonce, originalCosmosNonce
 	})
 	waitForEvmTxFn = func(ctx context.Context, _ *ethclient.Client, _ *client.MocaClient, hash ethcmn.Hash) (*ethtypes.Receipt, error) {
 		if err := ctx.Err(); err != nil {
@@ -364,6 +368,10 @@ func installFakeEvmSeams(t *testing.T, node *fakeEvmNode) {
 		return receipt, nil
 	}
 	getNonceOnChainFn = func(context.Context, *MocaChainSignClient, *client.MocaClient) (uint64, error) {
+		_, _, nonce := node.snapshot()
+		return nonce, nil
+	}
+	getCosmosNonceFn = func(*client.MocaClient, context.Context) (uint64, error) {
 		_, _, nonce := node.snapshot()
 		return nonce, nil
 	}
