@@ -201,6 +201,13 @@ func (m *ManageModular) HandleCreateResumableUploadObjectTask(ctx context.Contex
 		log.CtxErrorw(ctx, "failed to push resumable upload object task to queue", "task_info", task.Info(), "error", err)
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		// The uploader gave up on this call and drops the task, possibly before it was pushed;
+		// do not keep a registration nobody will retire.
+		m.resumableUploadQueue.PopByKey(task.Key())
+		log.CtxErrorw(ctx, "resumable upload object task registered after the caller gave up", "task_info", task.Info(), "error", err)
+		return err
+	}
 	if err := m.baseApp.GfSpDB().InsertUploadProgress(task.GetObjectInfo().Id.Uint64(), task.GetIsAgentUpload()); err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return nil

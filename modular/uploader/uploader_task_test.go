@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
+	"github.com/mocachain/moca-storage-provider/base/gfsptqueue"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
@@ -852,8 +854,12 @@ func TestUploadModular_HandleResumableUploadObjectTaskFailure1(t *testing.T) {
 	u.resumeableUploadQueue = m
 	m.EXPECT().Push(gomock.Any()).Return(mockErr).Times(1)
 	m.EXPECT().PopByKey(gomock.Any()).Return(&gfsptask.GfSpResumableUploadObjectTask{}).AnyTimes()
+	m1 := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(m1)
+	m1.EXPECT().ReportTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	err := u.HandleResumableUploadObjectTask(context.TODO(), &gfsptask.GfSpResumableUploadObjectTask{}, nil)
+	task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}}
+	err := u.HandleResumableUploadObjectTask(context.TODO(), task, nil)
 	assert.Equal(t, mockErr, err)
 }
 
@@ -1358,5 +1364,472 @@ func TestResumableUploadRetriesPersistedFinalRequest(t *testing.T) {
 				<-reported
 			})
 		}
+	}
+}
+
+// awaitReport returns the next task reported to the manager, failing instead of blocking
+// forever if no report arrives.
+func awaitReport(t *testing.T, reported <-chan coretask.ResumableUploadObjectTask) coretask.ResumableUploadObjectTask {
+	t.Helper()
+	select {
+	case task := <-reported:
+		return task
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "no task report reached the manager")
+		return nil
+	}
+}
+
+// requireDropReport checks a report that only has the manager drop the task: no error, which
+// would mark the object's upload failed, and not completed, which would start replication.
+func requireDropReport(t *testing.T, task coretask.ResumableUploadObjectTask) {
+	t.Helper()
+	require.NoError(t, task.Error(), "a conflict must not be reported as an upload failure")
+	require.False(t, task.GetCompleted(), "a dropped task must not be reported as completed")
+}
+
+// waitForStreamRead writes data to the handler's stream and returns once the handler has
+// consumed it, failing instead of blocking forever if the handler returns without reading.
+func waitForStreamRead(t *testing.T, pw *io.PipeWriter, data []byte, done <-chan error) {
+	t.Helper()
+	written := make(chan error, 1)
+	go func() { _, err := pw.Write(data); written <- err }()
+	select {
+	case err := <-written:
+		require.NoError(t, err)
+	case err := <-done:
+		require.FailNow(t, "handler returned before reading the stream", "%v", err)
+	}
+}
+
+// TestResumableUploadRejectsOverlappingRequests holds one request open mid-stream and checks
+// that a second request for the same object is refused before the manager is notified or any
+// data is read or persisted, and is accepted again once the first request has finished.
+func TestResumableUploadRejectsOverlappingRequests(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	// The overlapping request is refused before it enters the queue or anything is read.
+	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(1)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	// Only the first request reports: the refused handler has no registration of its own to retire.
+	reported := make(chan coretask.ResumableUploadObjectTask, 2)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.Task) error {
+		reported <- task.(coretask.ResumableUploadObjectTask)
+		return nil
+	}).Times(1)
+	op := piecestore.NewMockPieceOp(ctrl)
+	u.baseApp.SetPieceOp(op)
+	op.EXPECT().MaxSegmentPieceSize(uint64(16), uint64(8)).Return(int64(8)).Times(1)
+	op.EXPECT().SegmentPieceKey(uint64(1), uint32(0), int64(0)).Return("segment0")
+	pieces := piecestore.NewMockPieceStore(ctrl)
+	u.baseApp.SetPieceStore(pieces)
+	pieces.EXPECT().PutPiece(gomock.Any(), "segment0", []byte("abcdefgh")).Return(nil)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("abcdefgh")), uint64(8)).Return(nil)
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	first := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+	overlapping := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- u.HandleResumableUploadObjectTask(context.Background(), first, pr) }()
+	// The write returns once the handler has consumed the segment, so the first request is in flight.
+	waitForStreamRead(t, pw, []byte("abcdefgh"), done)
+
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), overlapping), ErrResumableInFlight)
+	require.ErrorIs(t, u.HandleResumableUploadObjectTask(context.Background(), overlapping, strings.NewReader("")), ErrResumableInFlight)
+
+	require.NoError(t, pw.Close())
+	require.NoError(t, <-done)
+	require.NoError(t, awaitReport(t, reported).Error())
+	require.Empty(t, reported, "a refused handler must not drop the holder's manager entry")
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), overlapping))
+}
+
+// TestPreResumableUploadReservesObjectBeforeNotifyingManager runs the interleaving where two
+// requests at different offsets pass the pre-check before either handler starts: the second
+// pre-check must lose without the manager ever learning of its task, and the first request's
+// handler must take over the reservation its own pre-check made.
+func TestPreResumableUploadReservesObjectBeforeNotifyingManager(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(1)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	var created []uint64
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.ResumableUploadObjectTask) error {
+		created = append(created, task.GetResumeOffset())
+		return nil
+	}).AnyTimes()
+	reported := make(chan struct{}, 1)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, coretask.Task) error { reported <- struct{}{}; return nil }).Times(1)
+	op := piecestore.NewMockPieceOp(ctrl)
+	u.baseApp.SetPieceOp(op)
+	op.EXPECT().MaxSegmentPieceSize(uint64(16), uint64(8)).Return(int64(8)).Times(1)
+	op.EXPECT().SegmentPieceKey(uint64(1), uint32(1), int64(0)).Return("segment1")
+	pieces := piecestore.NewMockPieceStore(ctrl)
+	u.baseApp.SetPieceStore(pieces)
+	pieces.EXPECT().PutPiece(gomock.Any(), "segment1", []byte("ijklmnop")).Return(nil)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	// Segment 0 is already persisted, so offset 8 continues and offset 0 is a replay: both valid.
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 8, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh"))}}, nil).AnyTimes()
+	db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("ijklmnop")), uint64(8)).Return(nil)
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	first := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 8}
+	second := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 0}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), first))
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), second), ErrResumableInFlight)
+	require.Equal(t, []uint64{8}, created, "the losing pre-check must not notify the manager")
+
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- u.HandleResumableUploadObjectTask(context.Background(), first, pr) }()
+	waitForStreamRead(t, pw, []byte("ijklmnop"), done)
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), second), ErrResumableInFlight)
+	require.NoError(t, pw.Close())
+	require.NoError(t, <-done)
+	<-reported
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), second))
+	require.Equal(t, []uint64{8, 0}, created)
+}
+
+// TestResumableUploadReservationExpires lets a pre-check reservation whose handler never
+// started go stale, so the object is not locked for good.
+func TestResumableUploadReservationExpires(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 200 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	reported := make(chan coretask.ResumableUploadObjectTask, 1)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.Task) error {
+		reported <- task.(coretask.ResumableUploadObjectTask)
+		return nil
+	}).Times(1)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), task), ErrResumableInFlight)
+	time.Sleep(2 * resumableReserveTTL)
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+	requireDropReport(t, awaitReport(t, reported)) // the stale registration is retired
+}
+
+// TestPreResumableUploadKeepsObjectWhileRegistering: a pre-check whose manager call outlasts
+// the reservation TTL keeps the object, so a request at another offset cannot register a
+// second task meanwhile, and the handler still adopts the reservation afterwards.
+func TestPreResumableUploadKeepsObjectWhileRegistering(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 20 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
+	queue.EXPECT().PopByKey(gomock.Any()).Return(nil).Times(1)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	registering, release := make(chan struct{}), make(chan struct{})
+	var created []uint64
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.ResumableUploadObjectTask) error {
+		if task.GetResumeOffset() == 8 {
+			close(registering)
+			<-release // the first registration outlasts the TTL
+		}
+		created = append(created, task.GetResumeOffset())
+		return nil
+	}).AnyTimes()
+	reported := make(chan error, 1)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.Task) error { reported <- task.Error(); return nil }).Times(1)
+	op := piecestore.NewMockPieceOp(ctrl)
+	u.baseApp.SetPieceOp(op)
+	op.EXPECT().MaxSegmentPieceSize(uint64(16), uint64(8)).Return(int64(8)).Times(1)
+	op.EXPECT().SegmentPieceKey(uint64(1), uint32(1), int64(0)).Return("segment1")
+	pieces := piecestore.NewMockPieceStore(ctrl)
+	u.baseApp.SetPieceStore(pieces)
+	pieces.EXPECT().PutPiece(gomock.Any(), "segment1", []byte("ijklmnop")).Return(nil)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 8, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh"))}}, nil).AnyTimes()
+	db.EXPECT().UpdatePieceChecksum(uint64(1), int32(-1), hash.GenerateChecksum([]byte("ijklmnop")), uint64(8)).Return(nil)
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	first := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 8}
+	second := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 0}
+
+	preDone := make(chan error, 1)
+	go func() { preDone <- u.PreResumableUploadObject(context.Background(), first) }()
+	<-registering
+	time.Sleep(3 * resumableReserveTTL) // the first registration is still in progress, well past the TTL
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), second), ErrResumableInFlight)
+	require.Empty(t, created, "nothing may register while the first registration is in progress")
+	close(release)
+	require.NoError(t, <-preDone)
+	require.Equal(t, []uint64{8}, created)
+
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- u.HandleResumableUploadObjectTask(context.Background(), first, pr) }()
+	waitForStreamRead(t, pw, []byte("ijklmnop"), done)
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), second), ErrResumableInFlight)
+	require.NoError(t, pw.Close())
+	require.NoError(t, <-done)
+	require.NoError(t, <-reported)
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), second))
+	require.Equal(t, []uint64{8, 0}, created)
+}
+
+// TestPreResumableUploadRetiresAbandonedRegistration: a request that takes over the stale
+// reservation of a registered task whose handler never started retires that task in the
+// manager before registering its own, and the late handler is refused without touching it.
+func TestPreResumableUploadRetiresAbandonedRegistration(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 20 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	var calls []string
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.ResumableUploadObjectTask) error {
+		calls = append(calls, fmt.Sprintf("create %d", task.GetResumeOffset()))
+		return nil
+	}).Times(2)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.Task) error {
+		requireDropReport(t, task.(coretask.ResumableUploadObjectTask))
+		calls = append(calls, fmt.Sprintf("drop %d", task.(coretask.ResumableUploadObjectTask).GetResumeOffset()))
+		return nil
+	}).Times(1)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(&corespdb.IntegrityMeta{ObjectSize: 8, PieceChecksumList: [][]byte{hash.GenerateChecksum([]byte("abcdefgh"))}}, nil).AnyTimes()
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	first := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 8, Completed: true}
+	second := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Offset: 0}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), first)) // registered, handler never comes in time
+	time.Sleep(2 * resumableReserveTTL)
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), second)) // takes the stale reservation
+	require.Equal(t, []string{"create 8", "drop 8", "create 0"}, calls, "the abandoned task must be retired before the new one registers")
+	require.True(t, first.GetCompleted(), "retiring must not change the abandoned request's own task")
+	require.ErrorIs(t, u.HandleResumableUploadObjectTask(context.Background(), first, strings.NewReader("")), ErrResumableInFlight)
+	require.Len(t, calls, 3, "the late handler must not touch the manager")
+}
+
+// fakeResumableManager registers and retires resumable tasks in a real task queue, which
+// refuses a key that is already registered just as the manager does.
+type fakeResumableManager struct {
+	queue       taskqueue.TQueueOnStrategy
+	failReports bool // reports do not reach the manager
+}
+
+func (m *fakeResumableManager) create(_ context.Context, task coretask.ResumableUploadObjectTask) error {
+	return m.queue.Push(task)
+}
+
+func (m *fakeResumableManager) report(_ context.Context, task coretask.Task) error {
+	if m.failReports {
+		return errors.New("manager unavailable")
+	}
+	m.queue.PopByKey(task.Key())
+	return nil
+}
+
+// TestPreResumableUploadRetriesAbandonedRegistrationAtSameOffset: a retry at the offset of a
+// registered task whose handler never started is accepted by a manager that refuses repeated
+// keys, once the abandoned reservation has gone stale.
+func TestPreResumableUploadRetriesAbandonedRegistrationAtSameOffset(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 20 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	manager := &fakeResumableManager{queue: gfsptqueue.NewGfSpTQueue("manager-resumable", 10)}
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(manager.create).AnyTimes()
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(manager.report).AnyTimes()
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	abandoned := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+	retry := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), abandoned)) // its handler never runs
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), retry), ErrResumableInFlight)
+	time.Sleep(2 * resumableReserveTTL)
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), retry))
+	require.True(t, manager.queue.Has(retry.Key()), "the retry must be registered with the manager")
+	require.Equal(t, 1, manager.queue.Len())
+}
+
+// TestPreResumableUploadKeepsAbandonedRegistrationWhenDropFails: when retiring an abandoned
+// registration fails, the request stops before registering its own task and the abandoned one
+// stays on record, so a later retry at the same offset retires it and goes through.
+func TestPreResumableUploadKeepsAbandonedRegistrationWhenDropFails(t *testing.T) {
+	previous := resumableReserveTTL
+	resumableReserveTTL = 20 * time.Millisecond
+	t.Cleanup(func() { resumableReserveTTL = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	manager := &fakeResumableManager{queue: gfsptqueue.NewGfSpTQueue("manager-resumable", 10)}
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(manager.create).AnyTimes()
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(manager.report).AnyTimes()
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	abandoned := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+	retry := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), abandoned)) // its handler never runs
+	time.Sleep(2 * resumableReserveTTL)
+	manager.failReports = true
+	require.Error(t, u.PreResumableUploadObject(context.Background(), retry))
+	require.True(t, manager.queue.Has(abandoned.Key()), "the abandoned registration is still in the manager")
+	manager.failReports = false
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), retry))
+	require.True(t, manager.queue.Has(retry.Key()))
+	require.Equal(t, 1, manager.queue.Len(), "the abandoned registration must have been retired")
+}
+
+// TestHandleResumableUploadReleasesObjectWhenQueueIsFull: a handler that cannot enter the
+// uploader queue releases the object at once and has the manager drop its registered task,
+// so a retry is not locked out by the reservation or refused as a repeated task.
+func TestHandleResumableUploadReleasesObjectWhenQueueIsFull(t *testing.T) {
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue exceeded")).Times(1)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	reported := make(chan coretask.ResumableUploadObjectTask, 1)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, task coretask.Task) error {
+		reported <- task.(coretask.ResumableUploadObjectTask)
+		return nil
+	}).Times(1)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Completed: true}
+
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+	require.Error(t, u.HandleResumableUploadObjectTask(context.Background(), task, strings.NewReader("")))
+	requireDropReport(t, awaitReport(t, reported))
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+}
+
+// TestPreResumableUploadBoundsManagerRegistration: a manager call that never answers is cut
+// short, the object is released, and the task the manager may have registered is dropped,
+// with every drop attempt bounded as well.
+func TestPreResumableUploadBoundsManagerRegistration(t *testing.T) {
+	previous := resumableManagerTimeout
+	resumableManagerTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { resumableManagerTimeout = previous })
+	u := setup(t)
+	ctrl := gomock.NewController(t)
+	queue := taskqueue.NewMockTQueueOnStrategy(ctrl)
+	u.resumeableUploadQueue = queue
+	queue.EXPECT().Has(gomock.Any()).Return(false).AnyTimes()
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	u.baseApp.SetGfSpClient(client)
+	client.EXPECT().GetUploadObjectState(gomock.Any(), uint64(1)).Return(int32(servicetypes.TaskState_TASK_STATE_INIT_UNSPECIFIED), "", nil).AnyTimes()
+	stuck := true
+	client.EXPECT().CreateResumableUploadObject(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ coretask.ResumableUploadObjectTask) error {
+		if stuck {
+			<-ctx.Done() // the manager never answers
+			return ctx.Err()
+		}
+		return nil
+	}).Times(2)
+	// The drop goes to the same stuck manager: each attempt is cut short too, so it gives up;
+	// once the manager answers again, the next request retires the task it could not drop.
+	reported := make(chan coretask.ResumableUploadObjectTask, 4)
+	client.EXPECT().ReportTask(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, task coretask.Task) error {
+		reported <- task.(coretask.ResumableUploadObjectTask)
+		if stuck {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	}).Times(4)
+	db := corespdb.NewMockSPDB(ctrl)
+	u.baseApp.SetGfSpDB(db)
+	db.EXPECT().GetObjectIntegrity(uint64(1), int32(-1)).Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	objectInfo := &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1), ObjectStatus: storagetypes.OBJECT_STATUS_CREATED, PayloadSize: 16}
+	params := &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 8}}
+	task := &gfsptask.GfSpResumableUploadObjectTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: objectInfo, StorageParams: params, Completed: true}
+
+	require.ErrorIs(t, u.PreResumableUploadObject(context.Background(), task), context.DeadlineExceeded)
+	require.Len(t, reported, 3)
+	stuck = false
+	require.NoError(t, u.PreResumableUploadObject(context.Background(), task))
+	require.Len(t, reported, 4, "the next request must retire the task the stuck manager could not drop")
+	for len(reported) > 0 {
+		requireDropReport(t, <-reported)
 	}
 }
