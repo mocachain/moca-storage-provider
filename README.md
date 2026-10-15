@@ -71,8 +71,9 @@ Build   : go1.20.3 darwin arm64 2023-06-20 10:31
 Run the unit tests with `make test`. The blocksyncer tests need a MySQL 8 server on
 `127.0.0.1:3306` with `root`/`root`; `make test` provides one through `make test-mysql`,
 which uses a server already listening there or starts a loopback-bound `mysql:8.0`
-container (`make test-mysql-down` removes it). Set `BLOCKSYNCER_TEST_DB_ADDRESS` (and
-`BLOCKSYNCER_TEST_DB_USER`, `_PASSWORD`, `_NAME`) to use another server.
+container (`make test-mysql-down` removes it). Each run creates a database of its own
+(`block_syncer_<random>`) and drops it when done. Set `BLOCKSYNCER_TEST_DB_ADDRESS` (and
+`BLOCKSYNCER_TEST_DB_USER`, `_PASSWORD`, or `_NAME` for the name prefix) to use another server.
 
 ### Note
 

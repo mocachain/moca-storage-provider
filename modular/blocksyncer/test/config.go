@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,12 @@ type StackConfig struct {
 	DBAddress    string
 	DBName       string
 	ChainAddress string
+}
+
+// DSN returns the MySQL DSN the verifier reads the blocksyncer's database through.
+func (c StackConfig) DSN() string {
+	return fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true",
+		c.DBUser, c.DBPassword, c.DBAddress, c.DBName)
 }
 
 // WriteConfig writes a blocksyncer-only config.toml into dir, with the settings
@@ -48,6 +55,8 @@ func WriteConfig(t testing.TB, dir string, stack StackConfig) string {
 	cfg.Monitor.DisablePProf = true
 	// the base app dereferences the probe unconditionally, so keep it on a free port
 	cfg.Monitor.ProbeHTTPAddress = "127.0.0.1:0"
+	// a free gRPC port too, so suites in two worktrees can run at the same time
+	cfg.GRPCAddress = "127.0.0.1:0"
 	cfg.BlockSyncer = gfspconfig.BlockSyncerConfig{
 		Modules: []string{
 			"epoch", "bucket", "object", "payment", "group", "permission", "storage_provider",

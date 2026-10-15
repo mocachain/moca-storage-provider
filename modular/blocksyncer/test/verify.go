@@ -40,13 +40,6 @@ var verifyFuncs = []func(t *testing.T, db *gorm.DB) error{
 	verify61, verify62, verify63, verify64, verify65, verify66, verify67, verify68, verify69, verify70,
 }
 
-func envOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func envIntOrDefault(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		parsed, err := strconv.Atoi(value)
@@ -55,14 +48,6 @@ func envIntOrDefault(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
-}
-
-func verifyDSN() string {
-	user := envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root")
-	password := envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root")
-	address := envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306")
-	database := envOrDefault("BLOCKSYNCER_TEST_DB_NAME", "block_syncer")
-	return fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&interpolateParams=true", user, password, address, database)
 }
 
 func retryVerify(description string, attempts int, interval time.Duration, fn func() error) error {
@@ -84,8 +69,8 @@ func retryVerify(description string, attempts int, interval time.Duration, fn fu
 	return fmt.Errorf("%s: %w", description, lastErr)
 }
 
-func Verify(t *testing.T) error {
-	dsn := verifyDSN()
+// Verify checks what the blocksyncer wrote to the database behind dsn against the test cases.
+func Verify(t *testing.T, dsn string) error {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to the database")

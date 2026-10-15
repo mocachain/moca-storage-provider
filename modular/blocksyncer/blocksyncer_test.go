@@ -37,19 +37,19 @@ func (s *BasicTestSuite) SetupSuite() {
 }
 
 // Test_BlockSyncer runs the blocksyncer against the mock chain and a MySQL
-// server, recreating its database first so every run starts from an empty
-// schema, then verifies what it wrote. The server defaults to 127.0.0.1:3306
-// with root/root, which "make test-mysql" provides; the BLOCKSYNCER_TEST_DB_*
-// variables (exported by modular/blocksyncer/test/bs_test.sh) override it.
+// server, in a database created for this run alone and dropped afterwards, then
+// verifies what it wrote. The server defaults to 127.0.0.1:3306 with root/root,
+// which "make test-mysql" provides; the BLOCKSYNCER_TEST_DB_* variables
+// (exported by modular/blocksyncer/test/bs_test.sh) override it.
 func (s *BasicTestSuite) Test_BlockSyncer() {
 	dir := s.T().TempDir()
 	stack := test.StackConfig{
 		DBUser:     envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root"),
 		DBPassword: envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root"),
 		DBAddress:  envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306"),
-		DBName:     envOrDefault("BLOCKSYNCER_TEST_DB_NAME", "block_syncer"),
 	}
-	test.RecreateDatabase(s.T(), stack.DBUser, stack.DBPassword, stack.DBAddress, stack.DBName)
+	prefix := envOrDefault("BLOCKSYNCER_TEST_DB_NAME", "block_syncer")
+	stack.DBName = test.CreateDatabase(s.T(), stack.DBUser, stack.DBPassword, stack.DBAddress, prefix)
 
 	go test.MockChainRPCServerAt("127.0.0.1:0")
 	s.Require().NoError(test.WaitForMockChainRPCServer(5 * time.Second))
@@ -66,7 +66,7 @@ func (s *BasicTestSuite) Test_BlockSyncer() {
 
 	time.Sleep(time.Second * 20)
 
-	err := test.Verify(s.T())
+	err := test.Verify(s.T(), stack.DSN())
 	s.Equal(nil, err)
 }
 
