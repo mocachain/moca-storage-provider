@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
@@ -17,6 +18,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
+	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/core/taskqueue"
 	"github.com/mocachain/moca-storage-provider/core/vgmgr"
 )
@@ -200,6 +202,58 @@ func TestManageModular_HandleCreateResumableUploadObjectTaskCallerGaveUp(t *test
 	cancel()
 	assert.ErrorIs(t, m.HandleCreateResumableUploadObjectTask(ctx, uploadTask), context.Canceled)
 	assert.False(t, m.resumableUploadQueue.Has(uploadTask.Key()))
+}
+
+// pushPausingQueue holds the first Push after it lands in the queue until resume is closed.
+type pushPausingQueue struct {
+	taskqueue.TQueueOnStrategy
+	pushed, resume chan struct{}
+	paused         atomic.Bool
+}
+
+func (q *pushPausingQueue) Push(t coretask.Task) error {
+	err := q.TQueueOnStrategy.Push(t)
+	if q.paused.CompareAndSwap(false, true) {
+		close(q.pushed)
+		<-q.resume
+	}
+	return err
+}
+
+// TestManageModular_HandleCreateResumableUploadObjectTaskCallerGaveUpAfterRetry: the uploader
+// gives up on a registration still in flight, drops it and retries the same offset. When the
+// abandoned registration resumes and cleans up, the retry's registration must survive.
+func TestManageModular_HandleCreateResumableUploadObjectTaskCallerGaveUpAfterRetry(t *testing.T) {
+	m := setup(t)
+	ctrl := gomock.NewController(t)
+	m.maxUploadObjectNumber = 4
+	queue := &pushPausingQueue{
+		TQueueOnStrategy: gfsptqueue.NewGfSpTQueue("test", 4),
+		pushed:           make(chan struct{}),
+		resume:           make(chan struct{}),
+	}
+	m.resumableUploadQueue = queue
+	db := spdb.NewMockSPDB(ctrl)
+	db.EXPECT().InsertUploadProgress(gomock.Any(), gomock.Any()).Return(nil).Times(1) // the retry only
+	m.baseApp.SetGfSpDB(db)
+
+	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(1), BucketName: "test", ObjectName: "test"}
+	newTask := func() *gfsptask.GfSpResumableUploadObjectTask {
+		return &gfsptask.GfSpResumableUploadObjectTask{ObjectInfo: objectInfo, Task: &gfsptask.GfSpTask{TaskPriority: 1}, StorageParams: &types0.Params{}}
+	}
+	abandoned, retry := newTask(), newTask()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- m.HandleCreateResumableUploadObjectTask(ctx, abandoned) }()
+	<-queue.pushed
+	cancel()
+	assert.NoError(t, m.HandleDoneResumableUploadObjectTask(context.Background(), abandoned)) // the uploader's drop
+	assert.NoError(t, m.HandleCreateResumableUploadObjectTask(context.Background(), retry))
+	assert.True(t, m.resumableUploadQueue.Has(retry.Key()))
+
+	close(queue.resume)
+	assert.ErrorIs(t, <-done, context.Canceled)
+	assert.True(t, m.resumableUploadQueue.Has(retry.Key()), "the retry's registration must survive")
 }
 
 func TestManageModular_HandleDoneResumableUploadObjectTask(t *testing.T) {

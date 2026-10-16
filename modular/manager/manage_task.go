@@ -203,8 +203,9 @@ func (m *ManageModular) HandleCreateResumableUploadObjectTask(ctx context.Contex
 	}
 	if err := ctx.Err(); err != nil {
 		// The uploader gave up on this call and drops the task, possibly before it was pushed;
-		// do not keep a registration nobody will retire.
-		m.resumableUploadQueue.PopByKey(task.Key())
+		// do not keep a registration nobody will retire. Pop only this task: by now the drop may
+		// have run and a retry may have registered another task under the same key.
+		m.resumableUploadQueue.PopTask(task)
 		log.CtxErrorw(ctx, "resumable upload object task registered after the caller gave up", "task_info", task.Info(), "error", err)
 		return err
 	}
