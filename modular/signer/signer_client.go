@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/base64"
+	stderrors "errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca/v2/precompiles/storage"
@@ -37,9 +39,13 @@ import (
 
 // test seams for chain interactions
 var (
-	waitForEvmTxFn       = client.WaitForEvmTx
-	getCosmosNonceFn     = (*client.MocaClient).GetNonce
-	broadcastCosmosTxFn  = (*client.MocaClient).BroadcastTx
+	waitForEvmTxFn      = client.WaitForEvmTx
+	getCosmosNonceFn    = (*client.MocaClient).GetNonce
+	broadcastCosmosTxFn = (*client.MocaClient).BroadcastTx
+	getNonceOnChainFn   = waitNextBlockAndGetNonce
+	sendEvmTxFn         = func(ctx context.Context, evmClient *ethclient.Client, tx *types.Transaction) error {
+		return evmClient.SendTransaction(ctx, tx)
+	}
 	transactionReceiptFn = func(ctx context.Context, evmClient *ethclient.Client,
 		txHash ethcmn.Hash,
 	) (*types.Receipt, error) {
@@ -96,20 +102,39 @@ const (
 	errMsgNonceTooLow  = "nonce too low"
 	errMsgNonceTooHigh = "nonce too high"
 
-	// From go-ethereum v1.15.5 - core/tx_pool.go: ErrReplaceUnderpriced
-	// ErrReplaceUnderpriced = errors.New("replacement transaction underpriced")
-	errMsgReplaceUnderpricedGeth = "replacement transaction underpriced"
+	// From cosmos/evm ante/evm/09_increment_sequence.go: "invalid nonce; got N, expected M".
+	// "replacement transaction underpriced" is deliberately absent: it means the
+	// node already holds a transaction at this nonce, possibly this one.
+	errMsgInvalidNonce = "invalid nonce"
 
-	// From polygon-edge v1.3.3 - txpool/txpool.go: ErrReplaceUnderpriced
-	// Reference: https://github.com/mocachain/polygon-edge/blob/6bec9fa/txpool/txpool.go#L65
-	errMsgReplaceUnderpricedPEdge = "replacement tx underpriced"
-
-	// From Cosmos SDK / Evmos sequence errors (ErrInvalidSequence wrapping)
-	// See app/ante/evm/eth.go and errortypes.ErrInvalidSequence usage.
-	errMsgInvalidNonce       = "invalid nonce"
-	errMsgAccountSeqMismatch = "account sequence mismatch"
-	errMsgInvalidSequence    = "invalid sequence"
+	// From cosmos/evm mempool/errors.go: ErrNonceLow / ErrNonceGap, wrapped by
+	// ante/evm/09_increment_sequence.go.
+	errMsgNonceLowerThanAccount  = "tx nonce is lower than account nonce"
+	errMsgNonceHigherThanAccount = "tx nonce is higher than account nonce"
 )
+
+// JSON-RPC error codes that need special handling when classifying an
+// eth_sendRawTransaction failure.
+const (
+	evmRPCCodeInvalidParams = -32602
+	evmRPCCodeInternal      = -32603
+	evmRPCCodeTimeout       = -32002
+)
+
+// evmNotAdmittedReasons are node refusals, other than nonce mismatches, that
+// happen before the transaction is admitted. Re-signing does not fix them.
+var evmNotAdmittedReasons = []string{
+	"failed to validate transaction",
+	"failed to build cosmos tx",
+	"failed to encode transaction",
+	"insufficient funds",
+	"insufficient fee",
+	"intrinsic gas too low",
+}
+
+// evmResendTimeout bounds each re-broadcast of identical bytes after an
+// ambiguous submit.
+const evmResendTimeout = 10 * time.Second
 
 type GasInfo struct {
 	GasLimit  uint64
@@ -120,6 +145,10 @@ type pendingEvmTx struct {
 	operation ethcmn.Hash
 	nonce     uint64
 	hash      ethcmn.Hash
+	raw       []byte
+	// ambiguous is set once a send of these bytes had an unknown outcome.
+	// From then on only a receipt may clear the entry.
+	ambiguous bool
 }
 
 // MocaChainSignClient the moca chain client
@@ -388,6 +417,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -395,7 +425,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 			return "", err
 		}
 
-		txRsp, err := session.SealObject(
+		signedTx, err := session.SealObject(
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),
@@ -403,16 +433,25 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
-					ErrSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
-					return "", ErrSealObjectOnChain
-				}
-				client.sealAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrSealObjectOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrSealObjectOnChain
 			}
+			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
+				ErrSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
+				return "", ErrSealObjectOnChain
+			}
+			client.sealAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast seal object tx", "retry_number", i, "error", err)
 			broadcastErr = err
@@ -421,19 +460,12 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 
 		client.sealAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast seal object tx", "tx_hash", txHash, "seal_msg", msgSealObject)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrSealObjectOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -538,6 +570,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -545,21 +578,30 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			return "", err
 		}
 
-		txRsp, err := session.RejectSealObject(
+		signedTx, err := session.RejectSealObject(
 			rejectObject.GetBucketName(),
 			rejectObject.GetObjectName(),
 		)
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
-					ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
-					return "", ErrRejectUnSealObjectOnChain
-				}
-				client.sealAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrRejectUnSealObjectOnChain
 			}
+			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
+				ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
+				return "", ErrRejectUnSealObjectOnChain
+			}
+			client.sealAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast reject unseal object", "retry_number", i, "error", err)
 			broadcastErr = err
@@ -568,19 +610,12 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 
 		client.sealAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast reject unseal object tx", "tx_hash", txHash, "reject unseal object msg", msgRejectUnSealObject)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrRejectUnSealObjectOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 	// failed to broadcast tx
@@ -659,6 +694,7 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 		return "", err
 	}
+	txOpts.NoSend = true
 
 	session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 	if err != nil {
@@ -666,13 +702,19 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		return "", err
 	}
 
-	txRsp, err := session.DiscontinueBucket(
+	signedTx, err := session.DiscontinueBucket(
 		discontinueBucket.GetBucketName(),
 		discontinueBucket.GetReason(),
 	)
 
 	if err != nil {
-		if isNonceError(err) {
+		log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+		return "", ErrDiscontinueBucketOnChain
+	}
+	txHash, err := client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+	if txHash == "" && err != nil {
+		if isEvmNonceRejection(err) {
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
@@ -686,22 +728,14 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to broadcast discontinue bucket, error: %v", err))
 		return "", ErrDiscontinueBucketOnChain
 	}
-	// update nonce when tx is successful submitted
 	client.gcAccNonce = nonce + 1
 
-	txHash := txRsp.Hash().String()
-	client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-	log.CtxDebugw(ctx, "succeed to broadcast discontinue bucket tx", "tx_hash", txHash)
-
-	receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 	if err != nil {
-		log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+		log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 		return txHash, ErrDiscontinueBucketOnChain
 	}
 
-	client.clearPendingEvmTx(scope, txRsp.Hash())
-	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 	return txHash, nil
 }
 
@@ -799,6 +833,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -810,23 +845,32 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 			Denom:  gvg.GetDeposit().Denom,
 			Amount: gvg.GetDeposit().Amount.BigInt(),
 		}
-		txRsp, err := session.CreateGlobalVirtualGroup(
+		signedTx, err := session.CreateGlobalVirtualGroup(
 			gvg.FamilyId,
 			gvg.GetSecondarySpIds(),
 			deposit,
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
-					ErrCreateGVGOnChain.SetError(fmt.Errorf("failed to get approval account nonce, error: %v", err))
-					return "", ErrCreateGVGOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCreateGVGOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCreateGVGOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrCreateGVGOnChain.SetError(fmt.Errorf("failed to get approval account nonce, error: %v", err))
+				return "", ErrCreateGVGOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast global virtual group tx", "global_virtual_group",
 				msgCreateGlobalVirtualGroup.String(), "retry_number", i, "error", err)
@@ -835,20 +879,12 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast create virtual group tx", "tx_hash", txHash,
-			"virtual_group_msg", msgCreateGlobalVirtualGroup)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCreateGVGOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCreateGVGOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -946,6 +982,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -962,23 +999,32 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 			})
 		}
 
-		txRsp, err := session.CompleteMigrateBucket(
+		signedTx, err := session.CompleteMigrateBucket(
 			migrateBucket.GetBucketName(),
 			migrateBucket.GetGlobalVirtualGroupFamilyId(),
 			gvgMappings,
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrCompleteMigrateBucketOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCompleteMigrateBucketOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrCompleteMigrateBucketOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete migrate bucket tx", "retry_number", i, "error", err)
 			broadcastErr = err
@@ -986,19 +1032,12 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast complete migrate bucket tx", "tx_hash", txHash, "seal_msg", msgCompleteMigrateBucket)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCompleteMigrateBucketOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1100,6 +1139,7 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 		return "", err
 	}
+	txOpts.NoSend = true
 
 	session, err := CreateStorageProviderSession(client.evmClient, *txOpts, evmostypes.SpAddress)
 	if err != nil {
@@ -1107,14 +1147,20 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		return "", err
 	}
 
-	txRsp, err := session.UpdateSPPrice(
+	signedTx, err := session.UpdateSPPrice(
 		priceInfo.ReadPrice.BigInt(),
 		priceInfo.FreeReadQuota,
 		priceInfo.StorePrice.BigInt(),
 	)
 
 	if err != nil {
-		if isNonceError(err) {
+		log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+		return "", ErrUpdateSPPriceOnChain
+	}
+	txHash, err := client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+	if txHash == "" && err != nil {
+		if isEvmNonceRejection(err) {
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
@@ -1131,22 +1177,15 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		return "", ErrUpdateSPPriceOnChain
 	}
 
-	// update nonce when tx is successfully submitted
+	// the nonce counts as used once the transaction may have been admitted
 	client.operatorAccNonce = nonce + 1
 
-	txHash := txRsp.Hash().String()
-	client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-	log.CtxDebugw(ctx, "succeed to broadcast update sp price tx", "tx_hash", txHash)
-
-	receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 	if err != nil {
-		log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+		log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 		return txHash, ErrUpdateSPPriceOnChain
 	}
 
-	client.clearPendingEvmTx(scope, txRsp.Hash())
-	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 	return txHash, nil
 }
 
@@ -1252,6 +1291,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -1264,7 +1304,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 			GlobalVirtualGroupFamilyId: msgSwapOut.SuccessorSpApproval.GlobalVirtualGroupFamilyId,
 			Sig:                        msgSwapOut.SuccessorSpApproval.Sig,
 		}
-		txRsp, err := session.SwapOut(
+		signedTx, err := session.SwapOut(
 			swapOut.GetGlobalVirtualGroupFamilyId(),
 			swapOut.GetGlobalVirtualGroupIds(),
 			swapOut.GetSuccessorSpId(),
@@ -1272,16 +1312,25 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
-					ErrSwapOutOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrSwapOutOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrSwapOutOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrSwapOutOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrSwapOutOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrSwapOutOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast swap out", "retry_number", i, "swap_out", msgSwapOut.String(), "error", err)
 			broadcastErr = err
@@ -1289,19 +1338,12 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast start swap out tx", "tx_hash", txHash, "swap_out", msgSwapOut.String())
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrSwapOutOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrSwapOutOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1404,6 +1446,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -1411,22 +1454,31 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 			return "", err
 		}
 
-		txRsp, err := session.CompleteSwapOut(
+		signedTx, err := session.CompleteSwapOut(
 			completeSwapOut.GetGlobalVirtualGroupFamilyId(),
 			completeSwapOut.GetGlobalVirtualGroupIds(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
-					ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
-					return "", ErrCompleteSwapOutOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCompleteSwapOutOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
+				return "", ErrCompleteSwapOutOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete swap out tx", "retry_number", i, "error", err)
 			broadcastErr = err
@@ -1434,19 +1486,12 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast complete swap out tx", "tx_hash", txHash, "seal_msg", msgCompleteSwapOut)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCompleteSwapOutOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1545,6 +1590,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -1552,38 +1598,39 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 			return "", err
 		}
 
-		txRsp, err := session.SpExit()
+		signedTx, err := session.SpExit()
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
-					ErrSPExitOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
-					return "", ErrSPExitOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrSPExitOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrSPExitOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrSPExitOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
+				return "", ErrSPExitOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast start sp exit tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast start sp exit tx", "tx_hash", txHash, "exit_msg", msgSPExit)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrSPExitOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrSPExitOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1678,6 +1725,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -1685,40 +1733,41 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 			return "", err
 		}
 
-		txRsp, err := session.CompleteSPExit(
+		signedTx, err := session.CompleteSPExit(
 			completeSPExit.Operator,
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
-					ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
-					return "", ErrCompleteSPExitOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCompleteSPExitOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCompleteSPExitOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
+				return "", ErrCompleteSPExitOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete sp exit tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast complete sp exit tx", "tx_hash", txHash, "complete_sp_exit_msg", msgCompleteSPExit)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCompleteSPExitOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCompleteSPExitOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1809,6 +1858,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -1816,40 +1866,41 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 			return "", err
 		}
 
-		txRsp, err := session.RejectMigrateBucket(
+		signedTx, err := session.RejectMigrateBucket(
 			msg.GetBucketName(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrRejectMigrateBucketOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrRejectMigrateBucketOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrRejectMigrateBucketOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast reject migrate bucket tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast reject migrate bucket tx", "tx_hash", txHash, "reject_migrate_bucket_msg", msgRejectMigrateBucket)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrRejectMigrateBucketOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -1941,6 +1992,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -1952,41 +2004,42 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 			Denom:  msg.Deposit.Denom,
 			Amount: msg.Deposit.Amount.BigInt(),
 		}
-		txRsp, err := session.Deposit(
+		signedTx, err := session.Deposit(
 			msg.GlobalVirtualGroupId,
 			deposit,
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrDepositOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrDepositOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrDepositOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrDepositOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrDepositOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrDepositOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast deposit tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast deposit tx", "tx_hash", txHash, "deposit_msg", msgDeposit)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrDepositOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrDepositOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2078,6 +2131,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -2085,40 +2139,41 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 			return "", err
 		}
 
-		txRsp, err := session.DeleteGlobalVirtualGroup(
+		signedTx, err := session.DeleteGlobalVirtualGroup(
 			msg.GetGlobalVirtualGroupId(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrDeleteGVGOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrDeleteGVGOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrDeleteGVGOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrDeleteGVGOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delete GVG tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast delete GVG tx", "tx_hash", txHash, "reject_migrate_bucket_msg", msgDeleteGlobalVirtualGroup)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrDeleteGVGOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrDeleteGVGOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2207,6 +2262,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -2219,7 +2275,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 			checksumStr := base64.StdEncoding.EncodeToString(checksum)
 			expectChecksums = append(expectChecksums, checksumStr)
 		}
-		txRsp, err := session.DelegateCreateObject(
+		signedTx, err := session.DelegateCreateObject(
 			msg.Creator,
 			msg.BucketName,
 			msg.ObjectName,
@@ -2231,35 +2287,36 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrDelegateCreateObjectOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrDelegateCreateObjectOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrDelegateCreateObjectOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delegate create object tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast delegate create object tx", "tx_hash", txHash, "delegate_update_object_msg", msg)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrDelegateCreateObjectOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2348,6 +2405,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -2360,7 +2418,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 			checksumStr := base64.StdEncoding.EncodeToString(checksum)
 			expectChecksums = append(expectChecksums, checksumStr)
 		}
-		txRsp, err := session.DelegateUpdateObjectContent(
+		signedTx, err := session.DelegateUpdateObjectContent(
 			msg.Updater,
 			msg.BucketName,
 			msg.ObjectName,
@@ -2370,35 +2428,36 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrDelegateUpdateObjectContentOnChain
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrDelegateUpdateObjectContentOnChain
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrDelegateUpdateObjectContentOnChain
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delegate update object content tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast delegate update object content tx", "tx_hash", txHash, "delegate_update_object_content_msg", msg)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrDelegateUpdateObjectContentOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2407,43 +2466,120 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 	return "", ErrDelegateUpdateObjectContentOnChain
 }
 
-// isNonceError checks whether the given error is related to nonce/sequence
-// mismatches observed when submitting EVM transactions.
-//
-// Architecture note:
-// The storage-provider communicates with the chain node via JSON-RPC, so any
-// typed errors produced inside the node (for example go-ethereum core
-// errors such as ErrNonceTooLow or ErrReplaceUnderpriced) are serialized to
-// string messages in the JSON-RPC response. On the client side we therefore
-// cannot rely on errors.Is with those internal error types and must instead
-// match against well-known error message substrings.
-//
-// Covered error sources:
-// - go-ethereum / Evmos txpool and core nonce errors
-// - polygon-edge txpool replacement-underpriced errors
-// - Cosmos SDK / Evmos sequence errors (as a defensive fallback)
-func isNonceError(err error) bool {
-	if err == nil {
-		return false
+func containsAnyReason(msg string, reasons []string) bool {
+	for _, reason := range reasons {
+		if strings.Contains(msg, reason) {
+			return true
+		}
 	}
-
-	errMsg := err.Error()
-
-	if strings.Contains(errMsg, errMsgNonceTooLow) ||
-		strings.Contains(errMsg, errMsgNonceTooHigh) ||
-		strings.Contains(errMsg, errMsgInvalidNonce) ||
-		strings.Contains(errMsg, errMsgAccountSeqMismatch) ||
-		strings.Contains(errMsg, errMsgInvalidSequence) ||
-		strings.Contains(errMsg, errMsgReplaceUnderpricedGeth) ||
-		strings.Contains(errMsg, errMsgReplaceUnderpricedPEdge) {
-		return true
-	}
-
 	return false
 }
 
+// isEvmNonceLowError and isEvmNonceHighError match a node's refusal of a
+// transaction whose nonce differs from the account nonce. On a Moca node
+// (no experimental EVM mempool) CheckTx returns these before admitting the
+// bytes, so the refused transaction was not admitted.
+func isEvmNonceLowError(msg string) bool {
+	return containsAnyReason(msg, []string{errMsgNonceTooLow, errMsgInvalidNonce, errMsgNonceLowerThanAccount})
+}
+
+func isEvmNonceHighError(msg string) bool {
+	return containsAnyReason(msg, []string{errMsgNonceTooHigh, errMsgNonceHigherThanAccount})
+}
+
+type evmSendOutcome int
+
+const (
+	// evmSendAccepted means the node accepted the request. It does not prove
+	// the transaction entered the mempool; only a receipt does.
+	evmSendAccepted evmSendOutcome = iota
+	evmSendAmbiguous
+	evmSendNonceRejected
+	evmSendRejected
+)
+
+// classifyEvmSendError decides whether a failed eth_sendRawTransaction proves
+// that the node did not admit the transaction. Only a JSON-RPC error object
+// whose message names a verified refusal reason counts; everything else may
+// have been admitted.
+func classifyEvmSendError(ctx context.Context, err error) evmSendOutcome {
+	if err == nil {
+		return evmSendAccepted
+	}
+	// Checked before any message matching: an HTTP or transport failure can
+	// carry an arbitrary body (a 503 page may contain "invalid nonce") and
+	// says nothing about whether the node already forwarded the transaction.
+	if ctx.Err() != nil || stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+		return evmSendAmbiguous
+	}
+	var httpErr rpc.HTTPError
+	if stderrors.As(err, &httpErr) {
+		return evmSendAmbiguous
+	}
+	var rpcErr rpc.Error
+	if !stderrors.As(err, &rpcErr) {
+		return evmSendAmbiguous
+	}
+	switch rpcErr.ErrorCode() {
+	case evmRPCCodeTimeout, evmRPCCodeInternal:
+		// go-ethereum answers -32002 while the handler may still be running.
+		return evmSendAmbiguous
+	case evmRPCCodeInvalidParams:
+		return evmSendRejected
+	}
+	msg := rpcErr.Error()
+	switch {
+	case isEvmNonceLowError(msg), isEvmNonceHighError(msg):
+		return evmSendNonceRejected
+	case containsAnyReason(msg, evmNotAdmittedReasons):
+		return evmSendRejected
+	}
+	return evmSendAmbiguous
+}
+
+// evmNodeAnswered reports whether a re-broadcast got a definite answer from
+// the node, so sending the same bytes again would not tell us anything new.
+func evmNodeAnswered(ctx context.Context, err error) bool {
+	if err == nil {
+		return true
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	var httpErr rpc.HTTPError
+	if stderrors.As(err, &httpErr) {
+		return false
+	}
+	var rpcErr rpc.Error
+	if !stderrors.As(err, &rpcErr) {
+		return false
+	}
+	code := rpcErr.ErrorCode()
+	return code != evmRPCCodeTimeout && code != evmRPCCodeInternal
+}
+
+// evmNonceRejectedError marks a submit the node refused for a nonce mismatch
+// before admitting it. Only this error lets a caller refresh the nonce and
+// sign the operation again.
+type evmNonceRejectedError struct {
+	err error
+}
+
+func (e *evmNonceRejectedError) Error() string { return e.err.Error() }
+
+func (e *evmNonceRejectedError) Unwrap() error { return e.err }
+
+func isEvmNonceRejection(err error) bool {
+	var target *evmNonceRejectedError
+	return stderrors.As(err, &target)
+}
+
 func (client *MocaChainSignClient) getNonceOnChain(ctx context.Context, gnfdClient *client.MocaClient) (uint64, error) {
-	err := client.signer.baseApp.Consensus().WaitForNextBlock(ctx)
+	return getNonceOnChainFn(ctx, client, gnfdClient)
+}
+
+func waitNextBlockAndGetNonce(ctx context.Context, signClient *MocaChainSignClient, gnfdClient *client.MocaClient) (uint64, error) {
+	err := signClient.signer.baseApp.Consensus().WaitForNextBlock(ctx)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to wait next block", "error", err)
 		return 0, err
@@ -2550,15 +2686,18 @@ func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scop
 	}
 
 	receipt, err := transactionReceiptFn(ctx, client.evmClient, pending.hash)
-	if err != nil {
+	if err != nil || receipt == nil {
+		// The bytes may never have reached a node (cancelled mid-send, lost
+		// before forwarding). Re-sending the identical transaction can execute
+		// at most once, so it is safe and keeps the scope from blocking forever.
+		client.rebroadcastPendingEvmTx(ctx, scope, pending)
+		reason := "receipt unavailable"
+		if err != nil {
+			reason = err.Error()
+		}
 		return pending.hash.String(), true, fmt.Errorf(
-			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s: %w",
-			scope, pending.nonce, pending.hash.Hex(), err)
-	}
-	if receipt == nil {
-		return pending.hash.String(), true, fmt.Errorf(
-			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s: receipt unavailable",
-			scope, pending.nonce, pending.hash.Hex())
+			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s ambiguous=%t: %s",
+			scope, pending.nonce, pending.hash.Hex(), pending.ambiguous, reason)
 	}
 
 	client.clearPendingEvmTx(scope, pending.hash)
@@ -2571,15 +2710,98 @@ func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scop
 	return "", false, nil
 }
 
+func (client *MocaChainSignClient) rebroadcastPendingEvmTx(ctx context.Context, scope SignType, pending pendingEvmTx) {
+	if len(pending.raw) == 0 || ctx.Err() != nil {
+		return
+	}
+	signedTx := new(types.Transaction)
+	if err := signedTx.UnmarshalBinary(pending.raw); err != nil {
+		log.CtxErrorw(ctx, "failed to decode pending EVM tx", "scope", scope, "tx_hash", pending.hash.Hex(), "error", err)
+		return
+	}
+	resendCtx, cancel := context.WithTimeout(ctx, evmResendTimeout)
+	defer cancel()
+	err := sendEvmTxFn(resendCtx, client.evmClient, signedTx)
+	log.CtxWarnw(ctx, "re-broadcast unconfirmed EVM tx; check the hash on chain before any manual action",
+		"scope", scope, "nonce", pending.nonce, "tx_hash", pending.hash.Hex(), "operation", pending.operation.Hex(), "error", err)
+}
+
+// submitEvmTx sends a transaction signed with NoSend and waits for its
+// receipt. The pending entry is recorded before the first send, so an unknown
+// outcome blocks the scope instead of letting the operation be signed again
+// at a later nonce.
+//
+// An empty hash means nothing may have been admitted: the context was done
+// before sending, or the node verifiably refused the bytes. A nonce refusal
+// is returned as evmNonceRejectedError and is the only case where the caller
+// may refresh the nonce and sign again. A non-empty hash with an error means
+// the transaction may be on chain and stays pending.
+func (client *MocaChainSignClient) submitEvmTx(ctx context.Context, scope SignType, operation ethcmn.Hash,
+	nonce uint64, signedTx *types.Transaction,
+) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	raw, err := signedTx.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("failed to encode EVM transaction: %w", err)
+	}
+	txHash := signedTx.Hash()
+
+	client.recordPendingEvmTx(scope, operation, nonce, txHash, raw)
+	sendErr := sendEvmTxFn(ctx, client.evmClient, signedTx)
+	switch classifyEvmSendError(ctx, sendErr) {
+	case evmSendNonceRejected:
+		client.clearPendingEvmTx(scope, txHash)
+		return "", &evmNonceRejectedError{err: sendErr}
+	case evmSendRejected:
+		client.clearPendingEvmTx(scope, txHash)
+		return "", sendErr
+	case evmSendAmbiguous:
+		client.markPendingEvmTxAmbiguous(scope, txHash)
+		log.CtxWarnw(ctx, "EVM tx submit outcome unknown; re-broadcasting the same signed bytes",
+			"scope", scope, "nonce", nonce, "tx_hash", txHash.Hex(), "error", sendErr)
+		// No response from here on may clear the entry: a refusal of a
+		// re-send can mean the first send was admitted.
+		for attempt := 1; attempt < BroadcastTxRetry && ctx.Err() == nil; attempt++ {
+			resendCtx, cancel := context.WithTimeout(ctx, evmResendTimeout)
+			resendErr := sendEvmTxFn(resendCtx, client.evmClient, signedTx)
+			cancel()
+			log.CtxWarnw(ctx, "re-broadcast EVM tx", "tx_hash", txHash.Hex(), "attempt", attempt, "error", resendErr)
+			if evmNodeAnswered(ctx, resendErr) {
+				break
+			}
+		}
+	}
+
+	receipt, err := client.waitForTransactionReceipt(ctx, txHash)
+	if err != nil {
+		return txHash.String(), err
+	}
+	client.clearPendingEvmTx(scope, txHash)
+	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash.Hex(), "block", receipt.BlockNumber.Uint64())
+	return txHash.String(), nil
+}
+
 func (client *MocaChainSignClient) recordPendingEvmTx(scope SignType, operation ethcmn.Hash, nonce uint64,
-	txHash ethcmn.Hash,
+	txHash ethcmn.Hash, raw []byte,
 ) {
 	client.pendingEvmTxMu.Lock()
 	defer client.pendingEvmTxMu.Unlock()
 	if client.pendingEvmTxs == nil {
 		client.pendingEvmTxs = make(map[SignType]pendingEvmTx, 3)
 	}
-	client.pendingEvmTxs[scope] = pendingEvmTx{operation: operation, nonce: nonce, hash: txHash}
+	client.pendingEvmTxs[scope] = pendingEvmTx{operation: operation, nonce: nonce, hash: txHash, raw: raw}
+}
+
+func (client *MocaChainSignClient) markPendingEvmTxAmbiguous(scope SignType, txHash ethcmn.Hash) {
+	client.pendingEvmTxMu.Lock()
+	defer client.pendingEvmTxMu.Unlock()
+	pending, ok := client.pendingEvmTxs[scope]
+	if ok && pending.hash == txHash {
+		pending.ambiguous = true
+		client.pendingEvmTxs[scope] = pending
+	}
 }
 
 func (client *MocaChainSignClient) clearPendingEvmTx(scope SignType, txHash ethcmn.Hash) {
@@ -2674,6 +2896,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -2681,42 +2904,43 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 			return "", err
 		}
 
-		txRsp, err := session.ReserveSwapIn(
+		signedTx, err := session.ReserveSwapIn(
 			msg.GetTargetSpId(),
 			msg.GetGlobalVirtualGroupFamilyId(),
 			msg.GetGlobalVirtualGroupId(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrReserveSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrReserveSwapIn
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrReserveSwapIn.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrReserveSwapIn
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrReserveSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrReserveSwapIn
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast reserve swap in tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast reserve swap in tx", "tx_hash", txHash, "reserve_swap_in_msg", msgReserveSwapIn)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrReserveSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrReserveSwapIn
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2808,6 +3032,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -2815,41 +3040,42 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 			return "", err
 		}
 
-		txRsp, err := session.CompleteSwapIn(
+		signedTx, err := session.CompleteSwapIn(
 			msg.GetGlobalVirtualGroupFamilyId(),
 			msg.GetGlobalVirtualGroupId(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrCompleteSwapIn
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCompleteSwapIn.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCompleteSwapIn
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrCompleteSwapIn
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete swap in tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast complete swap in tx", "tx_hash", txHash, "complete_swap_in_msg", msgCompleteSwapIn)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCompleteSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCompleteSwapIn
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -2941,6 +3167,7 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateVirtualGroupSession(client.evmClient, *txOpts, evmostypes.VirtualGroupAddress)
 		if err != nil {
@@ -2948,41 +3175,42 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 			return "", err
 		}
 
-		txRsp, err := session.CancelSwapIn(
+		signedTx, err := session.CancelSwapIn(
 			msg.GetGlobalVirtualGroupFamilyId(),
 			msg.GetGlobalVirtualGroupId(),
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-					ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
-					return "", ErrCancelSwapIn
-				}
-				client.operatorAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrCancelSwapIn.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrCancelSwapIn
 			}
+			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
+				ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				return "", ErrCancelSwapIn
+			}
+			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast cancel swap in tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast cancel swap in tx", "tx_hash", txHash, "cancel_swap_in_msg", msgCancelSwapIn)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrCancelSwapIn.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrCancelSwapIn
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
@@ -3089,6 +3317,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
 		}
+		txOpts.NoSend = true
 
 		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
 		if err != nil {
@@ -3101,7 +3330,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 			expectChecksums = append(expectChecksums, checksumStr)
 		}
 
-		txRsp, err := session.SealObjectV2(
+		signedTx, err := session.SealObjectV2(
 			sealObject.GetBucketName(),
 			sealObject.GetObjectName(),
 			sealObject.GetGlobalVirtualGroupId(),
@@ -3110,35 +3339,36 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		)
 
 		if err != nil {
-			if isNonceError(err) {
-				// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
-				nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
-				if nonceErr != nil {
-					log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
-					ErrSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
-					return "", ErrSealObjectOnChain
-				}
-				client.sealAccNonce = nonce
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			continue
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "EVM tx rejected by node", "error", err)
+				ErrSealObjectOnChain.SetError(fmt.Errorf("EVM tx rejected by node: %w", err))
+				return "", ErrSealObjectOnChain
 			}
+			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
+			if nonceErr != nil {
+				log.CtxErrorw(ctx, "failed to get seal account nonce", "error", nonceErr)
+				ErrSealObjectOnChain.SetError(fmt.Errorf("failed to get seal account nonce, error: %v", nonceErr))
+				return "", ErrSealObjectOnChain
+			}
+			client.sealAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast seal object tx", "retry_number", i, "error", err)
 			continue
 		}
 		client.sealAccNonce = nonce + 1
 
-		txHash = txRsp.Hash().String()
-		client.recordPendingEvmTx(scope, operation, nonce, txRsp.Hash())
-		log.CtxDebugw(ctx, "succeed to broadcast seal object tx", "tx_hash", txHash, "seal_msg", msgSealObject)
-
-		receipt, err := client.waitForTransactionReceipt(ctx, txRsp.Hash())
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to wait for transaction receipt", "tx_hash", txHash, "error", err)
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
 			ErrSealObjectOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
 			return txHash, ErrSealObjectOnChain
 		}
 
-		client.clearPendingEvmTx(scope, txRsp.Hash())
-		log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash, "block", receipt.BlockNumber.Uint64())
 		return txHash, nil
 	}
 
