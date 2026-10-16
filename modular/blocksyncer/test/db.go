@@ -39,7 +39,7 @@ func CreateDatabase(t testing.TB, user, password, address, prefix string) string
 	}
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
-		t.Fatalf("no mysql server at %s (start one with 'make test-mysql' or set BLOCKSYNCER_TEST_DB_ADDRESS): %v", address, err)
+		t.Fatalf("cannot use the mysql server at %s as %s (start one with 'make test-mysql', or set BLOCKSYNCER_TEST_DB_ADDRESS/_USER/_PASSWORD): %v", address, user, err)
 	}
 	// no IF NOT EXISTS: a name clash must fail rather than adopt somebody else's schema
 	if _, err := db.Exec(fmt.Sprintf("CREATE DATABASE `%s`", name)); err != nil {
