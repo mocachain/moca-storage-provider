@@ -2,6 +2,7 @@ package uploader
 
 import (
 	"context"
+	"sync"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/core/module"
@@ -16,6 +17,8 @@ type UploadModular struct {
 	scope                 rcmgr.ResourceScope
 	uploadQueue           taskqueue.TQueueOnStrategy
 	resumeableUploadQueue taskqueue.TQueueOnStrategy
+	// resumableInflight holds the object IDs with a resumable request being handled.
+	resumableInflight sync.Map
 }
 
 func (u *UploadModular) Name() string {
