@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Recording stand-in for the docker CLI, used by test_mysql_test.go. Containers live
+# under FAKE_DOCKER_STATE/c/<name>; every call is appended to calls.log and every
+# create/conflict to events.log. Knobs:
+#   FAKE_DOCKER_RUN_BARRIER=n   "run" creates only once n invocations reached it
+#   FAKE_DOCKER_READY_AFTER=n   exec calls before mysql answers (2)
+set -euo pipefail
+
+state="${FAKE_DOCKER_STATE:?}"
+echo "$*" >>"${state}/calls.log"
+
+count() { if [ -f "$1" ]; then wc -l <"$1" | tr -d ' '; else echo 0; fi; }
+need() { [ -d "${state}/c/$1" ] || { echo "Error: No such object: $1" >&2; exit 1; }; }
+set_state() { echo "$2" >"${state}/c/$1/state.$$" && mv "${state}/c/$1/state.$$" "${state}/c/$1/state"; }
+
+cmd="${1:-}"
+shift || true
+case "${cmd}" in
+ps)
+  name=
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --filter) name="${2#name=^/}"; name="${name%\$}"; shift ;;
+    --format) shift ;;
+    esac
+    shift
+  done
+  d="${state}/c/${name}"
+  [ -d "${d}" ] || exit 0
+  echo l >>"${d}/looks"
+  # a container "run" created starts on its own: it is running from the second look on
+  if [ "$(cat "${d}/state")" = created ] && [ -f "${d}/by_run" ] && [ "$(count "${d}/looks")" -gt 1 ]; then
+    set_state "${name}" running
+  fi
+  cat "${d}/state"
+  ;;
+inspect)
+  [ "${1:-}" = -f ] || { echo "fake docker: unsupported inspect form: $*" >&2; exit 2; }
+  need "$3"
+  case "$2" in
+  *PortBindings*) cat "${state}/c/$3/binding" ;;
+  *) echo "fake docker: unsupported inspect format: $2" >&2; exit 2 ;;
+  esac
+  ;;
+run)
+  name=
+  bind=
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --name) name="$2"; shift ;;
+    -p) bind="${2%:*}"; shift ;;
+    esac
+    shift
+  done
+  echo w >>"${state}/run_waiting"
+  i=0
+  while [ "$(count "${state}/run_waiting")" -lt "${FAKE_DOCKER_RUN_BARRIER:-0}" ] && [ "${i}" -lt 200 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  d="${state}/c/${name}"
+  if ! mkdir "${d}" 2>/dev/null; then
+    echo "conflict ${name}" >>"${state}/events.log"
+    echo "docker: Error response from daemon: Conflict. The container name \"/${name}\" is already in use by container \"fake0123\". You have to remove (or rename) that container to be able to reuse that name." >&2
+    exit 125
+  fi
+  echo created >"${d}/state"
+  echo "${bind}" >"${d}/binding"
+  : >"${d}/by_run"
+  echo "created ${name}" >>"${state}/events.log"
+  echo fake0123
+  ;;
+start)
+  need "$1"
+  set_state "$1" running
+  echo "$1"
+  ;;
+exec)
+  need "$1"
+  d="${state}/c/$1"
+  [ "$(cat "${d}/state")" = running ] || { echo "Error response from daemon: container $1 is not running" >&2; exit 1; }
+  echo e >>"${d}/execs"
+  [ "$(count "${d}/execs")" -ge "${FAKE_DOCKER_READY_AFTER:-2}" ] || { echo "ERROR 2003 (HY000): Can't connect to MySQL server on '127.0.0.1:3306' (111)" >&2; exit 1; }
+  echo 1
+  ;;
+logs) echo "fake mysqld: last log lines" ;;
+*) echo "fake docker: unsupported command: ${cmd} $*" >&2; exit 2 ;;
+esac
