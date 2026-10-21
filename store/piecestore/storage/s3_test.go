@@ -279,6 +279,33 @@ func TestS3Store_GetObjectRangedRejectsCorruptedObject(t *testing.T) {
 	assert.Nil(t, data)
 }
 
+func TestS3Store_GetObjectRejectsInvalidChecksumMetadata(t *testing.T) {
+	store := setupS3Test(t)
+	reads := []struct {
+		name          string
+		offset, limit int64
+	}{
+		{name: "full", offset: 0, limit: -1},
+		{name: "ranged", offset: 3, limit: 3},
+	}
+	for _, checksum := range []string{"abc", "4294967296", "-2147483649", " 1"} {
+		for _, read := range reads {
+			t.Run(read.name+"/"+checksum, func(t *testing.T) {
+				store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
+					Body: io.NopCloser(strings.NewReader("tampered body")),
+					Metadata: map[string]*string{
+						ChecksumAlgo: aws.String(checksum),
+					}}}
+				data, err := store.GetObject(context.TODO(), mockKey, read.offset, read.limit)
+				assert.Nil(t, data)
+				if assert.Error(t, err) {
+					assert.Contains(t, err.Error(), "invalid crc32c checksum metadata")
+				}
+			})
+		}
+	}
+}
+
 func TestS3Store_GetObjectRangedRejectsOffsetPastEnd(t *testing.T) {
 	store := setupS3Test(t)
 	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{

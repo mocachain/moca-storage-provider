@@ -93,12 +93,6 @@ func Test_verifyChecksum(t *testing.T) {
 			wantedResult: io.NopCloser(strings.NewReader("hello world")),
 		},
 		{
-			name:         "2",
-			rc:           io.NopCloser(strings.NewReader("hello world")),
-			checksum:     "abc",
-			wantedResult: io.NopCloser(strings.NewReader("hello world")),
-		},
-		{
 			name:     "3",
 			rc:       io.NopCloser(strings.NewReader("hello world")),
 			checksum: "10",
@@ -118,17 +112,27 @@ func Test_verifyChecksum(t *testing.T) {
 				checksum:   0,
 			},
 		},
-		{
-			name:         "4",
-			rc:           io.NopCloser(strings.NewReader("hello world")),
-			checksum:     "4294967296", // if checksum is out of uint32 range, error will be handled
-			wantedResult: io.NopCloser(strings.NewReader("hello world")),
-		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			result := verifyChecksum(tt.rc, tt.checksum)
 			assert.Equal(t, result, tt.wantedResult)
+		})
+	}
+}
+
+func Test_verifyChecksumRejectsInvalidChecksum(t *testing.T) {
+	cases := []struct {
+		name     string
+		checksum string
+	}{
+		{name: "2", checksum: "abc"},
+		{name: "4", checksum: "4294967296"}, // out of uint32 range
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := io.ReadAll(verifyChecksum(io.NopCloser(strings.NewReader("hello world")), tt.checksum))
+			assert.Error(t, err)
 		})
 	}
 }
