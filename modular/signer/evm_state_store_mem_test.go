@@ -77,6 +77,11 @@ func newMemEvmStateStore() *memEvmStateStore {
 }
 
 // hookOnce runs fn the next time op is called.
+func (m *memEvmStateStore) hookOnce(op string, fn func(m *memEvmStateStore)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hooks[op] = fn
+}
 
 // inject queues faults for the next calls of op.
 func (m *memEvmStateStore) inject(op string, faults ...memFault) {
@@ -498,6 +503,37 @@ func (m *memEvmStateStore) AppendAudit(_ context.Context, fence *evmFence, chain
 
 // Test helpers that act on the tables directly, as the CLI or an operator would.
 
+func (m *memEvmStateStore) pendingRows() []pendingRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []pendingRecord
+	for _, p := range m.pending {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func (m *memEvmStateStore) pendingOf(scope SignType) (pendingRecord, bool) {
+	for _, p := range m.pendingRows() {
+		if p.Scope == scope {
+			return p, true
+		}
+	}
+	return pendingRecord{}, false
+}
+
+func (m *memEvmStateStore) outcomeRows() []outcomeRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []outcomeRecord
+	for _, o := range m.outcomes {
+		out = append(out, o)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 func (m *memEvmStateStore) auditEvents(event string) []evmAuditEvent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -510,12 +546,63 @@ func (m *memEvmStateStore) auditEvents(event string) []evmAuditEvent {
 	return out
 }
 
+func (m *memEvmStateStore) signedRow(id uint64) (signedTxEvidence, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.signed[id]
+	return e, ok
+}
+
 // putOutcome inserts an outcome row directly, bypassing the invariants.
+func (m *memEvmStateStore) putOutcome(o outcomeRecord) outcomeRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o.ID = m.id()
+	m.outcomes[o.ID] = o
+	return o
+}
 
 // tamper changes an evidence row in place, as a corrupted DB would.
+func (m *memEvmStateStore) tamper(id uint64, change func(*signedTxEvidence)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.signed[id]
+	change(&e)
+	m.signed[id] = e
+}
 
 // tamperOutcome changes an outcome row in place.
+func (m *memEvmStateStore) tamperOutcome(id uint64, change func(*outcomeRecord)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o := m.outcomes[id]
+	change(&o)
+	m.outcomes[id] = o
+}
 
 // deleteSignedTx models the RESTRICT foreign keys.
+func (m *memEvmStateStore) deleteSignedTx(id uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.pending {
+		if p.SignedTxID == id {
+			return errors.New("foreign key: referenced by pending")
+		}
+	}
+	for _, o := range m.outcomes {
+		if o.SignedTxID == id {
+			return errors.New("foreign key: referenced by outcome")
+		}
+	}
+	delete(m.signed, id)
+	return nil
+}
 
 // expireLease makes the chain's lease expire now.
+func (m *memEvmStateStore) expireLease(chainID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if lease, ok := m.leases[chainID]; ok {
+		lease.expires = m.now().Add(-time.Millisecond)
+	}
+}

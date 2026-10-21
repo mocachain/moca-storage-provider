@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/math"
@@ -9,6 +10,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/mocachain/moca/v2/sdk/types"
 )
@@ -293,7 +295,34 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	if err != nil {
 		return err
 	}
+	if err = attachSignerEvmStore(client, cfg); err != nil {
+		return err
+	}
 	signer.client = client
 	client.signer = signer
+	return nil
+}
+
+// attachSignerEvmStore opens the signer's own connection to the SP DB for the
+// EVM state tables. The signer does not migrate them: 'signer-evm migrate'
+// does, with the migration account. Without the DB the signer does not start
+// (D1: EVM submission fails closed).
+func attachSignerEvmStore(client *MocaChainSignClient, cfg *gfspconfig.GfSpConfig) error {
+	dbCfg := cfg.SpDB
+	store, err := sqldb.NewSignerEvmStore(&dbCfg)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), evmStateWriteTimeout)
+	defer cancel()
+	if err = store.CheckSchema(ctx); err != nil {
+		_ = store.Close()
+		return err
+	}
+	if err = client.attachEvmState(newSQLEvmStateStore(store.DB()), cfg.Chain.ChainID, 0); err != nil {
+		_ = store.Close()
+		return err
+	}
+	client.evmCloser = store.Close
 	return nil
 }
