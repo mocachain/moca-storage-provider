@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -62,10 +63,11 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 	if os.Getenv(blsLogChildEnv) != "1" {
 		executable, err := os.Executable()
 		require.NoError(t, err)
-		cmd := exec.Command(executable, "-test.run=^TestHandleReplicatePieceTask_BlsParseFailureLogRedaction$", "-test.v")
+		cmd := exec.Command(executable, "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.v", "-test.timeout=30s")
 		cmd.Env = append(os.Environ(), blsLogChildEnv+"=1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "%s", output)
+		require.Contains(t, string(output), "--- PASS: "+t.Name())
 		return
 	}
 	// Isolate global logger state in this subprocess; no parent writer is replaced.
@@ -122,7 +124,7 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 				chain.EXPECT().ListenObjectSeal(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil)
 			}
 			e.HandleReplicatePieceTask(context.Background(), task)
-			require.NoError(t, task.Error()) // Preserve the existing loop-local err semantics.
+			require.NoError(t, task.Error()) // Known loop-local err shadowing; changing this behavior is a separate follow-up.
 			logged := capture.String()[beforeLog:]
 			require.Contains(t, logged, "succeed to replicate all pieces")
 			var events []map[string]any
@@ -163,7 +165,9 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 					require.NotContains(t, string(encoded), material)
 				}
 				for _, value := range event {
-					require.NotEqual(t, string(sig), value)
+					if text, ok := value.(string); ok {
+						require.NotContains(t, text, string(sig))
+					}
 				}
 			}
 		})
