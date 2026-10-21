@@ -273,6 +273,11 @@ func (p pendingRecord) ref() evidenceRef {
 		From: p.From, Nonce: p.Nonce, TxHash: p.TxHash}
 }
 
+func (o outcomeRecord) ref() evidenceRef {
+	return evidenceRef{SignedTxID: o.SignedTxID, ChainID: o.ChainID, Scope: o.Scope, Operation: o.Operation,
+		From: o.From, Nonce: o.Nonce, TxHash: o.TxHash}
+}
+
 // verifySignedTxEvidence is the evidence check V(e): the raw bytes decode as
 // an EIP-2718 transaction whose hash, recovered sender, nonce and chain id
 // equal the evidence columns, and the referencing row agrees with the
