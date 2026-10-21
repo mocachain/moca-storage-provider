@@ -1,4 +1,4 @@
-FROM golang:1.26.5-bookworm AS builder
+FROM golang:1.26.10-bookworm AS builder
 
 ENV CGO_CFLAGS="-O -D__BLST_PORTABLE__"
 ENV CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod tidy && make build
 
 
-FROM golang:1.26.5-bookworm
+FROM golang:1.26.10-bookworm
 
 WORKDIR /app
 
