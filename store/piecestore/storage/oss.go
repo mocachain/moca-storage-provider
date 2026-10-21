@@ -47,7 +47,7 @@ func (o *ossStore) GetObject(ctx context.Context, key string, off, limit int64) 
 	if off > 0 || limit > 0 {
 		return verifiedRange(resp, cs, off, limit)
 	}
-	return verifyChecksum(resp, cs), nil
+	return verifyChecksum(resp, cs)
 }
 
 func (o *ossStore) PutObject(ctx context.Context, key string, in io.Reader) error {
