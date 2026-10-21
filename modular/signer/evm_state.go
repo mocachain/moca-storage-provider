@@ -79,6 +79,11 @@ func (e *evmCommitUnknownError) Error() string {
 
 func (e *evmCommitUnknownError) Unwrap() error { return e.err }
 
+func isEvmCommitUnknown(err error) bool {
+	var target *evmCommitUnknownError
+	return stderrors.As(err, &target)
+}
+
 // evmFence identifies the lease a write runs under. Every signer write
 // transaction first locks the lease row and checks owner, epoch and expiry.
 type evmFence struct {
