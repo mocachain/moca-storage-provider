@@ -135,7 +135,7 @@ func NewObjectsSegmentsStats() *ObjectsSegmentsStats {
 	}
 }
 
-func (s *ObjectsSegmentsStats) put(objectID uint64, version int64, segmentCount uint32, redundancy ...int32) {
+func (s *ObjectsSegmentsStats) put(objectID uint64, version int64, segmentCount uint32, redundancy int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.stats[recoveryStatsKey(objectID, version, redundancy)] = &ObjectSegmentsStats{
@@ -145,20 +145,20 @@ func (s *ObjectsSegmentsStats) put(objectID uint64, version int64, segmentCount 
 	}
 }
 
-func (s *ObjectsSegmentsStats) has(objectID uint64, version int64, redundancy ...int32) bool {
+func (s *ObjectsSegmentsStats) has(objectID uint64, version int64, redundancy int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 	_, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
 	return ok
 }
 
-func (s *ObjectsSegmentsStats) remove(objectID uint64, version int64, redundancy ...int32) {
+func (s *ObjectsSegmentsStats) remove(objectID uint64, version int64, redundancy int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	delete(s.stats, recoveryStatsKey(objectID, version, redundancy))
 }
 
-func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, success bool, segmentIdx uint32, redundancy ...int32) {
+func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, success bool, segmentIdx uint32, redundancy int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
@@ -172,7 +172,7 @@ func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, 
 	}
 }
 
-func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64, redundancy ...int32) bool {
+func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64, redundancy int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
@@ -192,7 +192,7 @@ func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64,
 	return len(processIDs) == stats.SegmentCount
 }
 
-func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64, redundancy ...int32) bool {
+func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64, redundancy int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
@@ -212,12 +212,8 @@ func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64, r
 	return len(processIDs) == stats.SegmentCount && len(stats.FailedSegments) > 0
 }
 
-func recoveryStatsKey(id uint64, version int64, r []int32) objectVersion {
-	key := objectVersion{objectID: id, version: version}
-	if len(r) > 0 {
-		key.redundancy = r[0]
-	}
-	return key
+func recoveryStatsKey(id uint64, version int64, r int32) objectVersion {
+	return objectVersion{objectID: id, version: version, redundancy: r}
 }
 
 type RecoverGVGScheduler struct {
@@ -429,7 +425,7 @@ func (s *RecoverGVGScheduler) monitorBatch() {
 		processed := true
 		for object := range s.currentBatchObjectIDs {
 			if !s.manager.recoverObjectStats.isObjectProcessed(object.objectID, object.version, s.redundancyIndex) {
-				if !exceedTimeOut {
+				if !exceedTimeOut || s.manager.recoveryPublicationPending(object.objectID, object.version, s.redundancyIndex) {
 					processed = false
 					break
 				}
@@ -622,7 +618,7 @@ func (s *RecoverFailedObjectScheduler) Start() {
 				continue
 			}
 
-			if s.manager.recoveryFullyQueued(objectInfo.Id.Uint64(), o.RedundancyIndex) {
+			if s.manager.recoveryFullyQueued(objectInfo, o.RedundancyIndex) {
 				continue
 			}
 
@@ -675,10 +671,10 @@ func (s *RecoverFailedObjectScheduler) queueFailedObjectRecovery(objectInfo *typ
 // since RecoverFailedObjectTable itself carries no version. Seeding here at
 // least makes the in-memory report resolve against the version this pass is
 // actually recovering.
-func (s *RecoverFailedObjectScheduler) seedFailedObjectStats(objectInfo *types.ObjectInfo, segmentCount uint32) {
+func (s *RecoverFailedObjectScheduler) seedFailedObjectStats(objectInfo *types.ObjectInfo, segmentCount uint32, redundancy int32) {
 	objectID := objectInfo.Id.Uint64()
-	if !s.manager.recoverObjectStats.has(objectID, objectInfo.Version) {
-		s.manager.recoverObjectStats.put(objectID, objectInfo.Version, segmentCount)
+	if !s.manager.recoverObjectStats.has(objectID, objectInfo.Version, redundancy) {
+		s.manager.recoverObjectStats.put(objectID, objectInfo.Version, segmentCount, redundancy)
 	}
 }
 
@@ -687,21 +683,19 @@ func (s *RecoverFailedObjectScheduler) seedFailedObjectStats(objectInfo *types.O
 // verifying the object existence by querying integrate and piece_hash.
 // a recover GVG unit is marked as completed from Processed only when all objects pass the verification.
 type VerifyGVGScheduler struct {
-	manager              *ManageModular
-	gvgID                uint32
-	redundancyIndex      int32
-	curStartAfter        uint64
-	verifyFailedObjects  map[uint64]struct{}
-	verifySuccessObjects map[uint64]struct{} // cache
+	manager             *ManageModular
+	gvgID               uint32
+	redundancyIndex     int32
+	curStartAfter       uint64
+	verifyFailedObjects map[uint64]struct{}
 }
 
 func NewVerifyGVGScheduler(m *ManageModular, gvgID uint32, redundancyIndex int32) (*VerifyGVGScheduler, error) {
 	return &VerifyGVGScheduler{
-		manager:              m,
-		gvgID:                gvgID,
-		redundancyIndex:      redundancyIndex,
-		verifyFailedObjects:  make(map[uint64]struct{}),
-		verifySuccessObjects: make(map[uint64]struct{}),
+		manager:             m,
+		gvgID:               gvgID,
+		redundancyIndex:     redundancyIndex,
+		verifyFailedObjects: make(map[uint64]struct{}),
 	}, nil
 }
 
@@ -766,7 +760,6 @@ func (s *VerifyGVGScheduler) verifyPass(stats *spdb.RecoverGVGStats) (bool, erro
 			return true, nil
 		}
 		s.curStartAfter = 0
-		clear(s.verifySuccessObjects)
 		return false, nil
 	}
 	for _, o := range objects {
@@ -840,7 +833,7 @@ func SendAndConfirmCompleteSwapInTx(baseApp *gfspapp.GfSpBaseApp, msg *types2.Ms
 func (s *ObjectsSegmentsStats) markEmptyVerified(id uint64, version int64, r int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	if stats := s.stats[recoveryStatsKey(id, version, []int32{r})]; stats != nil {
+	if stats := s.stats[recoveryStatsKey(id, version, r)]; stats != nil {
 		stats.EmptyVerified = true
 	}
 }

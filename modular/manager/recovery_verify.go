@@ -220,13 +220,17 @@ func (m *ManageModular) verifyRecoveryIntegrity(ctx context.Context, index *stor
 }
 
 func (m *ManageModular) finalizeRecovery(a *recoveryAttempt) {
+	m.finalizeRecoveryContext(context.Background(), a)
+}
+
+func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recoveryAttempt) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	defer func() { a.finalizing = false }()
 	if !a.active {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	t := a.canonical
 	stages := make(map[uint32]string, len(a.segments))
@@ -246,6 +250,7 @@ func (m *ManageModular) finalizeRecovery(a *recoveryAttempt) {
 		var valid bool
 		candidate, valid, err = m.collectRecoveryPieces(ctx, object, params, t.EcIdx, stages, nil)
 		if err == nil && !valid {
+			a.ready = false
 			err = fmt.Errorf("incomplete or corrupt recovery candidate")
 		}
 		if err == nil {
@@ -265,6 +270,7 @@ func (m *ManageModular) finalizeRecovery(a *recoveryAttempt) {
 					break
 				}
 				if !present || !bytes.Equal(hash.GenerateChecksum(data), candidate.PieceChecksumList[i]) {
+					a.ready = false
 					err = fmt.Errorf("staged recovery piece changed before publication")
 					break
 				}
@@ -303,6 +309,9 @@ func (m *ManageModular) finalizeRecovery(a *recoveryAttempt) {
 		return
 	}
 	if err = m.baseApp.GfSpDB().DeleteRecoverFailedObject(t.ObjectInfo.Id.Uint64()); err != nil {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	if a.count == 0 {

@@ -211,6 +211,7 @@ func (m *ManageModular) Start(ctx context.Context) error {
 	m.startTaskRetryScheduler()
 	go m.delayStartMigrateScheduler()
 	go m.eventLoop(ctx)
+	go m.recoveryFinalizationLoop(ctx)
 	return nil
 }
 

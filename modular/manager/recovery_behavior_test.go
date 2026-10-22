@@ -415,3 +415,52 @@ func TestRecoveryFinalizationFailureDoesNotExposeSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoveryFinalizationRetriesAcceptedStagingWithoutRedispatch(t *testing.T) {
+	for _, expired := range []bool{false, true} {
+		t.Run(fmt.Sprint(expired), func(t *testing.T) {
+			m, object, params, db, _, store, meta := recoveryFixture(t, -1)
+			initial := &gfsptask.GfSpRecoverPieceTask{}
+			initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+			require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+			dispatched, err := m.dispatchRecovery(context.Background(), initial)
+			require.NoError(t, err)
+			key, err := gfsptask.RecoveryStageKey(dispatched)
+			require.NoError(t, err)
+			require.NoError(t, store.PutPiece(context.Background(), key, []byte("efgh")))
+			attempted := make(chan struct{})
+			db.EXPECT().PublishRecoveryIntegrity(gomock.Any()).DoAndReturn(func(*spdb.IntegrityMeta) error { close(attempted); return errors.New("temporary database outage") })
+			attempt := m.findRecovery(dispatched)
+			dispatched.SetRecoverDone()
+			require.NoError(t, m.HandleRecoverPieceTask(context.Background(), dispatched))
+			<-attempted
+			attempt.mu.Lock()
+			require.True(t, attempt.active)
+			require.False(t, attempt.finalizing)
+			attempt.started = time.Now().Add(-3 * time.Minute)
+			attempt.mu.Unlock()
+			require.True(t, m.recoveryFullyQueued(object, -1), "publication unknown must not consume a fresh download attempt")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			db.EXPECT().PublishRecoveryIntegrity(gomock.Any()).Return(nil)
+			db.EXPECT().GetObjectIntegrity(uint64(91), int32(-1)).Return(meta, nil)
+			db.EXPECT().DeleteRecoverFailedObject(uint64(91)).DoAndReturn(func(uint64) error {
+				if expired {
+					cancel()
+				}
+				return nil
+			})
+			m.retryRecoveryFinalizations(ctx)
+			if expired {
+				require.NotEmpty(t, m.recoveryTaskMap, "cleanup returning after the context expires must not expose completion")
+				attempt.mu.Lock()
+				require.True(t, attempt.active)
+				attempt.mu.Unlock()
+			} else {
+				require.Empty(t, m.recoveryTaskMap, "the retry worker must complete ordinary recovery after the outage")
+				require.Nil(t, m.findRecovery(dispatched))
+			}
+			require.Equal(t, int64(1), dispatched.GetRetry(), "publication retry must reuse the original dispatch")
+		})
+	}
+}

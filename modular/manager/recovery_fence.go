@@ -12,6 +12,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 // recoveryAttempt owns all dispatches and publication for one object/redundancy.
@@ -22,6 +23,7 @@ type recoveryAttempt struct {
 	active     bool
 	full       bool
 	finalizing bool
+	ready      bool
 	canonical  *gfsptask.GfSpRecoverPieceTask
 	segments   map[uint32]*recoveryDispatch
 	count      uint32
@@ -72,7 +74,7 @@ func (m *ManageModular) registerRecovery(ctx context.Context, t coretask.Recover
 	replace := false
 	if previous != nil {
 		previous.mu.Lock()
-		replace = previous.active && (time.Since(previous.started) > 2*time.Minute || !gfsptask.RecoverySnapshotEqual(previous.canonical.ObjectInfo, snapshot.ObjectInfo))
+		replace = previous.active && ((time.Since(previous.started) > 2*time.Minute && !previous.ready) || !gfsptask.RecoverySnapshotEqual(previous.canonical.ObjectInfo, snapshot.ObjectInfo))
 		previous.mu.Unlock()
 	}
 	if previous == nil || replace {
@@ -136,6 +138,7 @@ func (m *ManageModular) registerRecovery(ctx context.Context, t coretask.Recover
 		}
 		if !a.finalizing {
 			a.finalizing = true
+			a.ready = true
 			go m.finalizeRecovery(a)
 		}
 		return nil
@@ -261,6 +264,7 @@ func (m *ManageModular) reportRecovery(ctx context.Context, t coretask.RecoveryP
 		complete = complete && segment.accepted && !segment.failed
 	}
 	if complete && !a.finalizing {
+		a.ready = true
 		a.finalizing = true
 		go m.finalizeRecovery(a)
 	}
@@ -308,19 +312,15 @@ func (m *ManageModular) retireRecoveryLocked(a *recoveryAttempt) {
 }
 
 func copyRecovery(t *gfsptask.GfSpRecoverPieceTask) *gfsptask.GfSpRecoverPieceTask {
-	wire, err := t.Marshal()
+	result, err := cloneRecovery(t)
 	if err != nil {
-		panic(err)
-	}
-	result := new(gfsptask.GfSpRecoverPieceTask)
-	if err = result.Unmarshal(wire); err != nil {
 		panic(err)
 	}
 	return result
 }
 
-func (m *ManageModular) recoveryFullyQueued(id uint64, r int32) bool {
-	slot := fmt.Sprintf("%d/%d", id, r)
+func (m *ManageModular) recoveryFullyQueued(object *storagetypes.ObjectInfo, r int32) bool {
+	slot := fmt.Sprintf("%s/%d", object.Id.String(), r)
 	m.recoveryStateMu.Lock()
 	a := m.recoveryAttempts[slot]
 	m.recoveryStateMu.Unlock()
@@ -331,6 +331,13 @@ func (m *ManageModular) recoveryFullyQueued(id uint64, r int32) bool {
 	defer a.mu.Unlock()
 	if !a.active {
 		return false
+	}
+	if !gfsptask.RecoverySnapshotEqual(a.canonical.ObjectInfo, object) {
+		m.retireRecoveryLocked(a)
+		return false
+	}
+	if a.ready {
+		return true
 	}
 	if time.Since(a.started) > 2*time.Minute {
 		m.retireRecoveryLocked(a)
@@ -363,4 +370,57 @@ func (m *ManageModular) failRecoveryLocked(a *recoveryAttempt) error {
 	m.recoverMtx.Unlock()
 	m.retireRecoveryLocked(a)
 	return nil
+}
+
+// One retry worker reuses accepted staging without new dispatches or RetryTime.
+// It never waits behind a publisher holding an object gate over blocking IO.
+func (m *ManageModular) retryRecoveryFinalizations(ctx context.Context) {
+	m.recoveryStateMu.Lock()
+	attempts := make([]*recoveryAttempt, 0, len(m.recoveryAttempts))
+	for _, a := range m.recoveryAttempts {
+		attempts = append(attempts, a)
+	}
+	m.recoveryStateMu.Unlock()
+	for _, a := range attempts {
+		if ctx.Err() != nil {
+			return
+		}
+		if !a.mu.TryLock() {
+			continue
+		}
+		run := a.active && a.ready && !a.finalizing
+		if run {
+			a.finalizing = true
+		}
+		a.mu.Unlock()
+		if run {
+			m.finalizeRecoveryContext(ctx, a)
+		}
+	}
+}
+func (m *ManageModular) recoveryFinalizationLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.retryRecoveryFinalizations(ctx)
+		}
+	}
+}
+
+func (m *ManageModular) recoveryPublicationPending(id uint64, version int64, r int32) bool {
+	m.recoveryStateMu.Lock()
+	a := m.recoveryAttempts[fmt.Sprintf("%d/%d", id, r)]
+	m.recoveryStateMu.Unlock()
+	if a == nil {
+		return false
+	}
+	if !a.mu.TryLock() {
+		return true
+	}
+	defer a.mu.Unlock()
+	return a.active && a.ready && a.canonical.ObjectInfo.Version == version
 }

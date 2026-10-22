@@ -65,7 +65,7 @@ func TestRecoverPieceReportFromOldVersionPreservesCurrentRecovery(t *testing.T) 
 	chain.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), int64(0)).Return(params, nil).AnyTimes()
 	m.baseApp.SetConsensus(chain)
 	current := makeTask(2)
-	m.recoverObjectStats.put(702, 2, 1)
+	m.recoverObjectStats.put(702, 2, 1, -1)
 	require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
 
 	late := makeTask(1)

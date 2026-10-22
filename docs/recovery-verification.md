@@ -16,7 +16,10 @@ Executors write only flat `rstage-<fencehex>-<id>-<version>-<redundancy>-<segmen
 keys. Both source paths validate the chain before download and before staging.
 The manager verifies the complete candidate, rechecks staged data before copying,
 verifies canonical data, atomically publishes the full integrity row, reads it
-back and checks the chain again. Publication failures retain the unfinished marker.
+back and checks the chain again. Publication failures retain the unfinished marker. A single retry worker retries
+transient publication failures from accepted staging every three seconds, without
+new source downloads or recovery RetryTime. A changed chain snapshot replaces the
+old attempt; invalid candidate data needs a fresh recovery attempt.
 Normal single-piece recovery also uses this publisher; its other pieces must
 already satisfy the complete chain checksum. Partial copies never prove recovery.
 

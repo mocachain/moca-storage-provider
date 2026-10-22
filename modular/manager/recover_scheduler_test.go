@@ -28,7 +28,7 @@ func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *tes
 	m.recoveryQueue = queue
 	scheduler := &RecoverGVGScheduler{manager: m, currentBatchObjectIDs: make(map[objectVersion]struct{})}
 	assert.False(t, scheduler.queueRecoveryObject(object, params, 4, 3))
-	assert.False(t, m.recoverObjectStats.has(91, 2))
+	assert.False(t, m.recoverObjectStats.has(91, 2, 0))
 	assert.Empty(t, scheduler.currentBatchObjectIDs)
 }
 func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueuesEverySegment(t *testing.T) {
@@ -45,24 +45,24 @@ func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_RegistersCurrentVersi
 	scheduler := &RecoverFailedObjectScheduler{manager: m}
 	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(300), Version: 2, PayloadSize: 1}
 
-	scheduler.seedFailedObjectStats(objectInfo, 3)
+	scheduler.seedFailedObjectStats(objectInfo, 3, 0)
 
 	// Without seeding, isRecoverFailed's absent-key branch always reports true
 	// regardless of what actually happened. A real entry starts as "not
 	// failed" until a segment actually fails.
-	assert.True(t, m.recoverObjectStats.has(300, 2))
-	assert.False(t, m.recoverObjectStats.isRecoverFailed(300, 2))
+	assert.True(t, m.recoverObjectStats.has(300, 2, 0))
+	assert.False(t, m.recoverObjectStats.isRecoverFailed(300, 2, 0))
 
 	// A failure reported for this object now resolves against its own version
 	// instead of being invisible to it.
-	m.recoverObjectStats.addSegmentRecord(300, 2, false, 0)
-	m.recoverObjectStats.addSegmentRecord(300, 2, true, 1)
-	m.recoverObjectStats.addSegmentRecord(300, 2, true, 2)
-	assert.True(t, m.recoverObjectStats.isRecoverFailed(300, 2))
+	m.recoverObjectStats.addSegmentRecord(300, 2, false, 0, 0)
+	m.recoverObjectStats.addSegmentRecord(300, 2, true, 1, 0)
+	m.recoverObjectStats.addSegmentRecord(300, 2, true, 2, 0)
+	assert.True(t, m.recoverObjectStats.isRecoverFailed(300, 2, 0))
 
 	// A report for a different version of the same object must not resolve
 	// against this entry.
-	assert.False(t, m.recoverObjectStats.has(300, 3))
+	assert.False(t, m.recoverObjectStats.has(300, 3, 0))
 }
 
 func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_DoesNotResetInProgressEntry(t *testing.T) {
@@ -71,18 +71,18 @@ func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_DoesNotResetInProgres
 	scheduler := &RecoverFailedObjectScheduler{manager: m}
 	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(301), Version: 1, PayloadSize: 1}
 
-	scheduler.seedFailedObjectStats(objectInfo, 2)
-	m.recoverObjectStats.addSegmentRecord(301, 1, true, 0)
+	scheduler.seedFailedObjectStats(objectInfo, 2, 0)
+	m.recoverObjectStats.addSegmentRecord(301, 1, true, 0, 0)
 
 	// A later pass over the same still-pending row (e.g. the next scheduler
 	// tick, before this object's segments have all reported back) must not
 	// wipe out progress already recorded for it.
-	scheduler.seedFailedObjectStats(objectInfo, 2)
+	scheduler.seedFailedObjectStats(objectInfo, 2, 0)
 
-	assert.False(t, m.recoverObjectStats.isObjectProcessed(301, 1))
-	m.recoverObjectStats.addSegmentRecord(301, 1, true, 1)
-	assert.True(t, m.recoverObjectStats.isObjectProcessed(301, 1))
-	assert.False(t, m.recoverObjectStats.isRecoverFailed(301, 1))
+	assert.False(t, m.recoverObjectStats.isObjectProcessed(301, 1, 0))
+	m.recoverObjectStats.addSegmentRecord(301, 1, true, 1, 0)
+	assert.True(t, m.recoverObjectStats.isObjectProcessed(301, 1, 0))
+	assert.False(t, m.recoverObjectStats.isRecoverFailed(301, 1, 0))
 }
 
 func TestVerifyIntegrityAcceptsMatchingChainChecksum(t *testing.T) {
@@ -192,26 +192,26 @@ func TestManageModular_RecoverVGFScheduler1(t *testing.T) {
 
 func TestManageModular_ObjectsSegmentsStats(t *testing.T) {
 	stats := NewObjectsSegmentsStats()
-	stats.put(1, 1, 1)
-	has := stats.has(1, 1)
+	stats.put(1, 1, 1, 0)
+	has := stats.has(1, 1, 0)
 	assert.Equal(t, true, has)
-	stats.addSegmentRecord(1, 1, true, 1)
-	stats.addSegmentRecord(1, 1, false, 1)
-	l := stats.isObjectProcessed(1, 1)
+	stats.addSegmentRecord(1, 1, true, 1, 0)
+	stats.addSegmentRecord(1, 1, false, 1, 0)
+	l := stats.isObjectProcessed(1, 1, 0)
 	assert.Equal(t, true, l)
-	isFailed := stats.isRecoverFailed(1, 1)
+	isFailed := stats.isRecoverFailed(1, 1, 0)
 	assert.Equal(t, false, isFailed)
-	stats.remove(1, 1)
+	stats.remove(1, 1, 0)
 }
 
 func TestObjectsSegmentsStats_IgnoresLateReportFromEarlierVersion(t *testing.T) {
 	stats := NewObjectsSegmentsStats()
-	stats.put(1, 1, 1)
-	stats.put(1, 2, 1)
+	stats.put(1, 1, 1, 0)
+	stats.put(1, 2, 1, 0)
 
-	stats.addSegmentRecord(1, 1, true, 0)
+	stats.addSegmentRecord(1, 1, true, 0, 0)
 
-	assert.False(t, stats.isObjectProcessed(1, 2))
+	assert.False(t, stats.isObjectProcessed(1, 2, 0))
 }
 
 func TestVerifyGVGScheduler_NilChainResponseRemainsUnresolved(t *testing.T) {
