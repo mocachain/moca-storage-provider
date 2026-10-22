@@ -920,10 +920,7 @@ func confirmTx(ctx context.Context, client txQueryClient, waitForNextBlock func(
 			}
 			continue
 		}
-		if err = txExecutionError(txResponse, txHash); err != nil {
-			return txResponse, err
-		}
-		return txResponse, nil
+		return txResponse, txExecutionError(txResponse, txHash)
 	}
 	return nil, fmt.Errorf("failed to confirm transaction, tx_hash=%s", txHash)
 }
@@ -962,27 +959,32 @@ func txLookupFor(client txQueryClient, txHash string) (func(context.Context) (*s
 
 // txExecutionError wraps consensus.ErrTxExecutionFailed when the tx failed. An
 // Ethereum tx that reverts keeps Cosmos code 0 and only carries ethereumTxFailed.
+// For an Ethereum tx hash only its own ethereum_tx event counts; a Cosmos tx hash
+// covers every Ethereum tx the Cosmos tx carries.
 func txExecutionError(txResponse *sdk.TxResponse, txHash string) error {
 	if txResponse.Code != 0 {
 		return fmt.Errorf("%w: tx_hash=%s, codespace=%s, code=%d, log=%s",
 			consensus.ErrTxExecutionFailed, txHash, txResponse.Codespace, txResponse.Code, txResponse.RawLog)
 	}
-	evmHash := strings.ToLower(txHash)
+	evmHash := ""
+	if len(txHash) == 66 {
+		evmHash = strings.ToLower(txHash)
+	}
 	for _, event := range txResponse.Events {
 		if event.Type != evmTxEventType {
 			continue
 		}
-		var hash, failure string
+		var hash, reason string
 		for _, attr := range event.Attributes {
 			switch attr.Key {
 			case evmTxHashAttributeKey:
 				hash = attr.Value
 			case evmTxFailedAttributeKey:
-				failure = attr.Value
+				reason = attr.Value
 			}
 		}
-		if failure != "" && strings.ToLower(hash) == evmHash {
-			return fmt.Errorf("%w: tx_hash=%s, reason=%s", consensus.ErrTxExecutionFailed, txHash, failure)
+		if reason != "" && (evmHash == "" || strings.ToLower(hash) == evmHash) {
+			return fmt.Errorf("%w: tx_hash=%s, reason=%s", consensus.ErrTxExecutionFailed, txHash, reason)
 		}
 	}
 	return nil
