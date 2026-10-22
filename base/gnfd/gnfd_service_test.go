@@ -2,7 +2,6 @@ package gnfd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -145,6 +144,17 @@ func TestConfirmTxIgnoresFailureOfAnotherEvmTx(t *testing.T) {
 	assert.Same(t, want, resp)
 }
 
+func TestConfirmTxReportsRevertedEvmTxByCosmosHash(t *testing.T) {
+	want := evmTxResponse(testFailedCosmosHash, testFailedEvmHash, "Object already exists")
+	client := &fakeTxClient{byCosmosHash: map[string]*sdk.TxResponse{testFailedCosmosHash: want}}
+
+	resp, err := confirmTx(context.Background(), client, (&waitCounter{}).wait, testFailedCosmosHash)
+
+	require.ErrorIs(t, err, consensus.ErrTxExecutionFailed)
+	assert.Contains(t, err.Error(), "Object already exists")
+	assert.Same(t, want, resp)
+}
+
 func TestConfirmTxReportsFailedCosmosTx(t *testing.T) {
 	want := &sdk.TxResponse{TxHash: testCosmosHash, Code: 5, Codespace: "sdk", RawLog: "insufficient funds"}
 	client := &fakeTxClient{byCosmosHash: map[string]*sdk.TxResponse{testCosmosHash: want}}
@@ -194,8 +204,7 @@ func TestConfirmTxReturnsRPCErrorAtOnce(t *testing.T) {
 
 			_, err := confirmTx(context.Background(), client, w.wait, hash)
 
-			require.Error(t, err)
-			assert.True(t, errors.Is(err, rpcErr) || strings.Contains(err.Error(), "connection refused"))
+			require.ErrorIs(t, err, rpcErr)
 			assert.Zero(t, w.n)
 			assert.Equal(t, 1, len(client.getTxCalls)+len(client.eventsCalls))
 		})
