@@ -1288,6 +1288,12 @@ func isAlreadyExists(err error) bool {
 
 type SendTxFunc func() (string, error)
 
+// sendAndConfirmBackoff is the delay before the i-th attempt in SendAndConfirmTx.
+// It is a variable so tests can skip the wait.
+var sendAndConfirmBackoff = func(i int) time.Duration {
+	return time.Duration(i*backoffSecondInterval) * time.Second
+}
+
 func SendAndConfirmTx(chainClient consensus.Consensus, sendTxFunc SendTxFunc) error {
 	var (
 		txHash string
@@ -1295,7 +1301,7 @@ func SendAndConfirmTx(chainClient consensus.Consensus, sendTxFunc SendTxFunc) er
 		ctx    = context.Background()
 	)
 	for i := 0; i < confirmRetryNumber; i++ {
-		time.Sleep(time.Duration(i*backoffSecondInterval) * time.Second)
+		time.Sleep(sendAndConfirmBackoff(i))
 		txHash, err = sendTxFunc()
 		if err != nil {
 			log.Errorw("failed to send tx", "txHash", txHash, "error", err)
