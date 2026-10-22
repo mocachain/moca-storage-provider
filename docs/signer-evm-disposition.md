@@ -12,16 +12,16 @@ is conditioned on the exact row the decision was made on. A signer that changes 
 first wins; the command then exits 3.
 
 ```
-moca-sp signer-evm resolve         -c config.toml --scope operator --tx-hash 0x.. --operator NAME --reason TEXT \
-        [--evidence-tx 0x..] [--evidence-cosmos-tx HASH] [--scan-blocks N] [--accept-unknown] [--accept-gap] [--dry-run]
-moca-sp signer-evm resolve-outcome -c config.toml --outcome-id ID --operator NAME --reason TEXT \
-        [--evidence-tx 0x..] [--evidence-cosmos-tx HASH] [--scan-blocks N] [--dry-run]
-moca-sp signer-evm release         -c config.toml --outcome-id ID --operator NAME --reason TEXT \
-        --decision-ref URL --business-evidence TEXT [--dry-run]
-moca-sp signer-evm dispose-outcome -c config.toml --outcome-id ID --operator NAME --reason TEXT [--dry-run]
+moca-sp -c config.toml signer-evm resolve         --scope operator --tx-hash 0x.. --operator NAME --reason TEXT \
+                           [--evidence-tx 0x..] [--evidence-cosmos-tx HASH] [--scan-blocks N] [--accept-unknown] [--accept-gap] [--dry-run]
+moca-sp -c config.toml signer-evm resolve-outcome --outcome-id ID --operator NAME --reason TEXT \
+                           [--evidence-tx 0x..] [--evidence-cosmos-tx HASH] [--scan-blocks N] [--dry-run]
+moca-sp -c config.toml signer-evm release         --outcome-id ID --operator NAME --reason TEXT \
+                           --decision-ref URL --business-evidence TEXT [--dry-run]
+moca-sp -c config.toml signer-evm dispose-outcome --outcome-id ID --operator NAME --reason TEXT [--dry-run]
 ```
 
-Take `--tx-hash`, `--scope` and `--outcome-id` from `moca-sp signer-evm list`. Every
+Take `--tx-hash`, `--scope` and `--outcome-id` from `moca-sp -c config.toml signer-evm list`. Every
 command accepts `--json`.
 
 ## What a decision rests on
@@ -202,6 +202,11 @@ sequence (`cosmos/evm ante/evm/09_increment_sequence.go`).
   one is never branch c.
 - Branch e is deliberately broad: an external call with other calldata is not decoded,
   even when it could be proven unrelated.
+- No command ends a pending row or an outcome whose evidence fails V(e): `resolve`,
+  `resolve-outcome` and `release` all exit 4 and leave it. Every decision here rests on
+  the signed bytes, and without them none of the branches can be proven. Ending such a
+  row needs a separate override with its own decision record; it is not part of these
+  commands. Until then, stop and report the row instead of editing the tables.
 
 ## What this does not guarantee (R6)
 

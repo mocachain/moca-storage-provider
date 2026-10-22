@@ -136,7 +136,7 @@ last restart, collect the `tx_hash` of every line with one of these messages:
 hashes:
 
 ```bash
-moca-sp signer-evm preflight -c config.toml \
+moca-sp -c config.toml signer-evm preflight \
   --hash 0x... --hash 0x... \
   --json > preflight.json
 ```
@@ -187,7 +187,7 @@ Only when (a), (b) and (c) hold:
 
    ```bash
    SP_DB_USER=sp_signer_migrate SP_DB_PASSWORD=... \
-     moca-sp signer-evm migrate -c config.toml
+     moca-sp -c config.toml signer-evm migrate
    ```
 
    It creates the four tables if missing, then runs the same schema check the signer
@@ -196,7 +196,7 @@ Only when (a), (b) and (c) hold:
 4. Confirm B holds the lease and has no pending rows:
 
    ```bash
-   moca-sp signer-evm list -c config.toml
+   moca-sp -c config.toml signer-evm list
    ```
 
    Expect `lease: owner=<host>/<pid>/<nonce> ... live=true`, no `PENDING` rows and no
@@ -224,7 +224,7 @@ If the lease shows two owners alternating, or no `lease_acquired`, roll back.
 ## Rollback: B to A
 
 1. Stop upstream dispatch and let in-flight requests finish (steps 1 and 2 above).
-2. `moca-sp signer-evm list -c config.toml` must show no `PENDING` rows and no
+2. `moca-sp -c config.toml signer-evm list` must show no `PENDING` rows and no
    `OUTCOME` rows. If there are rows, wait for them to be consumed or handled with the
    commands in [manual disposition](signer-evm-disposition.md). If you cannot clear
    them, do not roll back; report it.
