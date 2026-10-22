@@ -56,6 +56,8 @@ type fakeChainEntry struct {
 	evm    *ethtypes.Transaction
 	status uint64
 	cosmos *CosmosTxView
+	// foreign is another account's transaction: it uses none of the signer's nonces.
+	foreign bool
 }
 
 func (e *fakeChainEntry) hash() string {
@@ -110,6 +112,16 @@ func (c *fakeDisposeChain) addEvmTx(tx *ethtypes.Transaction, status uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sync()
+}
+
+// addForeignEvmTx commits a successful transaction of another account.
+func (c *fakeDisposeChain) addForeignEvmTx(tx *ethtypes.Transaction) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sync()
+	c.entries = append(c.entries, &fakeChainEntry{height: c.height, nonce: tx.Nonce(), evm: tx,
+		status: ethtypes.ReceiptStatusSuccessful, foreign: true})
+	c.height++
 }
 
 // addCosmosTx uses the account's next nonce with a Cosmos transaction. A
@@ -203,7 +215,7 @@ func (c *fakeDisposeChain) NonceAt(_ context.Context, _ ethcmn.Address, height *
 	c.sync()
 	nonce := c.base
 	for _, e := range c.entries {
-		if e.height <= height.Uint64() {
+		if e.height <= height.Uint64() && !e.foreign {
 			nonce++
 		}
 	}

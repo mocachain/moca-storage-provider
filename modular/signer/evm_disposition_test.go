@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // Scenarios T4–T9, the CLI part of T11c, T18–T19c of the SOL-486 plan
@@ -84,6 +86,72 @@ func TestDisposeUnrelatedOccupier(t *testing.T) {
 			}
 			env.expectResigned(1000, original)
 		})
+	}
+}
+
+// T4: --evidence-tx is checked on its own: a transaction from another
+// sender, or from the sender at another nonce, is not the occupier even
+// when it is a plain transfer. The block scan filters on both before the
+// check; an operator-supplied hash relies on the check alone.
+func TestDisposeEvidenceTxOfAnotherSenderOrNonce(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		decoy func(env *disposeEnv, n uint64) *ethtypes.Transaction
+	}{
+		{"another sender", func(env *disposeEnv, n uint64) *ethtypes.Transaction {
+			key, err := crypto.GenerateKey()
+			if err != nil {
+				env.t.Fatal(err)
+			}
+			to := plainTransferTo
+			tx, err := ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(big.NewInt(5151)), &ethtypes.LegacyTx{
+				Nonce: n, GasPrice: big.NewInt(1_000_000_000), Gas: 300000, To: &to, Value: big.NewInt(5),
+			})
+			if err != nil {
+				env.t.Fatal(err)
+			}
+			env.chain.addForeignEvmTx(tx)
+			return tx
+		}},
+		{"another nonce", func(env *disposeEnv, n uint64) *ethtypes.Transaction {
+			tx := signTx(env.t, n+1, plainTransferTo, 5, nil, 1_000_000_000)
+			env.chain.addEvmTx(tx, ethtypes.ReceiptStatusSuccessful)
+			return tx
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newDisposeEnv(t)
+			pending, _ := env.stuckDeposit(1000)
+			// N is used, but by a transaction the CLI cannot find
+			occupier := signTx(t, pending.Nonce, plainTransferTo, 5, nil, 1_000_000_000)
+			env.chain.addEvmTx(occupier, ethtypes.ReceiptStatusSuccessful)
+			env.chain.hide(occupier.Hash().Hex(), true)
+			decoy := tc.decoy(env, pending.Nonce)
+
+			report := env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{EvidenceTx: decoy.Hash()})
+			expectExit(t, report, EvmDisposeExitNotProven, EvmBranchOccupierMissing)
+			if !strings.Contains(strings.Join(report.Samples[0].Notes, "\n"), "is not from") {
+				t.Fatalf("expected the sender/nonce check to reject %s: %+v", decoy.Hash().Hex(), report.Samples)
+			}
+			if _, ok := env.store.pendingOf(SignOperator); !ok || env.auditCount(evmAuditManualResolveOtherUnrelated) != 0 {
+				t.Fatal("the pending row must stay")
+			}
+		})
+	}
+}
+
+// T4: a plain transfer to a possible precompile address is undetermined
+// (branch e), not unrelated: the address has no code but may run one.
+func TestDisposeTransferToPrecompileIsUndetermined(t *testing.T) {
+	env := newDisposeEnv(t)
+	pending, _ := env.stuckDeposit(1000)
+	occupier := signTx(t, pending.Nonce, ethcmn.HexToAddress("0x0000000000000000000000000000000000001000"), 5, nil, 1_000_000_000)
+	env.chain.addEvmTx(occupier, ethtypes.ReceiptStatusSuccessful)
+
+	report := env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{EvidenceTx: occupier.Hash()})
+	expectExit(t, report, EvmDisposeExitNotProven, EvmBranchUndetermined)
+	if _, ok := env.store.pendingOf(SignOperator); !ok || env.auditCount(evmAuditManualResolveOtherUnrelated) != 0 {
+		t.Fatal("the pending row must stay")
 	}
 }
 
