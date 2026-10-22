@@ -562,7 +562,7 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 // checkRecoveryPieceLength rejects a downloaded EC piece whose size cannot
 // reconstruct a segment of segmentSize bytes from dataShards pieces.
 func checkRecoveryPieceLength(pieceSize int, dataShards uint32, segmentSize int64) error {
-	ecTotalSize := int64(uint32(pieceSize) * dataShards)
+	ecTotalSize := int64(pieceSize) * int64(dataShards)
 	if ecTotalSize < segmentSize || ecTotalSize > segmentSize+int64(dataShards) {
 		return ErrRecoveryPieceLength
 	}
