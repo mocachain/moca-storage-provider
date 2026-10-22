@@ -349,3 +349,119 @@ VALUES ('moca_5151-1', LAST_INSERT_ID(), 'operator', ?, 7, ?, ?, 1, 0, 0)`,
 		t.Fatalf("list must flag the corrupt row with exit code 2: %v\n%s", err, out)
 	}
 }
+
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr cli.ExitCoder
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+// release and dispose-outcome end to end against MySQL: their flags, exit
+// codes, dry run and audit. resolve and resolve-outcome need a chain; their
+// decisions are covered in modular/signer.
+func TestSignerEvmOutcomeCommands(t *testing.T) {
+	user := envOrDefault("SIGNER_EVM_TEST_DB_USER", envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root"))
+	password := envOrDefault("SIGNER_EVM_TEST_DB_PASSWORD", envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root"))
+	address := envOrDefault("SIGNER_EVM_TEST_DB_ADDRESS", envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306"))
+	database := test.CreateDatabase(t, user, password, address, "signer_evm_cli")
+	for _, env := range []string{"SP_DB_USER", "SP_DB_PASSWORD", "SP_DB_ADDRESS", "SP_DB_DATABASE"} {
+		if value, ok := os.LookupEnv(env); ok {
+			t.Cleanup(func() { _ = os.Setenv(env, value) })
+			_ = os.Unsetenv(env)
+		}
+	}
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	config := fmt.Sprintf("[Chain]\nChainID = 'moca_5151-1'\n\n[SpDB]\nUser = '%s'\nPasswd = '%s'\nAddress = '%s'\nDatabase = '%s'\n",
+		user, password, address, database)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runSignerEvmApp(t, "-c", configPath, "signer-evm", "migrate"); err != nil {
+		t.Fatalf("migrate: %v\n%s", err, out)
+	}
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", user, password, address, database))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// one blocked_unknown and one succeeded outcome with valid evidence
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	insert := func(nonce uint64, operation, state string) int64 {
+		to := ethcmn.HexToAddress("0x2000")
+		tx, err := types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(5151)), &types.LegacyTx{
+			Nonce: nonce, GasPrice: big.NewInt(1), Gas: 21000, To: &to, Value: big.NewInt(0),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := tx.MarshalBinary()
+		res, err := db.Exec(`INSERT INTO signer_evm_signed_tx (chain_id, evm_chain_id, scope, operation, from_address, nonce, tx_hash, raw, recorded_block, lease_epoch, created_at)
+VALUES ('moca_5151-1', 5151, 'operator', ?, ?, ?, ?, ?, 100, 1, 0)`, operation, from.Hex(), nonce, tx.Hash().Hex(), raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signedTxID, _ := res.LastInsertId()
+		res, err = db.Exec(`INSERT INTO signer_evm_state (chain_id, signed_tx_id, scope, from_address, nonce, tx_hash, operation, state, reason, source, created_at)
+VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual', 0)`, signedTxID, from.Hex(), nonce, tx.Hash().Hex(), operation, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := res.LastInsertId()
+		return id
+	}
+	blocked := insert(7, ethcmn.HexToHash("0x01").Hex(), "blocked_unknown")
+	succeeded := insert(8, ethcmn.HexToHash("0x02").Hex(), "succeeded")
+	count := func(query string, args ...interface{}) int {
+		var n int
+		if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	id := func(v int64) string { return fmt.Sprint(v) }
+	base := []string{"-c", configPath, "signer-evm"}
+	run := func(args ...string) (string, int) {
+		out, err := runSignerEvmApp(t, append(append([]string{}, base...), args...)...)
+		return out, exitCodeOf(err)
+	}
+
+	for _, args := range [][]string{
+		{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "r", "--business-evidence", "e"},
+		{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "r", "--decision-ref", "d"},
+		{"release", "--outcome-id", id(blocked), "--reason", "r", "--decision-ref", "d", "--business-evidence", "e"},
+		{"resolve", "--scope", "operator", "--tx-hash", "0x12", "--operator", "ops", "--reason", "r"},
+		{"resolve", "--scope", "operator", "--tx-hash", ethcmn.HexToHash("0x12").Hex(), "--operator", "ops", "--reason", "r"},
+	} {
+		if out, code := run(args...); code != 1 {
+			t.Fatalf("%v: want exit 1, got %d\n%s", args, code, out)
+		}
+	}
+	release := []string{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "Board approved",
+		"--decision-ref", "https://board.example/d/1", "--business-evidence", "deposit balance unchanged"}
+	if out, code := run(append(release, "--dry-run")...); code != 0 || !strings.Contains(out, "action (would)") ||
+		count("SELECT COUNT(*) FROM signer_evm_state") != 2 || count("SELECT COUNT(*) FROM signer_evm_audit") != 0 {
+		t.Fatalf("dry run: exit %d\n%s", code, out)
+	}
+	if out, code := run(release...); code != 0 || count("SELECT COUNT(*) FROM signer_evm_state WHERE id = ?", blocked) != 0 ||
+		count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'manual_release_unknown' AND decision_ref = 'https://board.example/d/1' AND actor LIKE 'ops (os user %'") != 1 {
+		t.Fatalf("release: exit %d\n%s", code, out)
+	}
+	if out, code := run(release...); code != 3 || count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'manual_rejected'") != 1 {
+		t.Fatalf("a second release must exit 3 with manual_rejected: exit %d\n%s", code, out)
+	}
+	dispose := []string{"dispose-outcome", "--outcome-id", id(succeeded), "--operator", "ops", "--reason", "business confirmed", "--json"}
+	if out, code := run(dispose...); code != 0 || !strings.Contains(out, `"audit_event": "manual_dispose_outcome"`) ||
+		count("SELECT COUNT(*) FROM signer_evm_state") != 0 {
+		t.Fatalf("dispose-outcome: exit %d\n%s", code, out)
+	}
+}

@@ -225,8 +225,9 @@ If the lease shows two owners alternating, or no `lease_acquired`, roll back.
 
 1. Stop upstream dispatch and let in-flight requests finish (steps 1 and 2 above).
 2. `moca-sp signer-evm list -c config.toml` must show no `PENDING` rows and no
-   `OUTCOME` rows. If there are rows, wait for them to be consumed or handled by the
-   resolve commands. If you cannot clear them, do not roll back; report it.
+   `OUTCOME` rows. If there are rows, wait for them to be consumed or handled with the
+   commands in [manual disposition](signer-evm-disposition.md). If you cannot clear
+   them, do not roll back; report it.
 3. Stop B (it releases the lease on exit). Confirm no B process is running. Start A.
    Resume dispatch.
 
@@ -235,7 +236,7 @@ the empty `list`.
 
 The tables stay. If you later upgrade again, B reads whatever is left. Rows that no
 longer match the chain (A used the nonce in the meantime) are handled with the
-resolve commands.
+commands in [manual disposition](signer-evm-disposition.md).
 
 ## Signer behaviour you will see in logs
 
