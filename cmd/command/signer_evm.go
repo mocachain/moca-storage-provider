@@ -304,7 +304,7 @@ func printSignerEvmDispose(w io.Writer, report *signer.EvmDisposeReport, asJSON 
 		fmt.Fprintf(w, "transaction: scope=%s from=%s nonce=%d tx_hash=%s operation=%s\n", report.Scope, report.From,
 			report.Nonce, report.TxHash, report.Operation)
 	case report.TxHash != "":
-		// the command stopped before the evidence was read
+		// the command stopped before it read the evidence, or never got to it
 		fmt.Fprintf(w, "transaction: scope=%s tx_hash=%s\n", report.Scope, report.TxHash)
 	}
 	if report.OutcomeID != 0 {

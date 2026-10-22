@@ -1018,6 +1018,9 @@ func TestDisposeInvalidEvidence(t *testing.T) {
 		{"db read error", func(env *disposeEnv, _ pendingRecord) {
 			env.store.inject("get_signed_tx", memFaultFail)
 		}, EvmDisposeExitError},
+		{"pending row read error", func(env *disposeEnv, _ pendingRecord) {
+			env.store.inject("get_pending", memFaultFail)
+		}, EvmDisposeExitError},
 	} {
 		t.Run("pending "+tc.name, func(t *testing.T) {
 			env := newDisposeEnv(t)

@@ -487,7 +487,11 @@ VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual'
 	_, pendingHash := insertRow(9, ethcmn.HexToHash("0x03").Hex(), "pending", true)
 	rpcConfig := filepath.Join(t.TempDir(), "config.toml")
 	// nothing listens there: the command must stop before it talks to the chain
-	if err := os.WriteFile(rpcConfig, []byte(strings.Replace(config, "[Chain]\n", "[Chain]\nRpcAddress = ['http://127.0.0.1:1']\n", 1)), 0o600); err != nil {
+	withRPC := strings.Replace(config, "[Chain]\n", "[Chain]\nRpcAddress = ['http://127.0.0.1:1']\n", 1)
+	if withRPC == config {
+		t.Fatal("the test config has no [Chain] section to add the RPC address to")
+	}
+	if err := os.WriteFile(rpcConfig, []byte(withRPC), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	stdout, stderr, err := runSignerEvmAppStreams(t, "-c", rpcConfig, "signer-evm", "resolve", "--scope", "operator",
@@ -496,11 +500,17 @@ VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual'
 		t.Fatalf("resolve of corrupt evidence: exit %d\nstdout %s\nstderr %s", code, stdout, stderr)
 	}
 	lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("want one stderr line, got %q", stderr)
+	}
 	var logged signerEvmDisposeLog
-	dec := json.NewDecoder(strings.NewReader(lines[len(lines)-1]))
+	dec := json.NewDecoder(strings.NewReader(lines[0]))
 	dec.DisallowUnknownFields()
-	if len(lines) != 1 || dec.Decode(&logged) != nil {
-		t.Fatalf("want one JSON stderr record, got %q", stderr)
+	if err := dec.Decode(&logged); err != nil {
+		t.Fatalf("stderr is not one JSON record: %v: %q", err, stderr)
+	}
+	if n := count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'evidence_invalid'"); n != 1 {
+		t.Fatalf("want one evidence_invalid audit row, got %d", n)
 	}
 	var auditHash, auditActor, auditReason string
 	if err := db.QueryRow("SELECT tx_hash, actor, reason FROM signer_evm_audit WHERE event = 'evidence_invalid'").
