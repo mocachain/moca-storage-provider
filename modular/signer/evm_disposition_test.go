@@ -690,6 +690,15 @@ func TestDisposeOutcomePreconditions(t *testing.T) {
 		expectExit(t, env.outcomeCmd(EvmDisposeRelease, before[0].ID, EvmDisposeRequest{DecisionRef: "b", BusinessEvidence: "x"}),
 			EvmDisposeExitPrecondition, "")
 	})
+	t.Run("dry run", func(t *testing.T) { // T9 dispose-outcome
+		env, outcome := succeeded(t)
+		before := env.snapshotState()
+		report := env.outcomeCmd(EvmDisposeDisposeOutcome, outcome.ID, EvmDisposeRequest{DryRun: true})
+		expectExit(t, report, EvmDisposeExitOK, "")
+		if report.Applied || report.Action == "" || env.snapshotState() != before || len(env.chain.sends) != 0 {
+			t.Fatalf("a dry run must change nothing: %+v", report)
+		}
+	})
 	t.Run("signer consumes concurrently", func(t *testing.T) {
 		env, outcome := succeeded(t)
 		env.store.hookOnce("manual_settle", func(m *memEvmStateStore) { delete(m.outcomes, outcome.ID) })
@@ -916,4 +925,20 @@ func TestDisposeInvalidEvidence(t *testing.T) {
 			t.Fatal("the pending row must stay with an evidence_invalid audit")
 		}
 	})
+}
+
+// T11c-high: a nonce gap holds only when the account nonce M is the same at
+// both heights; samples that see M move disagree.
+func TestDisposeGapSamplesAgreeOnNonce(t *testing.T) {
+	for _, branch := range []string{EvmBranchNonceGap, EvmBranchGapUnproven, EvmBranchGapNotProbed} {
+		a := EvmDisposeSample{Height: 101, ChainNonce: 5, Branch: branch}
+		b := EvmDisposeSample{Height: 102, ChainNonce: 6, Branch: branch}
+		if a.key() == b.key() {
+			t.Fatalf("%s: samples at nonces 5 and 6 must disagree", branch)
+		}
+		b.ChainNonce = 5
+		if a.key() != b.key() {
+			t.Fatalf("%s: samples at the same nonce must agree", branch)
+		}
+	}
 }

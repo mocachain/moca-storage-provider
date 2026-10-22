@@ -218,11 +218,16 @@ func (s *EvmDisposeSample) note(format string, args ...interface{}) {
 	s.Notes = append(s.Notes, fmt.Sprintf(format, args...))
 }
 
-// key is what two samples must agree on.
+// key is what two samples must agree on. A nonce gap also needs the same
+// account nonce at both heights.
 func (s *EvmDisposeSample) key() string {
 	occupier := ""
 	if s.Occupier != nil {
 		occupier = s.Occupier.Kind + ":" + s.Occupier.Hash
+	}
+	switch s.Branch {
+	case EvmBranchNonceGap, EvmBranchGapUnproven, EvmBranchGapNotProbed:
+		occupier = fmt.Sprintf("nonce %d", s.ChainNonce)
 	}
 	return s.Branch + "|" + occupier
 }
@@ -561,16 +566,20 @@ func (d *evmDisposer) resolve(ctx context.Context) {
 	if d.req.DryRun {
 		return
 	}
-	err = d.store.ManualResolvePending(ctx, *pending, result, auditEvent)
+	// The write, its read-back and the audit of a conflict outlive a
+	// cancelled CLI, like every signer state write.
+	wctx, cancel := evmStateCtx(ctx)
+	defer cancel()
+	err = d.store.ManualResolvePending(wctx, *pending, result, auditEvent)
 	if isEvmCommitUnknown(err) {
-		current, readErr := d.store.GetPending(ctx, d.req.ChainID, scope)
+		current, readErr := d.store.GetPending(wctx, d.req.ChainID, scope)
 		if readErr == nil && (current == nil || current.ID != pending.ID) {
-			if done, readErr := d.store.HasAudit(ctx, d.req.ChainID, event, pending.TxHash, 0); readErr == nil && done {
+			if done, readErr := d.store.HasAudit(wctx, d.req.ChainID, event, pending.TxHash, 0); readErr == nil && done {
 				err = nil
 			}
 		}
 	}
-	d.finishWrite(ctx, base, event, err)
+	d.finishWrite(wctx, base, event, err)
 }
 
 // withOccupier copies the occupying transaction into an audit event.
@@ -731,13 +740,15 @@ func (d *evmDisposer) settle(ctx context.Context, outcome outcomeRecord, from []
 	if d.req.DryRun {
 		return
 	}
-	err := d.store.ManualSettleOutcome(ctx, outcome, from, to, event)
+	wctx, cancel := evmStateCtx(ctx)
+	defer cancel()
+	err := d.store.ManualSettleOutcome(wctx, outcome, from, to, event)
 	if isEvmCommitUnknown(err) {
-		if done, readErr := d.store.HasAudit(ctx, d.req.ChainID, event.Event, ethcmn.Hash{}, outcome.ID); readErr == nil && done {
+		if done, readErr := d.store.HasAudit(wctx, d.req.ChainID, event.Event, ethcmn.Hash{}, outcome.ID); readErr == nil && done {
 			err = nil
 		}
 	}
-	d.finishWrite(ctx, base, event.Event, err)
+	d.finishWrite(wctx, base, event.Event, err)
 }
 
 // assessTwice binds the decision to two heights H < H': both samples must
@@ -868,14 +879,14 @@ func (d *evmDisposer) assessGap(ctx context.Context, target evmDisposeTarget, sa
 		return fmt.Errorf("pending nonce of %s: %w", target.evidence.From.Hex(), err)
 	}
 	sample.PendingNonce = uint64Ptr(pending)
-	if pending != sample.ChainNonce {
-		sample.Branch = EvmBranchGapUnproven
-		sample.note("pending nonce %d differs from the nonce %d at height %d", pending, sample.ChainNonce, sample.Height)
-		return nil
-	}
 	if !target.probeGap {
 		sample.Branch = EvmBranchGapNotProbed
 		sample.note("not probed")
+		return nil
+	}
+	if pending != sample.ChainNonce {
+		sample.Branch = EvmBranchGapUnproven
+		sample.note("pending nonce %d differs from the nonce %d at height %d", pending, sample.ChainNonce, sample.Height)
 		return nil
 	}
 	sendErr := d.evm.SendTransaction(ctx, target.tx)

@@ -125,7 +125,7 @@ request must be signed instead of receiving the old result.
 |---|---|---|
 | 0 | done (or, with `--dry-run`, would be done) | changed with one audit row (unchanged in a dry run) |
 | 1 | usage, RPC or DB error; chain id mismatch | unchanged; RPC errors and chain id mismatches audit `manual_rejected` |
-| 2 | the chain does not decide the case, the heights disagree, or a dry run could not probe | unchanged; `manual_rejected` |
+| 2 | the chain does not decide the case, the heights disagree, or a dry run could not probe | unchanged; `manual_rejected` (none in a dry run) |
 | 3 | the row is gone or not in the expected state (stale id, second run, changed meanwhile) | unchanged; `manual_rejected`, except a `resolve` whose `--tx-hash` or `--scope` does not match the pending row, which writes nothing |
 | 4 | the evidence row is missing or fails V(e) | unchanged; `evidence_invalid` |
 
