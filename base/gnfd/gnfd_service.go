@@ -23,6 +23,7 @@ import (
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -879,14 +880,23 @@ func (g *Gnfd) ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxRe
 	defer func() {
 		metrics.GnfdChainTime.WithLabelValues("confirm_transaction").Observe(time.Since(startTime).Seconds())
 	}()
+	return confirmTx(ctx, g.getCurrentClient().GnfdClient(), g.WaitForNextBlock, txHash)
+}
+
+// txQueryClient is the part of the chain client that confirmTx needs.
+type txQueryClient interface {
+	GetTx(ctx context.Context, in *tx.GetTxRequest, opts ...grpc.CallOption) (*tx.GetTxResponse, error)
+	GetTxsEvent(ctx context.Context, in *tx.GetTxsEventRequest, opts ...grpc.CallOption) (*tx.GetTxsEventResponse, error)
+}
+
+func confirmTx(ctx context.Context, client txQueryClient, waitForNextBlock func(context.Context) error, txHash string) (*sdk.TxResponse, error) {
 	txHash = trimHexPrefix(txHash)
-	client := g.getCurrentClient().GnfdClient()
 	for i := 0; i < ConfirmBlockNumber; i++ {
 		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				// Tx not found, wait for next block and try again
-				if err = g.WaitForNextBlock(ctx); err != nil {
+				if err = waitForNextBlock(ctx); err != nil {
 					log.Warnf("failed to wait for next block err:%v", err)
 				}
 				continue

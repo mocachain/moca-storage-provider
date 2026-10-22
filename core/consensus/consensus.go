@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -11,6 +12,10 @@ import (
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
+
+// ErrTxExecutionFailed is returned by ConfirmTransaction when the transaction
+// is on chain but its execution failed.
+var ErrTxExecutionFailed = errors.New("transaction execution failed")
 
 // Consensus is the interface to query moca consensus data. the consensus
 // data can come from validator, full-node, or other off-chain data service
