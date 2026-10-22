@@ -202,11 +202,16 @@ sequence (`cosmos/evm ante/evm/09_increment_sequence.go`).
   one is never branch c.
 - Branch e is deliberately broad: an external call with other calldata is not decoded,
   even when it could be proven unrelated.
-- No command ends a pending row or an outcome whose evidence fails V(e): `resolve`,
-  `resolve-outcome` and `release` all exit 4 and leave it. Every decision here rests on
-  the signed bytes, and without them none of the branches can be proven. Ending such a
-  row needs a separate override with its own decision record; it is not part of these
-  commands. Until then, stop and report the row instead of editing the tables.
+- No command ends a pending row or a `blocked_unknown` outcome whose evidence fails
+  V(e): `resolve`, `resolve-outcome` and `release` all exit 4 and leave it. These
+  decisions rest on the signed bytes, and without them none of the branches can be
+  proven. Ending such a row needs a separate override with its own decision record; it
+  is not part of these commands. Until then, stop and report the row instead of editing
+  the tables.
+- `dispose-outcome` is the exception. It acts on the business owner's decision, not on
+  the evidence, so it still deletes a `succeeded` or `executed_elsewhere` outcome whose
+  evidence fails V(e); the failure is listed in the report notes and the deletion is
+  audited as usual.
 
 ## What this does not guarantee (R6)
 
