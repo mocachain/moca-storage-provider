@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -463,5 +464,55 @@ VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual'
 	if out, code := run(dispose...); code != 0 || !strings.Contains(out, `"audit_event": "manual_dispose_outcome"`) ||
 		count("SELECT COUNT(*) FROM signer_evm_state") != 0 {
 		t.Fatalf("dispose-outcome: exit %d\n%s", code, out)
+	}
+}
+
+// A disposition command writes one structured line to stderr that matches
+// the report, without transaction bytes; stdout keeps the human-readable
+// report. The signer tests check the report against the audit row.
+func TestSignerEvmDisposeStderrLog(t *testing.T) {
+	for _, report := range []*signer.EvmDisposeReport{
+		{Command: signer.EvmDisposeRelease, OutcomeID: 7, TxHash: "0x" + strings.Repeat("ab", 32), Action: "delete outcome 7",
+			Applied: true, Event: "manual_release_unknown", Actor: "ops (os user sp)", OperatorReason: "board approved",
+			DecisionRef: "https://board.example/decisions/42"},
+		{Command: signer.EvmDisposeDisposeOutcome, OutcomeID: 7, Action: "none", Event: "manual_rejected",
+			Error: "outcome 7 is not in state succeeded", ExitCode: signer.EvmDisposeExitPrecondition, Actor: "ops (os user sp)",
+			OperatorReason: "cleanup"},
+		{Command: signer.EvmDisposeResolve, Scope: "operator", Error: "failed to read the pending row",
+			ExitCode: signer.EvmDisposeExitError, Actor: "ops (os user sp)"},
+	} {
+		t.Run(fmt.Sprintf("%s exit %d", report.Command, report.ExitCode), func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := &cli.App{
+				Writer: &out, ErrWriter: &errOut,
+				Action:         func(ctx *cli.Context) error { return finishSignerEvmDispose(ctx, report) },
+				ExitErrHandler: func(*cli.Context, error) {},
+			}
+			err := app.Run([]string{"moca-sp"})
+			if exitCodeOf(err) != report.ExitCode {
+				t.Fatalf("exit code %d, want %d", exitCodeOf(err), report.ExitCode)
+			}
+			lines := strings.Split(strings.TrimRight(errOut.String(), "\n"), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("want one stderr line, got %q", errOut.String())
+			}
+			// only the known fields: nothing else, such as transaction bytes, is logged
+			var logged signerEvmDisposeLog
+			dec := json.NewDecoder(strings.NewReader(lines[0]))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&logged); err != nil {
+				t.Fatalf("stderr is not one JSON record: %v: %q", err, lines[0])
+			}
+			want := signerEvmDisposeLog{Msg: "signer-evm disposition", Command: report.Command, Scope: report.Scope,
+				TxHash: report.TxHash, OutcomeID: report.OutcomeID, Action: report.Action, Applied: report.Applied,
+				AuditEvent: report.Event, ExitCode: report.ExitCode, Actor: report.Actor, OperatorReason: report.OperatorReason,
+				DecisionRef: report.DecisionRef, Error: report.Error}
+			if logged != want {
+				t.Fatalf("stderr record %+v, want %+v", logged, want)
+			}
+			if !strings.Contains(out.String(), "exit code:") {
+				t.Fatalf("unexpected output:\nstdout %q\nstderr %q", out.String(), errOut.String())
+			}
+		})
 	}
 }

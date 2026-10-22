@@ -252,15 +252,44 @@ func finishSignerEvmDispose(ctx *cli.Context, report *signer.EvmDisposeReport) e
 	if err := printSignerEvmDispose(ctx.App.Writer, report, ctx.Bool(signerEvmJSONFlag.Name)); err != nil {
 		return err
 	}
-	if report.Error != "" {
-		fmt.Fprintf(ctx.App.ErrWriter, "signer-evm %s: %s\n", report.Command, report.Error)
-	} else if report.Applied {
-		fmt.Fprintf(ctx.App.ErrWriter, "signer-evm %s: %s (audit %s)\n", report.Command, report.Action, report.Event)
+	if err := logSignerEvmDispose(ctx.App.ErrWriter, report); err != nil {
+		return err
 	}
 	if report.ExitCode != signer.EvmDisposeExitOK {
 		return cli.Exit("", report.ExitCode)
 	}
 	return nil
+}
+
+// signerEvmDisposeLog is the one-line structured record of a disposition
+// command on stderr, next to the audit row it wrote (if any). It carries no
+// credentials and no transaction bytes.
+type signerEvmDisposeLog struct {
+	Msg        string `json:"msg"`
+	Command    string `json:"command"`
+	DryRun     bool   `json:"dry_run"`
+	Scope      string `json:"scope,omitempty"`
+	TxHash     string `json:"tx_hash,omitempty"`
+	OutcomeID  uint64 `json:"outcome_id,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	Action     string `json:"action,omitempty"`
+	Applied    bool   `json:"applied"`
+	AuditEvent string `json:"audit_event,omitempty"`
+	ExitCode   int    `json:"exit_code"`
+	Actor      string `json:"actor"`
+	// OperatorReason is --reason, as in the report; the audit row stores it as reason.
+	OperatorReason string `json:"operator_reason,omitempty"`
+	DecisionRef    string `json:"decision_ref,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+func logSignerEvmDispose(w io.Writer, report *signer.EvmDisposeReport) error {
+	return json.NewEncoder(w).Encode(signerEvmDisposeLog{
+		Msg: "signer-evm disposition", Command: report.Command, DryRun: report.DryRun, Scope: report.Scope,
+		TxHash: report.TxHash, OutcomeID: report.OutcomeID, Branch: report.Branch, Action: report.Action,
+		Applied: report.Applied, AuditEvent: report.Event, ExitCode: report.ExitCode, Actor: report.Actor,
+		OperatorReason: report.OperatorReason, DecisionRef: report.DecisionRef, Error: report.Error,
+	})
 }
 
 func printSignerEvmDispose(w io.Writer, report *signer.EvmDisposeReport, asJSON bool) error {

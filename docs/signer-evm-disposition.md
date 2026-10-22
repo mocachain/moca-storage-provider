@@ -148,6 +148,16 @@ occupying transaction (`evidence_tx_hash`, `evidence_kind`) when there is one, a
 `manual_resolve_nonce_gap`, `manual_outcome_resolved`, `manual_release_unknown`,
 `manual_dispose_outcome`, `manual_rejected`, `evidence_invalid`.
 
+Each command also writes one JSON line to stderr, separate from the report on stdout:
+
+```json
+{"msg":"signer-evm disposition","command":"release","dry_run":false,"tx_hash":"0x..","outcome_id":7,"action":"..","applied":true,"audit_event":"manual_release_unknown","exit_code":0,"actor":"alice (os user sp)","operator_reason":"..","decision_ref":"https://.."}
+```
+
+`audit_event` names the audit row the command wrote, so the line can be matched to it.
+When nothing was written (a dry run, or a DB read error) the field is absent. The line
+never includes the transaction bytes or any credentials.
+
 ## Verified facts and limits
 
 These were checked against the exact dependencies in `go.mod` (node

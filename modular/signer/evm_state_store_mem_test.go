@@ -666,6 +666,15 @@ func (m *memEvmStateStore) tamperOutcome(id uint64, change func(*outcomeRecord))
 	m.outcomes[id] = o
 }
 
+// tamperPending changes a pending row in place.
+func (m *memEvmStateStore) tamperPending(id uint64, change func(*pendingRecord)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p := m.pending[id]
+	change(&p)
+	m.pending[id] = p
+}
+
 // deleteSignedTx models the RESTRICT foreign keys.
 func (m *memEvmStateStore) deleteSignedTx(id uint64) error {
 	m.mu.Lock()

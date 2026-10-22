@@ -254,6 +254,11 @@ type EvmDisposeReport struct {
 	Notes    []string `json:"notes,omitempty"`
 	Error    string   `json:"error,omitempty"`
 	ExitCode int      `json:"exit_code"`
+	// Actor, OperatorReason and DecisionRef are what the audit row records
+	// for whoever ran the command.
+	Actor          string `json:"actor"`
+	OperatorReason string `json:"operator_reason,omitempty"`
+	DecisionRef    string `json:"decision_ref,omitempty"`
 }
 
 // DisposeEvmState runs one disposition command against the SP DB.
@@ -280,7 +285,8 @@ type evmDisposer struct {
 func disposeEvmState(ctx context.Context, store evmStateStore, req EvmDisposeRequest, evm EvmDisposeChain,
 	cosmos CosmosDisposeChain,
 ) *EvmDisposeReport {
-	report := &EvmDisposeReport{Command: req.Command, DryRun: req.DryRun, Scope: req.Scope, OutcomeID: req.OutcomeID}
+	report := &EvmDisposeReport{Command: req.Command, DryRun: req.DryRun, Scope: req.Scope, OutcomeID: req.OutcomeID,
+		Actor: evmManualActor(req.Operator), OperatorReason: req.Reason, DecisionRef: req.DecisionRef}
 	if err := checkEvmDisposeRequest(req); err != nil {
 		report.Error, report.ExitCode = err.Error(), EvmDisposeExitError
 		return report
@@ -298,7 +304,7 @@ func disposeEvmState(ctx context.Context, store evmStateStore, req EvmDisposeReq
 	}
 	d := &evmDisposer{
 		store: store, st: newEvmState(store, req.ChainID, evmChainID.Uint64(), nil), req: req, evm: evm, cosmos: cosmos,
-		report: report, actor: evmManualActor(req.Operator), blocks: map[uint64][]EvmBlockTx{},
+		report: report, actor: report.Actor, blocks: map[uint64][]EvmBlockTx{},
 	}
 	switch req.Command {
 	case EvmDisposeResolve:

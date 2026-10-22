@@ -624,7 +624,8 @@ func (env *disposeEnv) sentAll() []fakeEvmSend {
 
 // T11c-low (CLI): the first send is refused as nonce too low because N is
 // already used, recording the refusal fails and the signer restarts. The row
-// loads as an ordinary pending row and the CLI decides from the occupier.
+// loads as an ordinary pending row and the CLI decides from the occupier with
+// the T4 / T4c / T4e fixtures; the signer then follows what the CLI stored.
 func TestDisposeLostNonceLowRefusal(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -638,6 +639,9 @@ func TestDisposeLostNonceLowRefusal(t *testing.T) {
 			env.putOwnEvidence(other, depositOperation(t, 555))
 			return other
 		}, EvmDisposeRequest{ScanBlocks: 100}, EvmDisposeExitOK, EvmBranchOwnOtherOp},
+		{"plain transfer", func(t *testing.T, _ *disposeEnv, original *ethtypes.Transaction) *ethtypes.Transaction {
+			return signTx(t, original.Nonce(), plainTransferTo, 5, nil, 1_000_000_000)
+		}, EvmDisposeRequest{ScanBlocks: 100}, EvmDisposeExitOK, EvmBranchPlainTransfer},
 		{"same call", func(t *testing.T, _ *disposeEnv, original *ethtypes.Transaction) *ethtypes.Transaction {
 			return sameCall(t, original)
 		}, EvmDisposeRequest{ScanBlocks: 100}, EvmDisposeExitOK, EvmBranchSameCall},
@@ -651,9 +655,11 @@ func TestDisposeLostNonceLowRefusal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newDisposeEnv(t)
 			// the occupier lands just before the node sees the deposit
+			var occupier *ethtypes.Transaction
 			env.node.script = func(send int, tx *ethtypes.Transaction) fakeEvmAction {
 				if send == 1 {
-					env.chain.addEvmTx(tc.occupier(t, env, tx), ethtypes.ReceiptStatusSuccessful)
+					occupier = tc.occupier(t, env, tx)
+					env.chain.addEvmTx(occupier, ethtypes.ReceiptStatusSuccessful)
 				}
 				return fakeEvmAction{}
 			}
@@ -662,6 +668,7 @@ func TestDisposeLostNonceLowRefusal(t *testing.T) {
 				t.Fatalf("an unrecorded refusal must be a plain error: %v", err)
 			}
 			env.node.script = nil
+			original := env.node.sentTx(t, 0)
 			env.restart()
 			pending, ok := env.store.pendingOf(SignOperator)
 			if !ok || pending.Ambiguous {
@@ -669,6 +676,48 @@ func TestDisposeLostNonceLowRefusal(t *testing.T) {
 			}
 			report := env.resolve(SignOperator, pending.TxHash, tc.req)
 			expectExit(t, report, tc.code, tc.branch)
+
+			switch tc.branch {
+			case EvmBranchOwnOtherOp, EvmBranchPlainTransfer:
+				if _, ok := env.store.pendingOf(SignOperator); ok || len(env.store.outcomeRows()) != 0 ||
+					env.auditCount(evmAuditManualResolveOtherUnrelated) != 1 {
+					t.Fatal("the pending row must be deleted without an outcome, with its audit")
+				}
+				env.expectResigned(1000, original)
+			case EvmBranchSameCall:
+				outcomes := env.store.outcomeRows()
+				if _, ok := env.store.pendingOf(SignOperator); ok || len(outcomes) != 1 ||
+					outcomes[0].State != evmOutcomeSucceeded || outcomes[0].ResultTxHash != occupier.Hash() {
+					t.Fatalf("unexpected outcome: %+v", outcomes)
+				}
+				hash, err := deposit(scenarioCtx(t), env.client, 1000)
+				if err != nil || hash != occupier.Hash().String() {
+					t.Fatalf("the operation must get the occupier's hash, got %q %v", hash, err)
+				}
+				assertExecutedOnce(t, env.node, original)
+			default:
+				// not proven: the pending row stays and keeps the scope blocked
+				if after, ok := env.store.pendingOf(SignOperator); !ok || after != pending || len(env.store.outcomeRows()) != 0 {
+					t.Fatalf("the pending row must stay unchanged: %+v", after)
+				}
+				if env.auditCount(evmAuditManualRejected) != 1 {
+					t.Fatal("the refusal must audit manual_rejected")
+				}
+				sends := len(env.sentAll())
+				hash, err := deposit(scenarioCtx(t), env.client, 1000)
+				if err == nil || hash != pending.TxHash.String() {
+					t.Fatalf("scope must stay blocked: hash=%q err=%v", hash, err)
+				}
+				// at most the pending bytes go out again; nothing is signed anew
+				for _, send := range env.sentAll()[sends:] {
+					if send.hash != pending.TxHash {
+						t.Fatalf("a new transaction %s was signed", send.hash.Hex())
+					}
+				}
+				if n := env.node.executionsOf(original); n != 0 {
+					t.Fatalf("operation executed %d times; %s", n, env.node.describe())
+				}
+			}
 		})
 	}
 }
@@ -703,6 +752,11 @@ func TestDisposeOutcomePreconditions(t *testing.T) {
 		}
 		if env.auditCount(evmAuditManualRejected) != 3 {
 			t.Fatal("each stale command must audit manual_rejected")
+		}
+		rejected := env.outcomeCmd(EvmDisposeDisposeOutcome, outcome.ID, EvmDisposeRequest{})
+		if audits := env.store.auditEvents(evmAuditManualRejected); rejected.Event != evmAuditManualRejected ||
+			rejected.Applied || rejected.Actor != audits[len(audits)-1].Actor || rejected.OperatorReason != audits[len(audits)-1].Reason {
+			t.Fatalf("the report must match the rejection audit: %+v", rejected)
 		}
 		// wrong state: release needs blocked_unknown
 		expectExit(t, env.outcomeCmd(EvmDisposeRelease, before[0].ID, EvmDisposeRequest{DecisionRef: "b", BusinessEvidence: "x"}),
@@ -772,6 +826,11 @@ func TestDisposeRelease(t *testing.T) {
 	if len(audits) != 1 || audits[0].DecisionRef != "https://board.example/decisions/42" ||
 		!strings.Contains(audits[0].Detail, "GVG 1 deposit balance unchanged") || *audits[0].OutcomeID != outcome.ID {
 		t.Fatalf("unexpected audit: %+v", audits)
+	}
+	// the report carries what the CLI logs next to the audit row
+	if report.Event != evmAuditManualReleaseUnknown || report.Actor != audits[0].Actor ||
+		report.DecisionRef != audits[0].DecisionRef || report.OperatorReason != audits[0].Reason || !report.Applied {
+		t.Fatalf("the report must match the audit: %+v", report)
 	}
 	env.expectResigned(1000, original)
 }
@@ -933,16 +992,50 @@ func TestDisposeInvalidEvidence(t *testing.T) {
 			env.expectBlocked(1000, "")
 		})
 	}
-	t.Run("pending", func(t *testing.T) {
-		env := newDisposeEnv(t)
-		pending, _ := env.stuckDeposit(1000)
-		env.store.tamper(pending.SignedTxID, func(e *signedTxEvidence) { e.Raw[len(e.Raw)-1] ^= 0xff })
-		before := env.store.pendingRows()
-		expectExit(t, env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{AcceptUnknown: true}), EvmDisposeExitEvidenceInvalid, "")
-		if after := env.store.pendingRows(); len(after) != 1 || after[0] != before[0] || env.auditCount(evmAuditEvidenceInvalid) == 0 {
-			t.Fatal("the pending row must stay with an evidence_invalid audit")
-		}
-	})
+	// resolve checks the evidence of the pending row the same way
+	for _, tc := range []struct {
+		name   string
+		damage func(env *disposeEnv, pending pendingRecord)
+		code   int
+	}{
+		{"raw byte flipped", func(env *disposeEnv, p pendingRecord) {
+			env.store.tamper(p.SignedTxID, func(e *signedTxEvidence) { e.Raw[len(e.Raw)-1] ^= 0xff })
+		}, EvmDisposeExitEvidenceInvalid},
+		{"sender", func(env *disposeEnv, p pendingRecord) {
+			env.store.tamper(p.SignedTxID, func(e *signedTxEvidence) { e.From = ethcmn.HexToAddress("0x01") })
+		}, EvmDisposeExitEvidenceInvalid},
+		{"evm chain id", func(env *disposeEnv, p pendingRecord) {
+			env.store.tamper(p.SignedTxID, func(e *signedTxEvidence) { e.EvmChainID = 1 })
+		}, EvmDisposeExitEvidenceInvalid},
+		{"referenced nonce", func(env *disposeEnv, p pendingRecord) {
+			env.store.tamperPending(p.ID, func(r *pendingRecord) { r.Nonce++ })
+		}, EvmDisposeExitEvidenceInvalid},
+		{"db read error", func(env *disposeEnv, _ pendingRecord) {
+			env.store.inject("get_signed_tx", memFaultFail)
+		}, EvmDisposeExitError},
+	} {
+		t.Run("pending "+tc.name, func(t *testing.T) {
+			env := newDisposeEnv(t)
+			pending, _ := env.stuckDeposit(1000)
+			tc.damage(env, pending)
+			before := env.store.pendingRows()
+			sends := len(env.sentAll())
+			expectExit(t, env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{ScanBlocks: 100, AcceptUnknown: true}), tc.code, "")
+			if after := env.store.pendingRows(); len(after) != 1 || after[0] != before[0] || len(env.store.outcomeRows()) != 0 {
+				t.Fatalf("the pending row must stay: %+v", after)
+			}
+			want := 1
+			if tc.code == EvmDisposeExitError {
+				want = 0
+			}
+			if n := env.auditCount(evmAuditEvidenceInvalid); n != want {
+				t.Fatalf("want %d evidence_invalid audits, got %d", want, n)
+			}
+			if len(env.sentAll()) != sends || len(env.chain.sends) != 0 || len(env.chain.blockRequests) != 0 {
+				t.Fatal("nothing may be sent or scanned on the chain")
+			}
+		})
+	}
 }
 
 // T11c-high: a nonce gap holds only when the account nonce M is the same at
