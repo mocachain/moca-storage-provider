@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mocachain/moca-common/go/hash"
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
@@ -20,7 +18,6 @@ import (
 	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/mocachain/moca/v2/x/storage/types"
 	types2 "github.com/mocachain/moca/v2/x/virtualgroup/types"
-	"gorm.io/gorm"
 )
 
 const (
@@ -115,6 +112,7 @@ func (s *RecoverVGFScheduler) Start() {
 // ObjectSegmentsStats is used to record the object's segments piece recovery progress. used by the
 // RecoverGVGScheduler
 type ObjectSegmentsStats struct {
+	EmptyVerified   bool
 	SegmentCount    int
 	FailedSegments  vgmgr.IDSet
 	SucceedSegments vgmgr.IDSet
@@ -126,8 +124,9 @@ type ObjectsSegmentsStats struct {
 }
 
 type objectVersion struct {
-	objectID uint64
-	version  int64
+	objectID   uint64
+	version    int64
+	redundancy int32
 }
 
 func NewObjectsSegmentsStats() *ObjectsSegmentsStats {
@@ -136,33 +135,33 @@ func NewObjectsSegmentsStats() *ObjectsSegmentsStats {
 	}
 }
 
-func (s *ObjectsSegmentsStats) put(objectID uint64, version int64, segmentCount uint32) {
+func (s *ObjectsSegmentsStats) put(objectID uint64, version int64, segmentCount uint32, redundancy ...int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	s.stats[objectVersion{objectID: objectID, version: version}] = &ObjectSegmentsStats{
+	s.stats[recoveryStatsKey(objectID, version, redundancy)] = &ObjectSegmentsStats{
 		SegmentCount:    int(segmentCount),
 		FailedSegments:  make(map[uint32]struct{}),
 		SucceedSegments: make(map[uint32]struct{}),
 	}
 }
 
-func (s *ObjectsSegmentsStats) has(objectID uint64, version int64) bool {
+func (s *ObjectsSegmentsStats) has(objectID uint64, version int64, redundancy ...int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
-	_, ok := s.stats[objectVersion{objectID: objectID, version: version}]
+	_, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
 	return ok
 }
 
-func (s *ObjectsSegmentsStats) remove(objectID uint64, version int64) {
+func (s *ObjectsSegmentsStats) remove(objectID uint64, version int64, redundancy ...int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	delete(s.stats, objectVersion{objectID: objectID, version: version})
+	delete(s.stats, recoveryStatsKey(objectID, version, redundancy))
 }
 
-func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, success bool, segmentIdx uint32) {
+func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, success bool, segmentIdx uint32, redundancy ...int32) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	stats, ok := s.stats[objectVersion{objectID: objectID, version: version}]
+	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
 	if !ok {
 		return
 	}
@@ -173,12 +172,15 @@ func (s *ObjectsSegmentsStats) addSegmentRecord(objectID uint64, version int64, 
 	}
 }
 
-func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64) bool {
+func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64, redundancy ...int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
-	stats, ok := s.stats[objectVersion{objectID: objectID, version: version}]
+	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
 	if !ok {
 		return false
+	}
+	if stats.SegmentCount == 0 {
+		return stats.EmptyVerified
 	}
 	processIDs := make(map[uint32]struct{}, 0)
 	for id := range stats.SucceedSegments {
@@ -190,10 +192,10 @@ func (s *ObjectsSegmentsStats) isObjectProcessed(objectID uint64, version int64)
 	return len(processIDs) == stats.SegmentCount
 }
 
-func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64) bool {
+func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64, redundancy ...int32) bool {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
-	stats, ok := s.stats[objectVersion{objectID: objectID, version: version}]
+	stats, ok := s.stats[recoveryStatsKey(objectID, version, redundancy)]
 	if !ok {
 		return true
 	}
@@ -208,6 +210,14 @@ func (s *ObjectsSegmentsStats) isRecoverFailed(objectID uint64, version int64) b
 		processIDs[id] = struct{}{}
 	}
 	return len(processIDs) == stats.SegmentCount && len(stats.FailedSegments) > 0
+}
+
+func recoveryStatsKey(id uint64, version int64, r []int32) objectVersion {
+	key := objectVersion{objectID: id, version: version}
+	if len(r) > 0 {
+		key.redundancy = r[0]
+	}
+	return key
 }
 
 type RecoverGVGScheduler struct {
@@ -241,12 +251,6 @@ func NewRecoverGVGScheduler(m *ManageModular, vgfID, gvgID uint32, redundancyInd
 
 func (s *RecoverGVGScheduler) Start() {
 	defer s.manager.recoverProcessCount.Add(-1)
-	storageParams, err := s.manager.baseApp.Consensus().QueryStorageParams(context.Background())
-	if err != nil {
-		log.Errorw("failed to get storage params", "err", err)
-		return
-	}
-	maxSegmentSize := storageParams.GetMaxSegmentSize()
 
 	gvgStats, err := s.manager.baseApp.GfSpDB().GetRecoverGVGStats(s.gvgID)
 	if err != nil {
@@ -307,7 +311,21 @@ func (s *RecoverGVGScheduler) Start() {
 		exceedLimit := false
 	out:
 		for _, object := range objects {
-			objectInfo := object.Object.ObjectInfo
+			objectInfo, storageParams, snapshotErr := s.manager.currentRecoverySnapshot(context.Background(), object.Object.ObjectInfo.Id.String(), s.redundancyIndex)
+			if errors.Is(snapshotErr, errRecoveryObjectDeleted) {
+				id := object.Object.ObjectInfo.Id.Uint64()
+				if err := s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(id); err != nil {
+					exceedLimit = true
+					break
+				}
+				s.manager.invalidateRecovery(id, s.redundancyIndex)
+				continue
+			}
+			if snapshotErr != nil {
+				exceedLimit = true
+				break
+			}
+			maxSegmentSize := storageParams.GetMaxSegmentSize()
 			objectID := objectInfo.Id.Uint64()
 			segmentCount, err := segmentPieceCount(objectInfo.PayloadSize, maxSegmentSize)
 			if err != nil {
@@ -332,6 +350,7 @@ func (s *RecoverGVGScheduler) Start() {
 				err = s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(o)
 				if err != nil {
 					log.Errorw("failed to insert recover_failed_object", "object_id", objectID, "error", err)
+					exceedLimit = true
 					break
 				}
 				log.Infow("inserted recover failed object record to DB", "object_id", o.ObjectID)
@@ -356,8 +375,8 @@ func (s *RecoverGVGScheduler) Start() {
 				exceedLimit = true
 				break out
 			}
-			if !s.manager.recoverObjectStats.has(objectID, objectInfo.Version) {
-				s.manager.recoverObjectStats.put(objectID, objectInfo.Version, segmentCount)
+			if !s.manager.recoverObjectStats.has(objectID, objectInfo.Version, s.redundancyIndex) {
+				s.manager.recoverObjectStats.put(objectID, objectInfo.Version, segmentCount, s.redundancyIndex)
 			}
 			s.currentBatchObjectIDs[objectVersion{objectID: objectID, version: objectInfo.Version}] = struct{}{}
 		}
@@ -374,12 +393,16 @@ func (s *RecoverGVGScheduler) Start() {
 }
 
 func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, storageParams *types.Params, maxSegmentSize uint64, segmentCount uint32) bool {
-	for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
+	countToQueue := segmentCount
+	if countToQueue == 0 {
+		countToQueue = 1
+	}
+	for segmentIdx := uint32(0); segmentIdx < countToQueue; segmentIdx++ {
 		task := &gfsptask.GfSpRecoverPieceTask{}
 		task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, s.redundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
 		task.SetBySuccessorSP(true)
 		task.SetGVGID(s.gvgID)
-		if err := s.manager.recoveryQueue.Push(task); err != nil {
+		if err := s.manager.HandleRecoverPieceTask(context.Background(), task); err != nil {
 			log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
 			if errors.Is(err, ErrRepeatedTask) {
 				continue
@@ -388,8 +411,8 @@ func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, 
 		}
 		log.Infow("pushed piece to recover queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
 	}
-	if !s.manager.recoverObjectStats.has(objectInfo.Id.Uint64(), objectInfo.Version) {
-		s.manager.recoverObjectStats.put(objectInfo.Id.Uint64(), objectInfo.Version, segmentCount)
+	if !s.manager.recoverObjectStats.has(objectInfo.Id.Uint64(), objectInfo.Version, s.redundancyIndex) {
+		s.manager.recoverObjectStats.put(objectInfo.Id.Uint64(), objectInfo.Version, segmentCount, s.redundancyIndex)
 	}
 	s.currentBatchObjectIDs[objectVersion{objectID: objectInfo.Id.Uint64(), version: objectInfo.Version}] = struct{}{}
 	return true
@@ -397,6 +420,7 @@ func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, 
 
 func (s *RecoverGVGScheduler) monitorBatch() {
 	ticker := time.NewTicker(recoverInterval)
+	defer ticker.Stop()
 
 	startTime := time.Now()
 	for range ticker.C {
@@ -404,7 +428,7 @@ func (s *RecoverGVGScheduler) monitorBatch() {
 		exceedTimeOut := time.Since(startTime).Minutes() > monitorRecoverTimeOut
 		processed := true
 		for object := range s.currentBatchObjectIDs {
-			if !s.manager.recoverObjectStats.isObjectProcessed(object.objectID, object.version) {
+			if !s.manager.recoverObjectStats.isObjectProcessed(object.objectID, object.version, s.redundancyIndex) {
 				if !exceedTimeOut {
 					processed = false
 					break
@@ -417,11 +441,13 @@ func (s *RecoverGVGScheduler) monitorBatch() {
 				}
 				if err := s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(failedObject); err != nil {
 					log.Errorw("failed to insert recover_failed_object", "object_id", object.objectID, "error", err)
+					processed = false
 					break
 				}
+				s.manager.invalidateRecovery(object.objectID, s.redundancyIndex)
 			} else {
 				log.Debugw("removing object stats", "object_id", object.objectID)
-				s.manager.recoverObjectStats.remove(object.objectID, object.version)
+				s.manager.recoverObjectStats.remove(object.objectID, object.version, s.redundancyIndex)
 				delete(s.currentBatchObjectIDs, object)
 			}
 		}
@@ -465,11 +491,7 @@ func NewRecoverFailedObjectScheduler(m *ManageModular, vgfID, gvgID uint32) *Rec
 }
 
 func (s *RecoverFailedObjectScheduler) Start() {
-	storageParams, err := s.manager.baseApp.Consensus().QueryStorageParams(context.Background())
-	if err != nil {
-		return
-	}
-	maxSegmentSize := storageParams.GetMaxSegmentSize()
+	var err error
 
 	ticker := time.NewTicker(recoverFailedObjectInterval)
 	defer func() {
@@ -556,7 +578,17 @@ func (s *RecoverFailedObjectScheduler) Start() {
 		log.Debugw("retrieved recover failed object", "recoverFailedObjects", recoverFailedObjects)
 	out:
 		for _, o := range recoverFailedObjects {
-			objectInfo, err := s.manager.baseApp.GfSpClient().GetObjectByID(context.Background(), o.ObjectID)
+			objectInfo, storageParams, err := s.manager.currentRecoverySnapshot(context.Background(), util.Uint64ToString(o.ObjectID), o.RedundancyIndex)
+			if errors.Is(err, errRecoveryObjectDeleted) {
+				if deleteErr := s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(o.ObjectID); deleteErr == nil {
+					s.manager.invalidateRecovery(o.ObjectID, o.RedundancyIndex)
+				}
+				continue
+			}
+			maxSegmentSize := uint64(0)
+			if storageParams != nil {
+				maxSegmentSize = storageParams.GetMaxSegmentSize()
+			}
 			if err != nil {
 				log.Errorw("failed to get object info", "object_id", o.ObjectID, "err", err)
 				continue
@@ -568,22 +600,31 @@ func (s *RecoverFailedObjectScheduler) Start() {
 			}
 
 			verified, err := verifyIntegrity(s.manager, objectInfo, o.RedundancyIndex)
+			if errors.Is(err, errRecoveryObjectDeleted) {
+				if deleteErr := s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(o.ObjectID); deleteErr == nil {
+					s.manager.invalidateRecovery(o.ObjectID, o.RedundancyIndex)
+				}
+				continue
+			}
 			if err != nil {
 				log.Errorw("failed to verify Integrity for object", "object_id", o.ObjectID, "err", err)
 				continue
 			}
 			if verified {
 				log.Infow("object has been recovered", "object", objectInfo)
-				s.manager.recoverObjectStats.remove(objectInfo.Id.Uint64(), objectInfo.Version)
+				s.manager.recoverObjectStats.remove(objectInfo.Id.Uint64(), objectInfo.Version, o.RedundancyIndex)
 				err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(o.ObjectID)
 				if err != nil {
 					log.Errorw("failed to delete recover failed object entry", "object_id", o.ObjectID)
 					continue
 				}
+				s.manager.invalidateRecovery(o.ObjectID, o.RedundancyIndex)
 				continue
 			}
 
-			s.seedFailedObjectStats(objectInfo, segmentCount)
+			if s.manager.recoveryFullyQueued(objectInfo.Id.Uint64(), o.RedundancyIndex) {
+				continue
+			}
 
 			if !s.queueFailedObjectRecovery(objectInfo, storageParams, o, maxSegmentSize, segmentCount) {
 				break out
@@ -604,21 +645,17 @@ func (s *RecoverFailedObjectScheduler) Start() {
 // retry count untouched and re-attempts the whole object again on the next pass,
 // instead of treating a partial, failed attempt as a completed one.
 func (s *RecoverFailedObjectScheduler) queueFailedObjectRecovery(objectInfo *types.ObjectInfo, storageParams *types.Params, o *spdb.RecoverFailedObject, maxSegmentSize uint64, segmentCount uint32) bool {
-	for segmentIdx := uint32(0); segmentIdx < segmentCount; segmentIdx++ {
-		_, err := s.manager.baseApp.GfSpDB().GetReplicatePieceChecksum(objectInfo.Id.Uint64(), segmentIdx, o.RedundancyIndex)
-		if err == nil {
-			log.Infow("piece is already recovered,", "object_id", objectInfo.Id, "segmentIdx", segmentIdx)
-			continue
-		}
-		if err != gorm.ErrRecordNotFound {
-			log.Infow("failed to get piece hash from DB", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
-			return false
-		}
+	countToQueue := segmentCount
+	if countToQueue == 0 {
+		countToQueue = 1
+	}
+	for segmentIdx := uint32(0); segmentIdx < countToQueue; segmentIdx++ {
+
 		task := &gfsptask.GfSpRecoverPieceTask{}
 		task.InitRecoverPieceTask(objectInfo, storageParams, coretask.DefaultSmallerPriority, segmentIdx, o.RedundancyIndex, maxSegmentSize, MaxRecoveryTime, maxRecoveryRetry)
 		task.SetBySuccessorSP(true)
 		task.SetGVGID(o.VirtualGroupID)
-		if err := s.manager.recoveryQueue.Push(task); err != nil {
+		if err := s.manager.HandleRecoverPieceTask(context.Background(), task); err != nil {
 			log.Errorw("failed to push to recovery queue", "object_id", objectInfo.Id, "segmentIdx", segmentIdx, "error", err)
 			if errors.Is(err, ErrRepeatedTask) {
 				continue
@@ -669,169 +706,106 @@ func NewVerifyGVGScheduler(m *ManageModular, gvgID uint32, redundancyIndex int32
 }
 
 func (s *VerifyGVGScheduler) Start() {
-	verifyTicker := time.NewTicker(verifyInterval)
-	defer func() {
-		s.manager.verifyTerminationSignal.Add(-1)
-		log.Infow("finished verify GVG")
-		verifyTicker.Stop()
-	}()
-
-	for range verifyTicker.C {
-		log.Infow("verify gvg scheduler")
-		gvgStats, err := s.manager.baseApp.GfSpDB().GetRecoverGVGStats(s.gvgID)
+	ticker := time.NewTicker(verifyInterval)
+	defer ticker.Stop()
+	defer s.manager.verifyTerminationSignal.Add(-1)
+	for range ticker.C {
+		stats, err := s.manager.baseApp.GfSpDB().GetRecoverGVGStats(s.gvgID)
 		if err != nil {
-			log.Errorw("failed to get recover gvg stats", "err", err)
 			continue
 		}
-		if gvgStats.Status == spdb.Completed {
-			log.Infow("this gvg has been verified", "gvg_id", s.gvgID)
+		if stats.Status == spdb.Completed {
 			return
 		}
-		if gvgStats.Status != spdb.Processed {
-			log.Infow("Wait for all objects in GVG to be processed")
+		if stats.Status != spdb.Processed {
 			continue
 		}
-		objects, err := s.manager.baseApp.GfSpClient().ListObjectsInGVG(context.Background(), gvgStats.VirtualGroupID, s.curStartAfter, verifyGVGQueryLimit)
+		complete, err := s.verifyPass(stats)
 		if err != nil {
-			log.Errorw("failed to list object in GVG", "err", err)
+			log.Errorw("recovery verification remains unresolved", "gvg_id", s.gvgID, "error", err)
 			continue
 		}
-
-		log.Infow("list objects in GVG", "gvg_id", gvgStats.VirtualGroupID, "start_after", s.curStartAfter, "limit", verifyGVGQueryLimit, "object_num", len(objects))
-
-		// Once iterate all objects in GVG, check all recorded recover-failed objects have been recovered.
-		// If there is any object that does not exceed the max retry, will re-start from the beginning object in GVG.
-		if len(objects) == 0 {
-			s.curStartAfter = 0
-			recoverFailedObjectsCount := len(s.verifyFailedObjects)
-			needDiscontinueCount := 0
-			for objectID := range s.verifyFailedObjects {
-				// the object might have been recovered.
-				recoverFailedObject, err := s.manager.baseApp.GfSpDB().GetRecoverFailedObject(objectID)
-				if err != nil {
-					log.Errorw("failed to get recover failed object", "object_id", objectID, "error", err)
-					if errors.Is(err, gorm.ErrRecordNotFound) {
-						log.Infow("the object is already recovered, record has been removed", "object_id", objectID)
-						delete(s.verifyFailedObjects, objectID)
-						recoverFailedObjectsCount--
-					}
-					continue
-				}
-				// the object might have been deleted or discontinued
-				_, err = s.manager.baseApp.Consensus().QueryObjectInfoByID(context.Background(), util.Uint64ToString(objectID))
-				if err != nil {
-					log.Errorw("failed to get object info from chain", "object_id", objectID, "error", err)
-					if strings.Contains(err.Error(), "No such object") {
-						log.Infow("the object has been deleted from chain")
-						err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(objectID)
-						if err != nil {
-							log.Errorw("failed to delete recover failed object record from DB", "error", err)
-						}
-						delete(s.verifyFailedObjects, objectID)
-						recoverFailedObjectsCount--
-					}
-					continue
-				}
-
-				if recoverFailedObject.RetryTime < maxRecoveryRetry {
-					log.Infow("object is sill being recovered", "object_id", objectID, "retry", recoverFailedObject.RetryTime, "max_recovery_retry", maxRecoveryRetry)
-					continue
-				}
-				// if an object exceeds the max recover retry, will not process further, the SP should manually trigger the discontinue object tx.
-				objectMeta, err := s.manager.baseApp.GfSpClient().GetObjectByID(context.Background(), objectID)
-				if err != nil {
-					log.Errorw("failed to get object by id from meta", "object", objectMeta, "error", err)
-					continue
-				}
-
-				// confirm the object is not recovered.
-				verified, err := verifyIntegrity(s.manager, objectMeta, s.redundancyIndex)
-				if err != nil {
-					log.Errorw("failed to verify integrity and piece hash", "object", objectMeta, "error", err)
-					continue
-				}
-				if verified {
-					log.Infow("object has been recovered", "object_id", objectID)
-					err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(objectID)
-					if err != nil {
-						log.Errorw("failed to delete recover failed object entry", "object_id", objectID)
-					}
-					recoverFailedObjectsCount--
-					delete(s.verifyFailedObjects, objectID)
-				} else {
-					needDiscontinueCount++
-				}
-			}
-
-			if recoverFailedObjectsCount == 0 {
-				gvgStats.Status = spdb.Completed
-				err = s.manager.baseApp.GfSpDB().UpdateRecoverGVGStats(gvgStats)
-				if err != nil {
-					log.Error("failed to update GVG stats to complete status", "gvgStats", gvgStats)
-					continue
-				}
-				return
-			} else if recoverFailedObjectsCount == needDiscontinueCount {
-				log.Errorw("remaining objects need to be discontinue", "objects_count", needDiscontinueCount)
-				return
-			}
-		} else {
-			s.curStartAfter = objects[len(objects)-1].Object.ObjectInfo.Id.Uint64()
-		}
-
-		for _, o := range objects {
-			objectInfo := o.Object.ObjectInfo
-			objectID := objectInfo.Id.Uint64()
-			_, ok := s.verifySuccessObjects[objectID]
-			if ok {
-				log.Debugw("the object has been verified previously", "object", objectID)
-				continue
-			}
-			verified, err := verifyIntegrity(s.manager, objectInfo, s.redundancyIndex)
-			if err != nil {
-				log.Errorw("failed to verify integrity", "object", objectInfo, "error", err)
-				break
-			}
-			if !verified {
-				s.verifyFailedObjects[objectID] = struct{}{}
-				log.Errorw("verified object has not been recovered yet", "object", objectInfo)
-				failedObject := &spdb.RecoverFailedObject{
-					ObjectID:        objectID,
-					VirtualGroupID:  s.gvgID,
-					RedundancyIndex: s.redundancyIndex,
-				}
-				if err = s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(failedObject); err != nil {
-					log.Errorw("failed to insert recover_failed_object", "object_id", objectID, "error", err)
-					break
-				}
-				continue
-			}
-			s.verifySuccessObjects[o.Object.ObjectInfo.Id.Uint64()] = struct{}{}
+		if complete {
+			return
 		}
 	}
 }
 
-func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex int32) (bool, error) {
-	integrityMeta, err := m.baseApp.GfSpDB().GetObjectIntegrity(object.Id.Uint64(), redundancyIndex)
+// verifyPass advances only over verified objects or durably recorded failures.
+// Timers call this same pass; tests can observe the cursor and completion without sleeps.
+func (s *VerifyGVGScheduler) verifyPass(stats *spdb.RecoverGVGStats) (bool, error) {
+	ctx := context.Background()
+	objects, err := s.manager.baseApp.GfSpClient().ListObjectsInGVG(ctx, stats.VirtualGroupID, s.curStartAfter, verifyGVGQueryLimit)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			log.Errorw("failed to verify the integrity, record not exist", "object_id", object.Id)
-			return false, nil
-		}
-		log.Errorw("failed to get object integrity hash", "objectName:", object.ObjectName, "error", err)
 		return false, err
 	}
-	checksumIndex := redundancyIndex + 1
-	if checksumIndex < 0 || int(checksumIndex) >= len(object.GetChecksums()) {
-		log.Errorw("failed to verify the integrity, checksum index out of bounds", "object_id", object.Id, "redundancy_index", redundancyIndex)
+	if len(objects) == 0 {
+		for id := range s.verifyFailedObjects {
+			object, _, err := s.manager.currentRecoverySnapshot(ctx, util.Uint64ToString(id), s.redundancyIndex)
+			verified := false
+			if err == nil {
+				verified, err = verifyIntegrity(s.manager, object, s.redundancyIndex)
+			}
+			if errors.Is(err, errRecoveryObjectDeleted) || (err == nil && verified) {
+				if err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(id); err != nil {
+					return false, err
+				}
+				s.manager.invalidateRecovery(id, s.redundancyIndex)
+				delete(s.verifyFailedObjects, id)
+				continue
+			}
+			if err != nil {
+				return false, err
+			}
+		}
+		if len(s.verifyFailedObjects) == 0 {
+			stats.Status = spdb.Completed
+			if err = s.manager.baseApp.GfSpDB().UpdateRecoverGVGStats(stats); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+		s.curStartAfter = 0
+		clear(s.verifySuccessObjects)
 		return false, nil
 	}
-	actualChecksum := hash.GenerateIntegrityHash(integrityMeta.PieceChecksumList)
-	if !bytes.Equal(actualChecksum, object.GetChecksums()[checksumIndex]) {
-		log.Errorw("failed to verify the integrity, checksum mismatch", "object_id", object.Id, "redundancy_index", redundancyIndex)
-		return false, nil
+	for _, o := range objects {
+		if o == nil || o.Object == nil || o.Object.ObjectInfo == nil {
+			return false, fmt.Errorf("nil indexed recovery object")
+		}
+		object := o.Object.ObjectInfo
+		id := object.Id.Uint64()
+		verified, err := verifyIntegrity(s.manager, object, s.redundancyIndex)
+		if errors.Is(err, errRecoveryObjectDeleted) {
+			if err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(id); err != nil {
+				return false, err
+			}
+			s.manager.invalidateRecovery(id, s.redundancyIndex)
+			delete(s.verifyFailedObjects, id)
+		} else if err != nil {
+			return false, err
+		} else if !verified {
+			if err = s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(&spdb.RecoverFailedObject{ObjectID: id, VirtualGroupID: s.gvgID, RedundancyIndex: s.redundancyIndex}); err != nil {
+				return false, err
+			}
+			s.verifyFailedObjects[id] = struct{}{}
+		} else {
+			if _, wasFailed := s.verifyFailedObjects[id]; wasFailed {
+				if err = s.manager.baseApp.GfSpDB().DeleteRecoverFailedObject(id); err != nil {
+					return false, err
+				}
+				delete(s.verifyFailedObjects, id)
+			}
+		}
+		s.curStartAfter = id
 	}
-	return true, nil
+	return false, nil
+}
+
+func verifyIntegrity(m *ManageModular, object *types.ObjectInfo, redundancyIndex int32) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	return m.verifyRecoveryIntegrity(ctx, object, redundancyIndex)
 }
 
 func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) (uint32, error) {
@@ -841,6 +815,9 @@ func segmentPieceCount(payloadSize uint64, maxSegmentSize uint64) (uint32, error
 	count := payloadSize / maxSegmentSize
 	if payloadSize%maxSegmentSize > 0 {
 		count++
+	}
+	if count > uint64(^uint32(0)) {
+		return 0, fmt.Errorf("segment count overflow")
 	}
 	return uint32(count), nil
 }
@@ -858,4 +835,12 @@ func SendAndConfirmCompleteSwapInTx(baseApp *gfspapp.GfSpBaseApp, msg *types2.Ms
 			}
 			return txHash, nil
 		})
+}
+
+func (s *ObjectsSegmentsStats) markEmptyVerified(id uint64, version int64, r int32) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	if stats := s.stats[recoveryStatsKey(id, version, []int32{r})]; stats != nil {
+		stats.EmptyVerified = true
+	}
 }

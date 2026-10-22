@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -135,8 +134,12 @@ type ManageModular struct {
 
 	recoveryFailedList []string
 
-	recoverMtx      sync.RWMutex
-	recoveryTaskMap map[string]string
+	recoverMtx          sync.RWMutex
+	recoveryTaskMap     map[string]string
+	recoveryStateMu     sync.Mutex
+	recoveryAttempts    map[string]*recoveryAttempt
+	recoveryCapacityMu  sync.Mutex
+	recoveryParamsCache map[int64]*storagetypes.Params
 
 	recoverObjectStats      *ObjectsSegmentsStats // objectId -> ObjectSegmentsStats
 	recoverProcessCount     atomic.Int64
@@ -175,7 +178,7 @@ func (m *ManageModular) Start(ctx context.Context) error {
 	m.downloadQueue.SetRetireTaskStrategy(m.GCCacheQueue)
 	m.challengeQueue.SetRetireTaskStrategy(m.GCCacheQueue)
 	m.recoveryQueue.SetRetireTaskStrategy(m.GCRecoverQueue)
-	m.recoveryQueue.SetFilterTaskStrategy(m.FilterUploadingTask)
+	m.recoveryQueue.SetFilterTaskStrategy(m.FilterRecoveryTask)
 	m.migrateGVGQueue.SetRetireTaskStrategy(m.GCMigrateGVGQueue)
 	m.migrateGVGQueue.SetFilterTaskStrategy(m.FilterGVGTask)
 	m.gcBucketMigrationQueue.SetRetireTaskStrategy(m.ResetGCBucketMigrationQueue)
@@ -714,20 +717,11 @@ func (m *ManageModular) GCReceiveQueue(qTask task.Task) bool {
 	return qTask.ExceedRetry()
 }
 
-func (m *ManageModular) GCRecoverQueue(qTask task.Task) bool {
-	task := qTask.(task.RecoveryPieceTask)
-
-	GcConditionMet := task.ExceedRetry()
-	if GcConditionMet {
-		if !slices.Contains(m.recoveryFailedList, task.GetObjectInfo().ObjectName) {
-			m.recoveryFailedList = append(m.recoveryFailedList, task.GetObjectInfo().ObjectName)
-		}
-		m.recoverMtx.Lock()
-		delete(m.recoveryTaskMap, task.Key().String())
-		m.recoverMtx.Unlock()
-
-	}
-	return GcConditionMet
+// GC must not reenter the recovery registry while the queue lock is held.
+// Recovery expiry is resolved by dispatchRecovery and scheduler invalidation.
+func (m *ManageModular) GCRecoverQueue(qTask task.Task) bool { return false }
+func (m *ManageModular) FilterRecoveryTask(qTask task.Task) bool {
+	return qTask.ExceedTimeout() || qTask.GetRetry() == 0
 }
 
 func (m *ManageModular) GCMigrateGVGQueue(qTask task.Task) bool {
@@ -1031,8 +1025,7 @@ func (m *ManageModular) repushTask(reserved task.Task) {
 		err := m.gcMetaQueue.Push(t)
 		log.Infow("retry push gc meta task to queue after dispatching", "error", err)
 	case *gfsptask.GfSpRecoverPieceTask:
-		err := m.recoveryQueue.Push(t)
-		log.Infow("retry push recovery task to queue after dispatching", "error", err)
+		m.repushRecovery(t)
 	case *gfsptask.GfSpMigrateGVGTask:
 		err := m.migrateGVGQueuePush(t)
 		log.Infow("retry push migration gvg task to queue after dispatching", "error", err)

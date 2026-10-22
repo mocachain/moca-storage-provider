@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
-	"github.com/mocachain/moca-common/go/hash"
 	types0 "github.com/mocachain/moca/v2/x/storage/types"
 	types1 "github.com/mocachain/moca/v2/x/virtualgroup/types"
 	"github.com/stretchr/testify/assert"
@@ -21,113 +20,23 @@ import (
 )
 
 func TestRecoverGVGSchedulerQueueRecoveryObject_DoesNotTrackFailedEnqueue(t *testing.T) {
-	m := setup(t)
+	m, object, params, _, _, _, _ := recoveryFixture(t, 0)
 	ctrl := gomock.NewController(t)
 	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
+	queue.EXPECT().Cap().Return(10).AnyTimes()
+	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue unavailable"))
 	m.recoveryQueue = queue
-	m.recoverObjectStats = NewObjectsSegmentsStats()
-	scheduler := &RecoverGVGScheduler{
-		manager:               m,
-		currentBatchObjectIDs: make(map[objectVersion]struct{}),
-		gvgID:                 1,
-		redundancyIndex:       0,
-	}
-	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(100), PayloadSize: 1}
-	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
-	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue unavailable")).Times(1)
-
-	queued := scheduler.queueRecoveryObject(objectInfo, storageParams, 10, 1)
-
-	assert.False(t, queued)
-	assert.False(t, m.recoverObjectStats.has(100, objectInfo.Version))
-	_, exists := scheduler.currentBatchObjectIDs[objectVersion{objectID: 100, version: objectInfo.Version}]
-	assert.False(t, exists)
+	scheduler := &RecoverGVGScheduler{manager: m, currentBatchObjectIDs: make(map[objectVersion]struct{})}
+	assert.False(t, scheduler.queueRecoveryObject(object, params, 4, 3))
+	assert.False(t, m.recoverObjectStats.has(91, 2))
+	assert.Empty(t, scheduler.currentBatchObjectIDs)
 }
-
-func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_DoesNotFallThroughOnEnqueueError(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
-	m.recoveryQueue = queue
-	db := spdb.NewMockSPDB(ctrl)
-	m.baseApp.SetGfSpDB(db)
+func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueuesEverySegment(t *testing.T) {
+	m, object, params, _, _, _, _ := recoveryFixture(t, 0)
+	// The DB mock rejects any checksum-only lookup: residual rows are not evidence of possession.
 	scheduler := &RecoverFailedObjectScheduler{manager: m}
-
-	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(200), PayloadSize: 1}
-	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
-	failedObject := &spdb.RecoverFailedObject{ObjectID: 200, VirtualGroupID: 1, RedundancyIndex: 0}
-
-	db.EXPECT().GetReplicatePieceChecksum(uint64(200), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
-	queue.EXPECT().Push(gomock.Any()).Return(errors.New("queue unavailable")).Times(1)
-
-	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
-
-	assert.False(t, queued)
-}
-
-func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueueExceededAlsoFails(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
-	m.recoveryQueue = queue
-	db := spdb.NewMockSPDB(ctrl)
-	m.baseApp.SetGfSpDB(db)
-	scheduler := &RecoverFailedObjectScheduler{manager: m}
-
-	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(201), PayloadSize: 1}
-	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
-	failedObject := &spdb.RecoverFailedObject{ObjectID: 201, VirtualGroupID: 1, RedundancyIndex: 0}
-
-	db.EXPECT().GetReplicatePieceChecksum(uint64(201), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
-	queue.EXPECT().Push(gomock.Any()).Return(gfsptqueue.ErrTaskQueueExceed).Times(1)
-
-	// A capacity error is not the object's fault either: it must not be reported
-	// as a successful enqueue, same as any other push failure.
-	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
-
-	assert.False(t, queued)
-}
-
-func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_SkipsAlreadyRecoveredSegments(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
-	m.recoveryQueue = queue
-	db := spdb.NewMockSPDB(ctrl)
-	m.baseApp.SetGfSpDB(db)
-	scheduler := &RecoverFailedObjectScheduler{manager: m}
-
-	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(202), PayloadSize: 1}
-	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
-	failedObject := &spdb.RecoverFailedObject{ObjectID: 202, VirtualGroupID: 1, RedundancyIndex: 0}
-
-	// segment already has a recorded checksum: already recovered, must not be re-pushed.
-	db.EXPECT().GetReplicatePieceChecksum(uint64(202), uint32(0), int32(0)).Return([]byte("checksum"), nil).Times(1)
-
-	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
-
-	assert.True(t, queued)
-}
-
-func TestRecoverFailedObjectSchedulerQueueFailedObjectRecovery_QueuesUnrecoveredSegments(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	queue := taskqueue.NewMockTQueueOnStrategyWithLimit(ctrl)
-	m.recoveryQueue = queue
-	db := spdb.NewMockSPDB(ctrl)
-	m.baseApp.SetGfSpDB(db)
-	scheduler := &RecoverFailedObjectScheduler{manager: m}
-
-	objectInfo := &types0.ObjectInfo{Id: sdkmath.NewUint(203), PayloadSize: 1}
-	storageParams := &types0.Params{VersionedParams: types0.VersionedParams{MaxSegmentSize: 10}}
-	failedObject := &spdb.RecoverFailedObject{ObjectID: 203, VirtualGroupID: 1, RedundancyIndex: 0}
-
-	db.EXPECT().GetReplicatePieceChecksum(uint64(203), uint32(0), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
-	queue.EXPECT().Push(gomock.Any()).Return(nil).Times(1)
-
-	queued := scheduler.queueFailedObjectRecovery(objectInfo, storageParams, failedObject, 10, 1)
-
-	assert.True(t, queued)
+	assert.True(t, scheduler.queueFailedObjectRecovery(object, params, &spdb.RecoverFailedObject{ObjectID: 91}, 4, 3))
+	assert.Equal(t, 3, m.recoveryQueue.Len())
 }
 
 func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_RegistersCurrentVersion(t *testing.T) {
@@ -177,109 +86,41 @@ func TestRecoverFailedObjectSchedulerSeedFailedObjectStats_DoesNotResetInProgres
 }
 
 func TestVerifyIntegrityAcceptsMatchingChainChecksum(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	pieceChecksums := [][]byte{[]byte("piece-checksum")}
-
-	db := spdb.NewMockSPDB(ctrl)
-	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&spdb.IntegrityMeta{
-		PieceChecksumList: pieceChecksums,
-	}, nil).Times(1)
-	m.baseApp.SetGfSpDB(db)
-
-	verified, err := verifyIntegrity(m, &types0.ObjectInfo{
-		Id:        sdkmath.NewUint(1),
-		Checksums: [][]byte{nil, hash.GenerateIntegrityHash(pieceChecksums)},
-	}, 0)
-
+	m, object, _, db, _, _, meta := recoveryFixture(t, 0)
+	db.EXPECT().GetObjectIntegrity(uint64(91), int32(0)).Return(meta, nil)
+	ok, err := verifyIntegrity(m, object, 0)
 	assert.NoError(t, err)
-	assert.True(t, verified)
+	assert.True(t, ok)
 }
-
 func TestVerifyIntegrityRejectsMismatchedChainChecksum(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-	pieceChecksums := [][]byte{[]byte("piece-checksum")}
-
-	db := spdb.NewMockSPDB(ctrl)
-	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(&spdb.IntegrityMeta{
-		PieceChecksumList: pieceChecksums,
-	}, nil).Times(1)
-	m.baseApp.SetGfSpDB(db)
-
-	verified, err := verifyIntegrity(m, &types0.ObjectInfo{
-		Id:        sdkmath.NewUint(1),
-		Checksums: [][]byte{nil, hash.GenerateIntegrityHash([][]byte{[]byte("different-checksum")})},
-	}, 0)
-
+	m, object, _, db, _, _, meta := recoveryFixture(t, 0)
+	object.Checksums[1] = []byte("different chain root")
+	db.EXPECT().GetObjectIntegrity(uint64(91), int32(0)).Return(meta, nil)
+	ok, err := verifyIntegrity(m, object, 0)
 	assert.NoError(t, err)
-	assert.False(t, verified)
+	assert.False(t, ok)
 }
-
 func TestVerifyIntegrityRejectsMissingIntegrityMetadata(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
-
-	db := spdb.NewMockSPDB(ctrl)
-	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(nil, gorm.ErrRecordNotFound).Times(1)
-	m.baseApp.SetGfSpDB(db)
-
-	verified, err := verifyIntegrity(m, &types0.ObjectInfo{Id: sdkmath.NewUint(1)}, 0)
-
+	m, object, _, db, _, _, _ := recoveryFixture(t, 0)
+	db.EXPECT().GetObjectIntegrity(uint64(91), int32(0)).Return(nil, gorm.ErrRecordNotFound)
+	ok, err := verifyIntegrity(m, object, 0)
 	assert.NoError(t, err)
-	assert.False(t, verified)
+	assert.False(t, ok)
 }
-
 func TestVerifyIntegrityPropagatesDatabaseErrors(t *testing.T) {
-	m := setup(t)
-	ctrl := gomock.NewController(t)
+	m, object, _, db, _, _, _ := recoveryFixture(t, 0)
 	dbErr := errors.New("database unavailable")
-
-	db := spdb.NewMockSPDB(ctrl)
-	db.EXPECT().GetObjectIntegrity(uint64(1), int32(0)).Return(nil, dbErr).Times(1)
-	m.baseApp.SetGfSpDB(db)
-
-	verified, err := verifyIntegrity(m, &types0.ObjectInfo{Id: sdkmath.NewUint(1)}, 0)
-
+	db.EXPECT().GetObjectIntegrity(uint64(91), int32(0)).Return(nil, dbErr)
+	ok, err := verifyIntegrity(m, object, 0)
 	assert.ErrorIs(t, err, dbErr)
-	assert.False(t, verified)
+	assert.False(t, ok)
 }
-
 func TestVerifyIntegrityRejectsInvalidChecksumIndex(t *testing.T) {
-	for _, tc := range []struct {
-		name            string
-		redundancyIndex int32
-		checksums       [][]byte
-	}{
-		{
-			name:            "lower bound",
-			redundancyIndex: -2,
-			checksums:       [][]byte{hash.GenerateIntegrityHash([][]byte{[]byte("piece-checksum")})},
-		},
-		{
-			name:            "upper bound",
-			redundancyIndex: 0,
-			checksums:       [][]byte{hash.GenerateIntegrityHash([][]byte{[]byte("piece-checksum")})},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := setup(t)
-			ctrl := gomock.NewController(t)
-
-			db := spdb.NewMockSPDB(ctrl)
-			db.EXPECT().GetObjectIntegrity(uint64(1), tc.redundancyIndex).Return(&spdb.IntegrityMeta{
-				PieceChecksumList: [][]byte{[]byte("piece-checksum")},
-			}, nil).Times(1)
-			m.baseApp.SetGfSpDB(db)
-
-			verified, err := verifyIntegrity(m, &types0.ObjectInfo{
-				Id:        sdkmath.NewUint(1),
-				Checksums: tc.checksums,
-			}, tc.redundancyIndex)
-
-			assert.NoError(t, err)
-			assert.False(t, verified)
-		})
+	for _, r := range []int32{-2, 5} {
+		m, object, _, _, _, _, _ := recoveryFixture(t, 0)
+		ok, err := verifyIntegrity(m, object, r)
+		assert.Error(t, err)
+		assert.False(t, ok)
 	}
 }
 
@@ -373,39 +214,23 @@ func TestObjectsSegmentsStats_IgnoresLateReportFromEarlierVersion(t *testing.T) 
 	assert.False(t, stats.isObjectProcessed(1, 2))
 }
 
-func TestVerifyGVGScheduler_Start(t *testing.T) {
+func TestVerifyGVGScheduler_NilChainResponseRemainsUnresolved(t *testing.T) {
 	m := setup(t)
 	ctrl := gomock.NewController(t)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	m.baseApp.SetGfSpClient(client)
+	client.EXPECT().ListObjectsInGVG(gomock.Any(), uint32(1), uint64(0), verifyGVGQueryLimit).Return(nil, nil)
 	db := spdb.NewMockSPDB(ctrl)
 	m.baseApp.SetGfSpDB(db)
-	db.EXPECT().GetRecoverGVGStats(gomock.Any()).Return(&spdb.RecoverGVGStats{
-		Status: spdb.Processed,
-	}, nil).AnyTimes()
-	spClient := gfspclient.NewMockGfSpClientAPI(ctrl)
-	m.baseApp.SetGfSpClient(spClient)
-	spClient.EXPECT().ListObjectsInGVG(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-
-	v := &VerifyGVGScheduler{
-		manager:              m,
-		gvgID:                1,
-		redundancyIndex:      1,
-		curStartAfter:        0,
-		verifyFailedObjects:  make(map[uint64]struct{}, 0),
-		verifySuccessObjects: make(map[uint64]struct{}, 0),
-	}
+	chain := consensus.NewMockConsensus(ctrl)
+	m.baseApp.SetConsensus(chain)
+	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(nil, nil)
+	v, _ := NewVerifyGVGScheduler(m, 1, 1)
 	v.verifyFailedObjects[1] = struct{}{}
-	db.EXPECT().GetRecoverFailedObject(gomock.Any()).Return(&spdb.RecoverFailedObject{
-		ObjectID:  1,
-		RetryTime: maxRecoveryRetry,
-	}, nil).AnyTimes()
-	con := consensus.NewMockConsensus(ctrl)
-	m.baseApp.SetConsensus(con)
-	con.EXPECT().QueryObjectInfoByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	spClient.EXPECT().GetObjectByID(gomock.Any(), gomock.Any()).Return(&types0.ObjectInfo{
-		Id: sdkmath.NewUint(1),
-	}, nil).AnyTimes()
-	db.EXPECT().GetObjectIntegrity(gomock.Any(), gomock.Any()).Return(&spdb.IntegrityMeta{}, nil).AnyTimes()
-	db.EXPECT().DeleteRecoverFailedObject(gomock.Any()).Return(nil).AnyTimes()
-	db.EXPECT().UpdateRecoverGVGStats(gomock.Any()).Return(nil).AnyTimes()
-	v.Start()
+	stats := &spdb.RecoverGVGStats{VirtualGroupID: 1, Status: spdb.Processed}
+	completed, err := v.verifyPass(stats)
+	assert.Error(t, err)
+	assert.False(t, completed)
+	assert.Equal(t, spdb.Processed, stats.Status)
+	assert.Contains(t, v.verifyFailedObjects, uint64(1))
 }

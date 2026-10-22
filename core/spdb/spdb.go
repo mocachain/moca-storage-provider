@@ -74,6 +74,8 @@ type SignatureDB interface {
 	GetObjectIntegrity(objectID uint64, redundancyIndex int32) (*IntegrityMeta, error)
 	// SetObjectIntegrity sets(maybe overwrite) integrity hash info to db.
 	SetObjectIntegrity(integrity *IntegrityMeta) error
+	// PublishRecoveryIntegrity atomically replaces every field of a verified recovery row.
+	PublishRecoveryIntegrity(integrity *IntegrityMeta) error
 	// DeleteObjectIntegrity deletes the integrity hash.
 	DeleteObjectIntegrity(objectID uint64, redundancyIndex int32) error
 	// UpdateIntegrityChecksum update IntegrityMetaTable's integrity checksum

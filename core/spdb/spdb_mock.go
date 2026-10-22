@@ -23,6 +23,7 @@ import (
 type MockSPDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSPDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSPDBMockRecorder is the mock recorder for MockSPDB.
@@ -870,17 +871,17 @@ func (mr *MockSPDBMockRecorder) InsertMigrateGVGUnit(meta any) *gomock.Call {
 }
 
 // InsertPutEvent mocks base method.
-func (m *MockSPDB) InsertPutEvent(task task.Task) error {
+func (m *MockSPDB) InsertPutEvent(arg0 task.Task) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertPutEvent", task)
+	ret := m.ctrl.Call(m, "InsertPutEvent", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // InsertPutEvent indicates an expected call of InsertPutEvent.
-func (mr *MockSPDBMockRecorder) InsertPutEvent(task any) *gomock.Call {
+func (mr *MockSPDBMockRecorder) InsertPutEvent(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockSPDB)(nil).InsertPutEvent), task)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockSPDB)(nil).InsertPutEvent), arg0)
 }
 
 // InsertRecoverFailedObject mocks base method.
@@ -1043,6 +1044,20 @@ func (m *MockSPDB) ListShadowIntegrityMeta() ([]*ShadowIntegrityMeta, error) {
 func (mr *MockSPDBMockRecorder) ListShadowIntegrityMeta() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListShadowIntegrityMeta", reflect.TypeOf((*MockSPDB)(nil).ListShadowIntegrityMeta))
+}
+
+// PublishRecoveryIntegrity mocks base method.
+func (m *MockSPDB) PublishRecoveryIntegrity(integrity *IntegrityMeta) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishRecoveryIntegrity", integrity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishRecoveryIntegrity indicates an expected call of PublishRecoveryIntegrity.
+func (mr *MockSPDBMockRecorder) PublishRecoveryIntegrity(integrity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishRecoveryIntegrity", reflect.TypeOf((*MockSPDB)(nil).PublishRecoveryIntegrity), integrity)
 }
 
 // QueryBucketMigrateSubscribeProgress mocks base method.
@@ -1602,6 +1617,7 @@ func (mr *MockSPDBMockRecorder) UpdateUploadProgress(uploadMeta any) *gomock.Cal
 type MockUploadObjectProgressDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockUploadObjectProgressDBMockRecorder
+	isgomock struct{}
 }
 
 // MockUploadObjectProgressDBMockRecorder is the mock recorder for MockUploadObjectProgressDB.
@@ -1727,17 +1743,17 @@ func (mr *MockUploadObjectProgressDBMockRecorder) GetUploadState(objectID any) *
 }
 
 // InsertPutEvent mocks base method.
-func (m *MockUploadObjectProgressDB) InsertPutEvent(task task.Task) error {
+func (m *MockUploadObjectProgressDB) InsertPutEvent(arg0 task.Task) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertPutEvent", task)
+	ret := m.ctrl.Call(m, "InsertPutEvent", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // InsertPutEvent indicates an expected call of InsertPutEvent.
-func (mr *MockUploadObjectProgressDBMockRecorder) InsertPutEvent(task any) *gomock.Call {
+func (mr *MockUploadObjectProgressDBMockRecorder) InsertPutEvent(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockUploadObjectProgressDB)(nil).InsertPutEvent), task)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockUploadObjectProgressDB)(nil).InsertPutEvent), arg0)
 }
 
 // InsertUploadProgress mocks base method.
@@ -1772,6 +1788,7 @@ func (mr *MockUploadObjectProgressDBMockRecorder) UpdateUploadProgress(uploadMet
 type MockGCObjectProgressDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCObjectProgressDBMockRecorder
+	isgomock struct{}
 }
 
 // MockGCObjectProgressDBMockRecorder is the mock recorder for MockGCObjectProgressDB.
@@ -1852,6 +1869,7 @@ func (mr *MockGCObjectProgressDBMockRecorder) UpdateGCObjectProgress(gcMeta any)
 type MockSignatureDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSignatureDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSignatureDBMockRecorder is the mock recorder for MockSignatureDB.
@@ -2075,6 +2093,20 @@ func (mr *MockSignatureDBMockRecorder) ListShadowIntegrityMeta() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListShadowIntegrityMeta", reflect.TypeOf((*MockSignatureDB)(nil).ListShadowIntegrityMeta))
 }
 
+// PublishRecoveryIntegrity mocks base method.
+func (m *MockSignatureDB) PublishRecoveryIntegrity(integrity *IntegrityMeta) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishRecoveryIntegrity", integrity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishRecoveryIntegrity indicates an expected call of PublishRecoveryIntegrity.
+func (mr *MockSignatureDBMockRecorder) PublishRecoveryIntegrity(integrity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishRecoveryIntegrity", reflect.TypeOf((*MockSignatureDB)(nil).PublishRecoveryIntegrity), integrity)
+}
+
 // SetObjectIntegrity mocks base method.
 func (m *MockSignatureDB) SetObjectIntegrity(integrity *IntegrityMeta) error {
 	m.ctrl.T.Helper()
@@ -2191,6 +2223,7 @@ func (mr *MockSignatureDBMockRecorder) UpdateShadowPieceChecksum(objectID, redun
 type MockTrafficDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockTrafficDBMockRecorder
+	isgomock struct{}
 }
 
 // MockTrafficDBMockRecorder is the mock recorder for MockTrafficDB.
@@ -2418,6 +2451,7 @@ func (mr *MockTrafficDBMockRecorder) UpdateExtraQuota(bucketID, extraQuota, year
 type MockSPInfoDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSPInfoDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSPInfoDBMockRecorder is the mock recorder for MockSPInfoDB.
@@ -2567,6 +2601,7 @@ func (mr *MockSPInfoDBMockRecorder) UpdateAllSp(spList any) *gomock.Call {
 type MockOffChainAuthKeyDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockOffChainAuthKeyDBMockRecorder
+	isgomock struct{}
 }
 
 // MockOffChainAuthKeyDBMockRecorder is the mock recorder for MockOffChainAuthKeyDB.
@@ -2633,6 +2668,7 @@ func (mr *MockOffChainAuthKeyDBMockRecorder) UpdateAuthKey(userAddress, domain, 
 type MockOffChainAuthKeyV2DB struct {
 	ctrl     *gomock.Controller
 	recorder *MockOffChainAuthKeyV2DBMockRecorder
+	isgomock struct{}
 }
 
 // MockOffChainAuthKeyV2DBMockRecorder is the mock recorder for MockOffChainAuthKeyV2DB.
@@ -2729,6 +2765,7 @@ func (mr *MockOffChainAuthKeyV2DBMockRecorder) ListAuthKeysV2(userAddress, domai
 type MockMigrateDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockMigrateDBMockRecorder
+	isgomock struct{}
 }
 
 // MockMigrateDBMockRecorder is the mock recorder for MockMigrateDB.
@@ -3168,6 +3205,7 @@ func (mr *MockMigrateDBMockRecorder) UpdateSwapOutUnitCompletedGVGList(swapOutKe
 type MockExitRecoverDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockExitRecoverDBMockRecorder
+	isgomock struct{}
 }
 
 // MockExitRecoverDBMockRecorder is the mock recorder for MockExitRecoverDB.
