@@ -297,16 +297,13 @@ stop-dc:
 ###############################################################################
 
 PACKAGE_NAME:=github.com/mocachain/moca-storage-provider
-# goreleaser-cross only supplies the cross-compile toolchains; the Go compiler for
-# release builds is pinned via GOTOOLCHAIN in the docker run targets below.
-GOLANG_CROSS_VERSION  = v1.23
+GOLANG_CROSS_VERSION  = v1.26.10
 GOPATH ?= $(HOME)/go
 release-dry-run:
 	docker run \
 		--rm \
 		--privileged \
 		-e CGO_ENABLED=1 \
-		-e GOTOOLCHAIN=go1.26.10 \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v `pwd`:/go/src/$(PACKAGE_NAME) \
 		-v ${GOPATH}/pkg:/go/pkg \
@@ -323,7 +320,6 @@ release:
 		--rm \
 		--privileged \
 		-e CGO_ENABLED=1 \
-		-e GOTOOLCHAIN=go1.26.10 \
 		--env-file .release-env \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v `pwd`:/go/src/$(PACKAGE_NAME) \
