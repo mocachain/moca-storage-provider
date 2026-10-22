@@ -281,6 +281,13 @@ func envOrDefault(key, fallback string) string {
 
 func runSignerEvmApp(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	out, errOut, err := runSignerEvmAppStreams(t, args...)
+	return out + errOut, err
+}
+
+// runSignerEvmAppStreams runs the CLI and returns stdout and stderr apart.
+func runSignerEvmAppStreams(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	app := &cli.App{
 		Name:      "moca-sp",
@@ -293,7 +300,7 @@ func runSignerEvmApp(t *testing.T, args ...string) (string, error) {
 		},
 	}
 	err := app.Run(append([]string{"moca-sp"}, args...))
-	return out.String() + errOut.String(), err
+	return out.String(), errOut.String(), err
 }
 
 // migrate and list end to end against MySQL.
@@ -397,7 +404,9 @@ func TestSignerEvmOutcomeCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
-	insert := func(nonce uint64, operation, state string) int64 {
+	// insertRow adds a state row and its evidence; corrupt flips the last raw
+	// byte, so the evidence no longer matches the hash the row references.
+	insertRow := func(nonce uint64, operation, state string, corrupt bool) (int64, ethcmn.Hash) {
 		to := ethcmn.HexToAddress("0x2000")
 		tx, err := types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(5151)), &types.LegacyTx{
 			Nonce: nonce, GasPrice: big.NewInt(1), Gas: 21000, To: &to, Value: big.NewInt(0),
@@ -406,6 +415,9 @@ func TestSignerEvmOutcomeCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 		raw, _ := tx.MarshalBinary()
+		if corrupt {
+			raw[len(raw)-1] ^= 0xff
+		}
 		res, err := db.Exec(`INSERT INTO signer_evm_signed_tx (chain_id, evm_chain_id, scope, operation, from_address, nonce, tx_hash, raw, recorded_block, lease_epoch, created_at)
 VALUES ('moca_5151-1', 5151, 'operator', ?, ?, ?, ?, ?, 100, 1, 0)`, operation, from.Hex(), nonce, tx.Hash().Hex(), raw)
 		if err != nil {
@@ -418,6 +430,10 @@ VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual'
 			t.Fatal(err)
 		}
 		id, _ := res.LastInsertId()
+		return id, tx.Hash()
+	}
+	insert := func(nonce uint64, operation, state string) int64 {
+		id, _ := insertRow(nonce, operation, state, false)
 		return id
 	}
 	blocked := insert(7, ethcmn.HexToHash("0x01").Hex(), "blocked_unknown")
@@ -465,6 +481,40 @@ VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual'
 		count("SELECT COUNT(*) FROM signer_evm_state") != 0 {
 		t.Fatalf("dispose-outcome: exit %d\n%s", code, out)
 	}
+
+	// resolve of a pending row whose evidence is corrupt: exit 4 before any
+	// chain call, and the stderr record names the target like the audit row.
+	_, pendingHash := insertRow(9, ethcmn.HexToHash("0x03").Hex(), "pending", true)
+	rpcConfig := filepath.Join(t.TempDir(), "config.toml")
+	// nothing listens there: the command must stop before it talks to the chain
+	if err := os.WriteFile(rpcConfig, []byte(strings.Replace(config, "[Chain]\n", "[Chain]\nRpcAddress = ['http://127.0.0.1:1']\n", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := runSignerEvmAppStreams(t, "-c", rpcConfig, "signer-evm", "resolve", "--scope", "operator",
+		"--tx-hash", pendingHash.Hex(), "--operator", "ops", "--reason", "stuck deposit")
+	if code := exitCodeOf(err); code != signer.EvmDisposeExitEvidenceInvalid || !strings.Contains(stdout, "tx_hash="+pendingHash.Hex()) {
+		t.Fatalf("resolve of corrupt evidence: exit %d\nstdout %s\nstderr %s", code, stdout, stderr)
+	}
+	lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
+	var logged signerEvmDisposeLog
+	dec := json.NewDecoder(strings.NewReader(lines[len(lines)-1]))
+	dec.DisallowUnknownFields()
+	if len(lines) != 1 || dec.Decode(&logged) != nil {
+		t.Fatalf("want one JSON stderr record, got %q", stderr)
+	}
+	var auditHash, auditActor, auditReason string
+	if err := db.QueryRow("SELECT tx_hash, actor, reason FROM signer_evm_audit WHERE event = 'evidence_invalid'").
+		Scan(&auditHash, &auditActor, &auditReason); err != nil {
+		t.Fatalf("one evidence_invalid audit row: %v", err)
+	}
+	if logged.Command != signer.EvmDisposeResolve || logged.TxHash != pendingHash.Hex() || logged.TxHash != auditHash ||
+		logged.OutcomeID != 0 || logged.AuditEvent != "evidence_invalid" || logged.ExitCode != signer.EvmDisposeExitEvidenceInvalid ||
+		logged.Actor != auditActor || logged.OperatorReason != "stuck deposit" || auditReason != "stuck deposit" {
+		t.Fatalf("stderr record %+v, audit tx_hash=%s actor=%q reason=%q", logged, auditHash, auditActor, auditReason)
+	}
+	if count("SELECT COUNT(*) FROM signer_evm_state WHERE state = 'pending' AND tx_hash = ?", pendingHash.Hex()) != 1 {
+		t.Fatal("the pending row must stay")
+	}
 }
 
 // A disposition command writes one structured line to stderr that matches
@@ -478,7 +528,7 @@ func TestSignerEvmDisposeStderrLog(t *testing.T) {
 		{Command: signer.EvmDisposeDisposeOutcome, OutcomeID: 7, Action: "none", Event: "manual_rejected",
 			Error: "outcome 7 is not in state succeeded", ExitCode: signer.EvmDisposeExitPrecondition, Actor: "ops (os user sp)",
 			OperatorReason: "cleanup"},
-		{Command: signer.EvmDisposeResolve, Scope: "operator", Error: "failed to read the pending row",
+		{Command: signer.EvmDisposeResolve, Scope: "operator", TxHash: "0x" + strings.Repeat("cd", 32), Error: "failed to read the pending row",
 			ExitCode: signer.EvmDisposeExitError, Actor: "ops (os user sp)"},
 	} {
 		t.Run(fmt.Sprintf("%s exit %d", report.Command, report.ExitCode), func(t *testing.T) {

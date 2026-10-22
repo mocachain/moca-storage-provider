@@ -299,9 +299,13 @@ func printSignerEvmDispose(w io.Writer, report *signer.EvmDisposeReport, asJSON 
 		return enc.Encode(report)
 	}
 	fmt.Fprintf(w, "command: %s dry_run=%t\n", report.Command, report.DryRun)
-	if report.TxHash != "" {
+	switch {
+	case report.From != "":
 		fmt.Fprintf(w, "transaction: scope=%s from=%s nonce=%d tx_hash=%s operation=%s\n", report.Scope, report.From,
 			report.Nonce, report.TxHash, report.Operation)
+	case report.TxHash != "":
+		// the command stopped before the evidence was read
+		fmt.Fprintf(w, "transaction: scope=%s tx_hash=%s\n", report.Scope, report.TxHash)
 	}
 	if report.OutcomeID != 0 {
 		fmt.Fprintf(w, "outcome: id=%d state=%s reason=%s\n", report.OutcomeID, report.State, report.Reason)

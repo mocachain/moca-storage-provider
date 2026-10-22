@@ -287,6 +287,11 @@ func disposeEvmState(ctx context.Context, store evmStateStore, req EvmDisposeReq
 ) *EvmDisposeReport {
 	report := &EvmDisposeReport{Command: req.Command, DryRun: req.DryRun, Scope: req.Scope, OutcomeID: req.OutcomeID,
 		Actor: evmManualActor(req.Operator), OperatorReason: req.Reason, DecisionRef: req.DecisionRef}
+	// The target is known before anything is read, so that a command that
+	// fails early still names it; only resolve takes --tx-hash.
+	if req.Command == EvmDisposeResolve && req.TxHash != (ethcmn.Hash{}) {
+		report.TxHash = req.TxHash.Hex()
+	}
 	if err := checkEvmDisposeRequest(req); err != nil {
 		report.Error, report.ExitCode = err.Error(), EvmDisposeExitError
 		return report
@@ -635,6 +640,7 @@ func (d *evmDisposer) loadOutcome(ctx context.Context, states ...evmOutcomeState
 		return nil, false
 	}
 	d.report.Scope, d.report.State, d.report.Reason = string(outcome.Scope), string(outcome.State), outcome.Reason
+	d.report.TxHash = outcome.TxHash.Hex()
 	for _, state := range states {
 		if outcome.State == state {
 			return outcome, true

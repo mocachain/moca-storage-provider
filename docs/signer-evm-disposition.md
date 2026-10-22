@@ -155,6 +155,9 @@ Each command also writes one JSON line to stderr, separate from the report on st
 ```
 
 `audit_event` names the audit row the command wrote, so the line can be matched to it.
+`tx_hash` and `outcome_id` name the target even when the command stops early, for example
+on invalid evidence: resolve carries `--tx-hash`, the outcome commands carry `--outcome-id`
+and, once the row is read, its hash. resolve has no `outcome_id` unless it settled one.
 When nothing was written (a dry run, or a DB read error) the field is absent. The line
 never includes the transaction bytes or any credentials.
 

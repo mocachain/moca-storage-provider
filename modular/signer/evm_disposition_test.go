@@ -977,6 +977,11 @@ func TestDisposeInvalidEvidence(t *testing.T) {
 				env.outcomeCmd(EvmDisposeRelease, outcome.ID, EvmDisposeRequest{DecisionRef: "board/1", BusinessEvidence: "x"}),
 			} {
 				expectExit(t, report, tc.code, "")
+				// the stderr record names the target even though the evidence was not usable
+				if report.OutcomeID != outcome.ID || report.TxHash != outcome.TxHash.Hex() {
+					t.Fatalf("%s: report target outcome %d %q, want %d %q", report.Command, report.OutcomeID, report.TxHash,
+						outcome.ID, outcome.TxHash.Hex())
+				}
 			}
 			if after := env.store.outcomeRows(); len(after) != 1 || after[0] != rows[0] {
 				t.Fatalf("the row must stay: %+v", after)
@@ -1020,7 +1025,25 @@ func TestDisposeInvalidEvidence(t *testing.T) {
 			tc.damage(env, pending)
 			before := env.store.pendingRows()
 			sends := len(env.sentAll())
-			expectExit(t, env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{ScanBlocks: 100, AcceptUnknown: true}), tc.code, "")
+			report := env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{ScanBlocks: 100, AcceptUnknown: true,
+				Operator: "ops-7", Reason: "stuck deposit"})
+			expectExit(t, report, tc.code, "")
+			// the stderr record names the pending transaction, as the audit row does;
+			// a pending row has no outcome id
+			if report.TxHash != pending.TxHash.Hex() || report.OutcomeID != 0 || report.Actor != evmManualActor("ops-7") ||
+				report.OperatorReason != "stuck deposit" {
+				t.Fatalf("report target %q outcome %d actor %q reason %q", report.TxHash, report.OutcomeID, report.Actor,
+					report.OperatorReason)
+			}
+			if tc.code == EvmDisposeExitEvidenceInvalid {
+				audit := env.store.auditEvents(evmAuditEvidenceInvalid)
+				if len(audit) != 1 || report.Event != evmAuditEvidenceInvalid || audit[0].TxHash.Hex() != report.TxHash ||
+					audit[0].Actor != report.Actor || audit[0].Reason != report.OperatorReason {
+					t.Fatalf("report %+v does not match the audit %+v", report, audit)
+				}
+			} else if report.Event != "" {
+				t.Fatalf("a DB read error audits nothing, report says %q", report.Event)
+			}
 			if after := env.store.pendingRows(); len(after) != 1 || after[0] != before[0] || len(env.store.outcomeRows()) != 0 {
 				t.Fatalf("the pending row must stay: %+v", after)
 			}
