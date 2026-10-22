@@ -59,7 +59,7 @@ func InspectEvmState(ctx context.Context, db *gorm.DB, chainID string) (*EvmStat
 		return nil, fmt.Errorf("failed to derive the EVM chain id from %q: %w", chainID, err)
 	}
 	store := newSQLEvmStateStore(db)
-
+	st := newEvmState(store, chainID, evmChainID.Uint64(), nil)
 	report := &EvmStateReport{ChainID: chainID, EvmChainID: evmChainID.Uint64()}
 
 	if report.ForeignChainIDs, err = store.ForeignChainIDs(ctx, chainID); err != nil {
@@ -72,7 +72,7 @@ func InspectEvmState(ctx context.Context, db *gorm.DB, chainID string) (*EvmStat
 	for _, p := range pendings {
 		row := EvmStateRow{Kind: "pending", ID: p.ID, Scope: string(p.Scope), From: p.From.Hex(), Nonce: p.Nonce,
 			TxHash: p.TxHash.Hex(), Operation: p.Operation.Hex(), Ambiguous: p.Ambiguous, SignedTxID: p.SignedTxID}
-		if err := inspectEvidence(ctx, store, evmChainID.Uint64(), p.ref(), &row); err != nil {
+		if err := inspectEvidence(ctx, st, p.ref(), &row); err != nil {
 			return nil, err
 		}
 		report.Pending = append(report.Pending, row)
@@ -88,7 +88,7 @@ func InspectEvmState(ctx context.Context, db *gorm.DB, chainID string) (*EvmStat
 		if o.ResultTxHash != (ethcmn.Hash{}) {
 			row.ResultTxHash = o.ResultTxHash.Hex()
 		}
-		if err := inspectEvidence(ctx, store, evmChainID.Uint64(), o.ref(), &row); err != nil {
+		if err := inspectEvidence(ctx, st, o.ref(), &row); err != nil {
 			return nil, err
 		}
 		report.Outcomes = append(report.Outcomes, row)
@@ -110,20 +110,16 @@ func InspectEvmState(ctx context.Context, db *gorm.DB, chainID string) (*EvmStat
 	return report, nil
 }
 
-func inspectEvidence(ctx context.Context, store evmStateStore, chainID uint64, ref evidenceRef, row *EvmStateRow) error {
-	evidence, err := store.GetSignedTx(ctx, ref.SignedTxID)
+func inspectEvidence(ctx context.Context, st *evmState, ref evidenceRef, row *EvmStateRow) error {
+	evidence, err := st.store.GetSignedTx(ctx, ref.SignedTxID)
 	if err != nil {
 		return fmt.Errorf("failed to read evidence %d: %w", ref.SignedTxID, err)
 	}
 	if evidence != nil {
 		row.RecordedBlock = evidence.RecordedBlock
 	}
-	if _, err := verifySignedTxEvidence(evidence, ref); err != nil {
+	if _, err := st.verify(evidence, ref); err != nil {
 		row.EvidenceError = err.Error()
-		return nil
-	}
-	if evidence.EvmChainID != chainID {
-		row.EvidenceError = fmt.Sprintf("%v: row %d evm_chain_id=%d, signer EVM chain id is %d", errEvmEvidenceInvalid, evidence.ID, evidence.EvmChainID, chainID)
 		return nil
 	}
 	row.EvidenceValid = true

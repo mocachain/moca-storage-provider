@@ -83,12 +83,33 @@ func scriptAll(action fakeEvmAction) func(int, *ethtypes.Transaction) fakeEvmAct
 	return func(int, *ethtypes.Transaction) fakeEvmAction { return action }
 }
 
+// pendingEvmTx is the view of a scope's pending row the A-era tests check:
+// the stored row plus its evidence bytes.
+type pendingEvmTx struct {
+	operation ethcmn.Hash
+	nonce     uint64
+	hash      ethcmn.Hash
+	raw       []byte
+	ambiguous bool
+}
+
 func pendingFor(t *testing.T, signClient *MocaChainSignClient) (pendingEvmTx, bool) {
 	t.Helper()
-	signClient.pendingEvmTxMu.Lock()
-	defer signClient.pendingEvmTxMu.Unlock()
-	pending, ok := signClient.pendingEvmTxs[SignOperator]
-	return pending, ok
+	return pendingForScope(t, signClient, SignOperator)
+}
+
+func pendingForScope(t *testing.T, signClient *MocaChainSignClient, scope SignType) (pendingEvmTx, bool) {
+	t.Helper()
+	store := memStoreOf(t, signClient)
+	row, ok := store.pendingOf(scope)
+	if !ok {
+		return pendingEvmTx{}, false
+	}
+	evidence, ok := store.signedRow(row.SignedTxID)
+	if !ok {
+		t.Fatalf("pending row %d references missing evidence %d", row.ID, row.SignedTxID)
+	}
+	return pendingEvmTx{operation: row.Operation, nonce: row.Nonce, hash: row.TxHash, raw: evidence.Raw, ambiguous: row.Ambiguous}, true
 }
 
 // assertSignedOnce checks that every send carried the same bytes at the
@@ -383,6 +404,9 @@ func TestEvmSubmitNonceRefusalRefreshesAndResigns(t *testing.T) {
 			node := newFakeEvmNode(t, scenarioNonce)
 			installFakeEvmSeams(t, node)
 			signClient := newFakeEvmSignClient(t, node, tc.cachedNonce)
+			// Lease recovery refreshes the cache from the chain; make it
+			// stale again to drive the refusal.
+			signClient.operatorAccNonce = tc.cachedNonce
 
 			txHash, err := signClient.DepositEvm(scenarioCtx(t), SignOperator, fakeDepositMsg(1000))
 			if err != nil {
@@ -607,30 +631,8 @@ func TestEvmSubmitRepeatAfterMinedReturnsOriginalHash(t *testing.T) {
 	}
 }
 
-// Scenario 7, known limit: pending state is in memory only. A fresh client
-// (restart) re-submits at the refreshed nonce. This pins current behaviour;
-// it is not a guarantee.
-func TestEvmSubmitKnownLimitPendingLostOnRestart(t *testing.T) {
-	node, signClient := newScenario(t)
-	node.script = scriptFirst(fakeEvmAction{kind: fakeEvmAdmitThenDrop})
-	node.hideReceipts = true
-	ctx := scenarioCtx(t)
-
-	if _, err := signClient.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000)); err == nil {
-		t.Fatal("expected unconfirmed error")
-	}
-	node.setHideReceipts(false)
-
-	_, _, chainNonce := node.snapshot()
-	restarted := newFakeEvmSignClient(t, node, chainNonce)
-	if _, err := restarted.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000)); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	accepted, _, _ := node.snapshot()
-	if len(accepted) != 2 || accepted[1].Nonce() != scenarioNonce+1 {
-		t.Fatalf("known limit changed: expected a second deposit at nonce %d after restart; %s", scenarioNonce+1, node.describe())
-	}
-}
+// Scenario 7, the known limit of A (pending lost on restart), is closed by the
+// persisted state: see TestEvmStateUnconfirmedSurvivesRestart.
 
 // Scenario 8 (all 19 methods use the helper) is enforced by
 // TestAllEvmSubmissionMethodsTrackPendingTransactions; this drives both
@@ -660,9 +662,7 @@ func TestEvmSubmitNoLoopMethodKeepsAmbiguousPending(t *testing.T) {
 			if err == nil || len(sends) == 0 || txHash != sends[0].hash.String() {
 				t.Fatalf("expected original hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
 			}
-			signClient.pendingEvmTxMu.Lock()
-			pending, ok := signClient.pendingEvmTxs[tc.scope]
-			signClient.pendingEvmTxMu.Unlock()
+			pending, ok := pendingForScope(t, signClient, tc.scope)
 			if !ok || !pending.ambiguous || pending.hash != sends[0].hash || string(pending.raw) != string(sends[0].raw) {
 				t.Fatalf("expected ambiguous pending entry for the sent bytes, got hash=%s ambiguous=%t ok=%t",
 					pending.hash.Hex(), pending.ambiguous, ok)

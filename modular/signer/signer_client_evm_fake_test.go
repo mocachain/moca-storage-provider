@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -97,6 +98,10 @@ type fakeEvmNode struct {
 	disableCache   bool
 	script         func(send int, tx *ethtypes.Transaction) fakeEvmAction
 	unknownMethods []string
+	height         uint64
+	// executions counts committed transactions per call content, standing
+	// in for a non-idempotent effect such as a deposit.
+	executions map[string]int
 }
 
 func newFakeEvmNode(t *testing.T, accountNonce uint64) *fakeEvmNode {
@@ -108,6 +113,8 @@ func newFakeEvmNode(t *testing.T, accountNonce uint64) *fakeEvmNode {
 		cache:         map[ethcmn.Hash]bool{},
 		committed:     map[ethcmn.Hash]*ethtypes.Transaction{},
 		receiptStatus: map[ethcmn.Hash]uint64{},
+		height:        100,
+		executions:    map[string]int{},
 	}
 	node.server = httptest.NewServer(http.HandlerFunc(node.serveHTTP))
 	t.Cleanup(node.server.Close)
@@ -145,6 +152,11 @@ func (node *fakeEvmNode) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		node.gasPriceCalls++
 		node.mu.Unlock()
 		node.writeResult(w, req.ID, (*hexutil.Big)(price))
+	case "eth_blockNumber":
+		node.mu.Lock()
+		height := node.height
+		node.mu.Unlock()
+		node.writeResult(w, req.ID, hexutil.EncodeUint64(height))
 	case "eth_sendRawTransaction":
 		node.serveSend(w, r, req)
 	default:
@@ -252,7 +264,27 @@ func (node *fakeEvmNode) admit(tx *ethtypes.Transaction) error {
 	node.cache[tx.Hash()] = true
 	node.committed[tx.Hash()] = tx
 	node.accepted = append(node.accepted, tx)
+	if status, ok := node.receiptStatus[tx.Hash()]; !ok || status == ethtypes.ReceiptStatusSuccessful {
+		node.executions[executionKey(tx)]++
+	}
 	return nil
+}
+
+// executionKey identifies what a transaction does, regardless of nonce and fees.
+func executionKey(tx *ethtypes.Transaction) string {
+	to := ""
+	if tx.To() != nil {
+		to = tx.To().Hex()
+	}
+	return fmt.Sprintf("%s/%s/%x", to, tx.Value(), tx.Data())
+}
+
+// executionsOf returns how often a transaction with tx's call content was
+// executed successfully.
+func (node *fakeEvmNode) executionsOf(tx *ethtypes.Transaction) int {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	return node.executions[executionKey(tx)]
 }
 
 // commitExternal consumes the account nonce with a transaction this client
@@ -379,6 +411,26 @@ func installFakeEvmSeams(t *testing.T, node *fakeEvmNode) {
 
 func newFakeEvmSignClient(t *testing.T, node *fakeEvmNode, nonce uint64) *MocaChainSignClient {
 	t.Helper()
+	return newFakeEvmSignClientWithStore(t, node, nonce, newMemEvmStateStore())
+}
+
+// newFakeEvmSignClientWithStore builds a client on store, runs the startup
+// check and takes the lease; recovery runs synchronously. A second client on
+// the same store models a restart.
+func newFakeEvmSignClientWithStore(t *testing.T, node *fakeEvmNode, nonce uint64, store evmStateStore) *MocaChainSignClient {
+	t.Helper()
+	signClient := newFakeEvmSignClientNoLease(t, node, nonce, store)
+	if err := signClient.checkEvmStateOnStart(context.Background()); err != nil {
+		t.Fatalf("startup check: %v", err)
+	}
+	acquireEvmLeaseForTest(t, signClient)
+	return signClient
+}
+
+// newFakeEvmSignClientNoLease builds a client attached to store without
+// starting it.
+func newFakeEvmSignClientNoLease(t *testing.T, node *fakeEvmNode, nonce uint64, store evmStateStore) *MocaChainSignClient {
+	t.Helper()
 	km, err := keys.NewPrivateKeyManager(fakeEvmPrivateKey)
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +455,7 @@ func newFakeEvmSignClient(t *testing.T, node *fakeEvmNode, nonce uint64) *MocaCh
 		CancelSwapIn, CompleteSwapIn, CompleteSwapOut, SPExit, CompleteSPExit, UpdateSPPrice, Deposit} {
 		gasInfo[gasType] = GasInfo{GasLimit: 300000}
 	}
-	return &MocaChainSignClient{
+	signClient := &MocaChainSignClient{
 		gasInfo:          gasInfo,
 		maxEvmGasPrice:   big.NewInt(10_000_000_000),
 		mocaClients:      map[SignType]*client.MocaClient{SignOperator: mocaClient, SignSeal: mocaClient, SignGc: mocaClient},
@@ -412,8 +464,31 @@ func newFakeEvmSignClient(t *testing.T, node *fakeEvmNode, nonce uint64) *MocaCh
 		operatorAccNonce: nonce,
 		sealAccNonce:     nonce,
 		gcAccNonce:       nonce,
-		pendingEvmTxs:    map[SignType]pendingEvmTx{},
 	}
+	if err := signClient.attachEvmState(store, fakeEvmChainID, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	signClient.evm.spawn = func(f func()) { f() }
+	return signClient
+}
+
+// acquireEvmLeaseForTest takes the lease once, running recovery inline.
+func acquireEvmLeaseForTest(t *testing.T, signClient *MocaChainSignClient) {
+	t.Helper()
+	signClient.evm.lease.tick(context.Background())
+	if _, ok := signClient.evm.lease.fence(); !ok {
+		t.Fatal("test client did not acquire the EVM lease")
+	}
+}
+
+// memStoreOf returns the client's in-memory store.
+func memStoreOf(t *testing.T, signClient *MocaChainSignClient) *memEvmStateStore {
+	t.Helper()
+	store, ok := signClient.evm.store.(*memEvmStateStore)
+	if !ok {
+		t.Fatal("client does not use the in-memory store")
+	}
+	return store
 }
 
 func fakeDepositMsg(amount int64) *virtualgrouptypes.MsgDeposit {
@@ -421,4 +496,42 @@ func fakeDepositMsg(amount int64) *virtualgrouptypes.MsgDeposit {
 		GlobalVirtualGroupId: 1,
 		Deposit:              sdk.NewCoin("amoca", sdkmath.NewInt(amount)),
 	}
+}
+
+// setReceiptStatus overrides the receipt status of hash; a failed status
+// also undoes the execution it counted.
+func (node *fakeEvmNode) setReceiptStatus(hash ethcmn.Hash, status uint64) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if previous, ok := node.receiptStatus[hash]; (!ok || previous == ethtypes.ReceiptStatusSuccessful) &&
+		status != ethtypes.ReceiptStatusSuccessful {
+		if tx, committed := node.committed[hash]; committed {
+			node.executions[executionKey(tx)]--
+		}
+	}
+	node.receiptStatus[hash] = status
+}
+
+// sentTx decodes the i-th (0-based) send.
+func (node *fakeEvmNode) sentTx(t *testing.T, i int) *ethtypes.Transaction {
+	t.Helper()
+	_, sends, _ := node.snapshot()
+	if i >= len(sends) {
+		t.Fatalf("only %d sends; %s", len(sends), node.describe())
+	}
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(sends[i].raw); err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+// distinctSentHashes counts the distinct transactions the node ever saw.
+func (node *fakeEvmNode) distinctSentHashes() int {
+	_, sends, _ := node.snapshot()
+	seen := map[ethcmn.Hash]bool{}
+	for _, send := range sends {
+		seen[send.hash] = true
+	}
+	return len(seen)
 }
