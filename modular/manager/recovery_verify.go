@@ -20,6 +20,7 @@ import (
 
 // Deletion is classified only at the chain-query adapter, never from store/index errors.
 var errRecoveryObjectDeleted = errors.New("recovery object deleted on chain")
+var errRecoverySnapshotChanged = errors.New("recovery object snapshot changed or unstable")
 
 func (m *ManageModular) loadRecoverySnapshot(ctx context.Context, index *storagetypes.ObjectInfo, r int32) (*storagetypes.ObjectInfo, *storagetypes.Params, error) {
 	if index == nil || index.Id.IsNil() || r < -1 {
@@ -30,7 +31,7 @@ func (m *ManageModular) loadRecoverySnapshot(ctx context.Context, index *storage
 		return nil, nil, err
 	}
 	if !gfsptask.RecoverySnapshotEqual(index, object) {
-		return nil, nil, fmt.Errorf("recovery object snapshot changed or unstable")
+		return nil, nil, errRecoverySnapshotChanged
 	}
 	params, err := m.recoveryParams(ctx, object, r)
 	return object, params, err
@@ -116,7 +117,7 @@ func (m *ManageModular) checkRecoveryChain(ctx context.Context, object *storaget
 		return err
 	}
 	if !gfsptask.RecoverySnapshotEqual(object, current) {
-		return fmt.Errorf("recovery chain changed during verification")
+		return errRecoverySnapshotChanged
 	}
 	return ctx.Err()
 }
@@ -305,6 +306,9 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 		}
 	}
 	if err != nil {
+		if errors.Is(err, errRecoveryObjectDeleted) || errors.Is(err, errRecoverySnapshotChanged) {
+			a.ready = false
+		}
 		log.Errorw("recovery publication remains unresolved", "object_id", t.ObjectInfo.Id.String(), "error", err)
 		return
 	}

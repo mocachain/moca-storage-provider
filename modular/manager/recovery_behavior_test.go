@@ -464,3 +464,48 @@ func TestRecoveryFinalizationRetriesAcceptedStagingWithoutRedispatch(t *testing.
 		})
 	}
 }
+
+func TestRecoveryFinalizationExpiredSnapshotReleasesMonitor(t *testing.T) {
+	for _, deleted := range []bool{false, true} {
+		t.Run(fmt.Sprint(deleted), func(t *testing.T) {
+			m, object, params, _, _, store, _ := recoveryFixture(t, -1)
+			var current *gfsptask.GfSpRecoverPieceTask
+			for i, data := range [][]byte{[]byte("abcd"), []byte("efgh"), []byte("i")} {
+				task := &gfsptask.GfSpRecoverPieceTask{}
+				task.InitRecoverPieceTask(object, params, 85, uint32(i), -1, 4, 50, 5)
+				task.SetBySuccessorSP(true)
+				require.NoError(t, m.HandleRecoverPieceTask(context.Background(), task))
+				dispatched, err := m.dispatchRecovery(context.Background(), task)
+				require.NoError(t, err)
+				key, err := gfsptask.RecoveryStageKey(dispatched)
+				require.NoError(t, err)
+				require.NoError(t, store.PutPiece(context.Background(), key, data))
+				current = dispatched
+				if i < 2 {
+					dispatched.SetRecoverDone()
+					require.NoError(t, m.HandleRecoverPieceTask(context.Background(), dispatched))
+				}
+			}
+			entered := make(chan struct{})
+			chain := consensus.NewMockConsensus(gomock.NewController(t))
+			chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").DoAndReturn(func(context.Context, string) (*st.ObjectInfo, error) {
+				close(entered)
+				if deleted {
+					return nil, st.ErrNoSuchObject
+				}
+				changed := *object
+				changed.Version++
+				return &changed, nil
+			})
+			m.baseApp.SetConsensus(chain)
+			attempt := m.findRecovery(current)
+			current.SetRecoverDone()
+			require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
+			<-entered
+			attempt.mu.Lock()
+			require.False(t, attempt.finalizing)
+			attempt.mu.Unlock()
+			require.False(t, m.recoveryPublicationPending(91, 2, -1), "a deleted or superseded chain snapshot must not hold the initial monitor forever")
+		})
+	}
+}
