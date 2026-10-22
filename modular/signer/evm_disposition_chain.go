@@ -92,7 +92,8 @@ func (c *cometCosmosDisposeChain) Tx(ctx context.Context, hash string) (*CosmosT
 	}
 	result, err := c.client.Tx(ctx, raw, false)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		// rpc/core/tx.go answers an unknown hash with exactly this message.
+		if strings.Contains(err.Error(), fmt.Sprintf("tx (%X) not found", raw)) {
 			return nil, nil
 		}
 		return nil, cometIndexError(err)

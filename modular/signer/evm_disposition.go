@@ -407,7 +407,9 @@ func (d *evmDisposer) reject(ctx context.Context, base evmAuditEvent, code int, 
 	if d.report.Branch != "" {
 		event.Detail += " (branch " + d.report.Branch + ")"
 	}
-	if err := d.store.AppendAudit(ctx, nil, d.req.ChainID, event); err != nil {
+	wctx, cancel := evmStateCtx(ctx)
+	defer cancel()
+	if err := d.store.AppendAudit(wctx, nil, d.req.ChainID, event); err != nil {
 		d.report.Notes = append(d.report.Notes, "failed to audit the rejection: "+err.Error())
 		return
 	}
@@ -915,22 +917,23 @@ func (d *evmDisposer) findOccupier(ctx context.Context, evidence *signedTxEviden
 		}
 	}
 	if d.req.EvidenceCosmosTx != "" {
+		if d.cosmos == nil {
+			return nil, stderrors.New("--evidence-cosmos-tx needs a CometBFT RPC")
+		}
 		if err := d.checkCosmos(ctx, evidence, sample); err != nil {
 			return nil, err
 		}
-		if d.cosmos != nil {
-			view, err := d.cosmos.Tx(ctx, d.req.EvidenceCosmosTx)
-			switch {
-			case stderrors.Is(err, errCosmosIndexDisabled):
-				sample.note("--evidence-cosmos-tx cannot be looked up: %v", err)
-			case err != nil:
-				return nil, fmt.Errorf("cosmos tx %s: %w", d.req.EvidenceCosmosTx, err)
-			case view == nil:
-				sample.note("--evidence-cosmos-tx %s not found", d.req.EvidenceCosmosTx)
-			default:
-				if occupier := cosmosOccupier(evidence, view, sample, "--evidence-cosmos-tx"); occupier != nil {
-					return occupier, nil
-				}
+		view, err := d.cosmos.Tx(ctx, d.req.EvidenceCosmosTx)
+		switch {
+		case stderrors.Is(err, errCosmosIndexDisabled):
+			sample.note("--evidence-cosmos-tx cannot be looked up: %v", err)
+		case err != nil:
+			return nil, fmt.Errorf("cosmos tx %s: %w", d.req.EvidenceCosmosTx, err)
+		case view == nil:
+			sample.note("--evidence-cosmos-tx %s not found", d.req.EvidenceCosmosTx)
+		default:
+			if occupier := cosmosOccupier(evidence, view, sample, "--evidence-cosmos-tx"); occupier != nil {
+				return occupier, nil
 			}
 		}
 	}

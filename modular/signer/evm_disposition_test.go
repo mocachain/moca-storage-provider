@@ -1,8 +1,10 @@
 package signer
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethcmn "github.com/ethereum/go-ethereum/common"
@@ -221,6 +223,22 @@ func TestDisposeCosmosOccupier(t *testing.T) {
 		env.chain.addCosmosTx("C05B", 0, []sdk.Msg{depositMsgFor(t, 999)}, nil)
 		report := env.resolve(SignOperator, pending.TxHash, EvmDisposeRequest{EvidenceCosmosTx: "c05b"})
 		expectExit(t, report, EvmDisposeExitNotProven, EvmBranchUndetermined)
+	})
+	t.Run("no CometBFT RPC", func(t *testing.T) {
+		env := newDisposeEnv(t)
+		pending, _ := env.stuckDeposit(1000)
+		env.chain.addCosmosTx("C05B", 0, []sdk.Msg{depositMsgFor(t, 1000)}, nil)
+		req := EvmDisposeRequest{Command: EvmDisposeResolve, Scope: string(SignOperator), TxHash: pending.TxHash,
+			EvidenceCosmosTx: "c05b", ChainID: fakeEvmChainID, Operator: "ops-test", Reason: "test",
+			BlockWait: time.Second, Poll: time.Millisecond}
+		report := disposeEvmState(context.Background(), env.store, req, env.chain, nil)
+		expectExit(t, report, EvmDisposeExitError, "")
+		if !strings.Contains(report.Error, "--evidence-cosmos-tx needs a CometBFT RPC") {
+			t.Fatalf("the given Cosmos hash must not be skipped: %+v", report)
+		}
+		if current, ok := env.store.pendingOf(SignOperator); !ok || current.TxHash != pending.TxHash || len(env.store.outcomeRows()) != 0 {
+			t.Fatalf("the pending row must stay: %+v %+v", current, env.store.outcomeRows())
+		}
 	})
 	t.Run("no index", func(t *testing.T) {
 		env := newDisposeEnv(t)
