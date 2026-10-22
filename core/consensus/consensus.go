@@ -79,6 +79,9 @@ type Consensus interface {
 	// ListenRejectUnSealObject returns an indication of the object is rejected.
 	ListenRejectUnSealObject(ctx context.Context, objectID uint64, timeoutHeight int) (bool, error)
 	// ConfirmTransaction is used to confirm whether the transaction is on the chain.
+	// txHash is either a Cosmos tx hash (64 hex) or an Ethereum tx hash ("0x" + 64 hex).
+	// If the transaction is on chain but its execution failed, it returns the response
+	// together with an error wrapping ErrTxExecutionFailed.
 	ConfirmTransaction(ctx context.Context, txHash string) (*sdk.TxResponse, error)
 	// WaitForNextBlock is used to chain generate a new block.
 	WaitForNextBlock(ctx context.Context) error

@@ -2,6 +2,7 @@ package gnfd
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	paymenttypes "github.com/mocachain/moca/v2/x/payment/types"
@@ -889,31 +891,106 @@ type txQueryClient interface {
 	GetTxsEvent(ctx context.Context, in *tx.GetTxsEventRequest, opts ...grpc.CallOption) (*tx.GetTxsEventResponse, error)
 }
 
+// Event attributes that cosmos/evm (x/vm/types) emits for every Ethereum tx.
+const (
+	evmTxEventType          = "ethereum_tx"
+	evmTxHashAttributeKey   = "ethereumTxHash"
+	evmTxFailedAttributeKey = "ethereumTxFailed"
+)
+
+// confirmTx looks the transaction up and reports whether it executed successfully.
+//
+// The signer returns the keccak hash of the Ethereum tx ("0x" + 64 hex), which is
+// not a Cosmos tx hash, so GetTx can never find it. Such hashes are resolved through
+// the ethereum_tx.ethereumTxHash event instead; plain 64 hex hashes still use GetTx.
 func confirmTx(ctx context.Context, client txQueryClient, waitForNextBlock func(context.Context) error, txHash string) (*sdk.TxResponse, error) {
-	txHash = trimHexPrefix(txHash)
+	lookup, err := txLookupFor(client, txHash)
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < ConfirmBlockNumber; i++ {
-		txResponse, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})
+		txResponse, err := lookup(ctx)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				// Tx not found, wait for next block and try again
-				if err = waitForNextBlock(ctx); err != nil {
-					log.Warnf("failed to wait for next block err:%v", err)
-				}
-				continue
-			}
 			return nil, err
 		}
-		// Tx found
-		return txResponse.TxResponse, nil
+		if txResponse == nil {
+			// Tx not found, wait for next block and try again
+			if err = waitForNextBlock(ctx); err != nil {
+				log.Warnf("failed to wait for next block err:%v", err)
+			}
+			continue
+		}
+		if err = txExecutionError(txResponse, txHash); err != nil {
+			return txResponse, err
+		}
+		return txResponse, nil
 	}
 	return nil, fmt.Errorf("failed to confirm transaction, tx_hash=%s", txHash)
 }
 
-func trimHexPrefix(s string) string {
-	if len(s) >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') {
-		return s[2:]
+// txLookupFor returns a lookup that yields (nil, nil) while the tx is not found.
+func txLookupFor(client txQueryClient, txHash string) (func(context.Context) (*sdk.TxResponse, error), error) {
+	switch {
+	case len(txHash) == 66 && (strings.HasPrefix(txHash, "0x") || strings.HasPrefix(txHash, "0X")) && isHex(txHash[2:]):
+		evmHash := "0x" + strings.ToLower(txHash[2:])
+		query := fmt.Sprintf("%s.%s='%s'", evmTxEventType, evmTxHashAttributeKey, evmHash)
+		return func(ctx context.Context) (*sdk.TxResponse, error) {
+			resp, err := client.GetTxsEvent(ctx, &tx.GetTxsEventRequest{Query: query, Page: 1, Limit: 1})
+			if err != nil {
+				return nil, err
+			}
+			if len(resp.GetTxResponses()) == 0 {
+				return nil, nil
+			}
+			return resp.GetTxResponses()[0], nil
+		}, nil
+	case len(txHash) == 64 && isHex(txHash):
+		return func(ctx context.Context) (*sdk.TxResponse, error) {
+			resp, err := client.GetTx(ctx, &tx.GetTxRequest{Hash: txHash})
+			if err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					return nil, nil
+				}
+				return nil, err
+			}
+			return resp.GetTxResponse(), nil
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid tx hash %q: want 64 hex characters, optionally prefixed with 0x", txHash)
 	}
-	return s
+}
+
+// txExecutionError wraps consensus.ErrTxExecutionFailed when the tx failed. An
+// Ethereum tx that reverts keeps Cosmos code 0 and only carries ethereumTxFailed.
+func txExecutionError(txResponse *sdk.TxResponse, txHash string) error {
+	if txResponse.Code != 0 {
+		return fmt.Errorf("%w: tx_hash=%s, codespace=%s, code=%d, log=%s",
+			consensus.ErrTxExecutionFailed, txHash, txResponse.Codespace, txResponse.Code, txResponse.RawLog)
+	}
+	evmHash := strings.ToLower(txHash)
+	for _, event := range txResponse.Events {
+		if event.Type != evmTxEventType {
+			continue
+		}
+		var hash, failure string
+		for _, attr := range event.Attributes {
+			switch attr.Key {
+			case evmTxHashAttributeKey:
+				hash = attr.Value
+			case evmTxFailedAttributeKey:
+				failure = attr.Value
+			}
+		}
+		if failure != "" && strings.ToLower(hash) == evmHash {
+			return fmt.Errorf("%w: tx_hash=%s, reason=%s", consensus.ErrTxExecutionFailed, txHash, failure)
+		}
+	}
+	return nil
+}
+
+func isHex(s string) bool {
+	_, err := hex.DecodeString(s)
+	return err == nil
 }
 
 // WaitForNextBlock is used to chain generate a new block.
