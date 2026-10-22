@@ -6,12 +6,16 @@ import (
 	"testing"
 	"time"
 
+	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
+	"github.com/mocachain/moca-storage-provider/core/spdb"
+	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
 const testSendAndConfirmTxHash = "0xafd500ddbb76aedc5044c17f02820bf776657a9d82af201c8eb2ae37d0657b06"
@@ -126,4 +130,38 @@ func TestSendAndConfirmTxSkipsConfirmWithoutHash(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, send.calls)
+}
+
+func TestRetrySealTaskDeletesProgressAfterLateConfirm(t *testing.T) {
+	noSendAndConfirmBackoff(t)
+	ctrl := gomock.NewController(t)
+	manager := setup(t)
+	manager.baseApp.SetOperatorAddress("operator-1")
+
+	chain := consensus.NewMockConsensus(ctrl)
+	manager.baseApp.SetConsensus(chain)
+	client := gfspclient.NewMockGfSpClientAPI(ctrl)
+	manager.baseApp.SetGfSpClient(client)
+	db := spdb.NewMockSPDB(ctrl)
+	manager.baseApp.SetGfSpDB(db)
+
+	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "7").Return(&storagetypes.ObjectInfo{
+		Id:           sdkmath.NewUint(7),
+		BucketName:   "bucket",
+		ObjectName:   "object",
+		ObjectStatus: storagetypes.OBJECT_STATUS_CREATED,
+	}, nil)
+	client.EXPECT().SealObject(gomock.Any(), gomock.Any()).Return(testSendAndConfirmTxHash, nil).Times(1)
+	gomock.InOrder(
+		chain.EXPECT().ConfirmTransaction(gomock.Any(), testSendAndConfirmTxHash).
+			Return(nil, errors.New("rpc error: code = Unavailable")),
+		chain.EXPECT().ConfirmTransaction(gomock.Any(), testSendAndConfirmTxHash).
+			Return(&sdk.TxResponse{}, nil),
+	)
+	db.EXPECT().DeleteUploadProgress(uint64(7)).Return(nil).Times(1)
+
+	scheduler := &TaskRetryScheduler{manager: manager}
+	err := scheduler.retrySealTask(&spdb.UploadObjectMeta{ObjectID: 7, GlobalVirtualGroupID: 1})
+
+	require.NoError(t, err)
 }
