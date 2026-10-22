@@ -2,7 +2,7 @@ module github.com/mocachain/moca-storage-provider
 
 go 1.23.6
 
-toolchain go1.23.12
+toolchain go1.26.10
 
 require (
 	cosmossdk.io/errors v1.0.1
@@ -13,7 +13,7 @@ require (
 	github.com/aliyun/credentials-go v1.3.0
 	github.com/avast/retry-go/v4 v4.3.1
 	github.com/aws/aws-sdk-go v1.52.2
-	github.com/bytedance/gopkg v0.0.0-20221122125632-68358b8ecec6
+	github.com/bytedance/gopkg v0.1.3
 	github.com/cometbft/cometbft v0.38.15
 	github.com/consensys/gnark-crypto v0.14.0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
@@ -47,9 +47,7 @@ require (
 	go.uber.org/mock v0.4.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.40.0
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0
-	golang.org/x/time v0.9.0
 	google.golang.org/grpc v1.71.0
 	gorm.io/driver/mysql v1.4.7
 	gorm.io/gorm v1.24.7-0.20230306060331-85eaf9eeda11
@@ -68,10 +66,10 @@ require (
 	github.com/DataDog/datadog-go v4.8.3+incompatible // indirect
 	github.com/DataDog/zstd v1.5.5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/bytedance/sonic v1.14.0 // indirect
-	github.com/bytedance/sonic/loader v0.3.0 // indirect
+	github.com/bytedance/sonic v1.15.1 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cloudwego/base64x v0.1.5 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240616162244-4768e80dfb9a // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
@@ -118,6 +116,8 @@ require (
 	github.com/umbracle/go-eth-bn256 v0.0.0-20230125114011-47cb310d9b0b // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.17.0 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/time v0.9.0 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
@@ -323,7 +323,7 @@ require (
 	google.golang.org/genproto v0.0.0-20240701130421-f6361c86f094 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250106144421-5f5ef82da422 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	google.golang.org/protobuf v1.36.10
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

@@ -15,7 +15,7 @@ jobs:
   e2e-test:
     strategy:
       matrix:
-        go-version: [ 1.23.x ]
+        go-version: [ 1.26.10 ]
         os: [ ubuntu-latest ]
     runs-on: ubuntu-latest
 
