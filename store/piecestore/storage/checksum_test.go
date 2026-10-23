@@ -93,12 +93,6 @@ func Test_verifyChecksum(t *testing.T) {
 			wantedResult: io.NopCloser(strings.NewReader("hello world")),
 		},
 		{
-			name:         "2",
-			rc:           io.NopCloser(strings.NewReader("hello world")),
-			checksum:     "abc",
-			wantedResult: io.NopCloser(strings.NewReader("hello world")),
-		},
-		{
 			name:     "3",
 			rc:       io.NopCloser(strings.NewReader("hello world")),
 			checksum: "10",
@@ -118,17 +112,57 @@ func Test_verifyChecksum(t *testing.T) {
 				checksum:   0,
 			},
 		},
-		{
-			name:         "4",
-			rc:           io.NopCloser(strings.NewReader("hello world")),
-			checksum:     "4294967296", // if checksum is out of uint32 range, error will be handled
-			wantedResult: io.NopCloser(strings.NewReader("hello world")),
-		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			result := verifyChecksum(tt.rc, tt.checksum)
+			result, err := verifyChecksum(tt.rc, tt.checksum)
+			assert.NoError(t, err)
 			assert.Equal(t, result, tt.wantedResult)
+		})
+	}
+}
+
+// closeRecorder records whether the wrapped body was closed.
+type closeRecorder struct {
+	io.Reader
+	closed bool
+}
+
+func (c *closeRecorder) Close() error {
+	c.closed = true
+	return nil
+}
+
+var invalidChecksums = []struct {
+	name     string
+	checksum string
+}{
+	{name: "non-numeric", checksum: "abc"},
+	{name: "above uint32 range", checksum: "4294967296"},
+	{name: "below int32 range", checksum: "-2147483649"},
+	{name: "leading space", checksum: " 1"},
+}
+
+func Test_verifyChecksumRejectsInvalidChecksum(t *testing.T) {
+	for _, tt := range invalidChecksums {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := &closeRecorder{Reader: strings.NewReader("hello world")}
+			result, err := verifyChecksum(rc, tt.checksum)
+			assert.ErrorIs(t, err, ErrInvalidChecksum)
+			assert.Nil(t, result)
+			assert.True(t, rc.closed)
+		})
+	}
+}
+
+func Test_verifiedRangeRejectsInvalidChecksum(t *testing.T) {
+	for _, tt := range invalidChecksums {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := &closeRecorder{Reader: strings.NewReader("hello world")}
+			result, err := verifiedRange(rc, tt.checksum, 3, 3)
+			assert.ErrorIs(t, err, ErrInvalidChecksum)
+			assert.Nil(t, result)
+			assert.True(t, rc.closed)
 		})
 	}
 }
@@ -149,10 +183,11 @@ func Test_verifyChecksumReadsValidChecksums(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			result := verifyChecksum(io.NopCloser(strings.NewReader("hello world")), tt.checksum)
+			result, err := verifyChecksum(io.NopCloser(strings.NewReader("hello world")), tt.checksum)
+			assert.NoError(t, err)
 			assert.IsType(t, &checksumReader{}, result)
 
-			_, err := io.ReadAll(result)
+			_, err = io.ReadAll(result)
 			assert.NoError(t, err)
 		})
 	}
