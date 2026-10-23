@@ -520,23 +520,30 @@ func TestRecoveryFinalizationExpiredSnapshotReleasesMonitor(t *testing.T) {
 }
 
 func TestRecoveryCapacityReusedAfterTerminalStageCleanup(t *testing.T) {
-	for _, mode := range []string{"clean", "stage delete failure", "redispatched"} {
+	for _, mode := range []string{"clean", "stage delete failure", "redispatched", "redispatch denied"} {
 		t.Run(mode, func(t *testing.T) {
 			m, object, params, db, _, memory, meta := recoveryFixture(t, -1)
 			t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "13") // one attempt plus one redispatch
 			store := &recoveryFaultStore{recoveryMemoryStore: memory, mode: mode}
+			if mode == "redispatch denied" {
+				t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "9")
+			}
 			m.baseApp.SetPieceStore(store)
 			for round := 0; round < 2; round++ {
 				initial := &gfsptask.GfSpRecoverPieceTask{}
 				initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
 				err := m.HandleRecoverPieceTask(context.Background(), initial)
-				if round == 1 && mode != "clean" {
+				if round == 1 && (mode == "stage delete failure" || mode == "redispatched") {
 					require.ErrorContains(t, err, "capacity exhausted", "unconfirmed cleanup and orphan writers must retain capacity")
 					return
 				}
 				require.NoError(t, err, "successful cleanup must allow repeated recovery under the same budget")
 				current, err := m.dispatchRecovery(context.Background(), initial)
 				require.NoError(t, err)
+				if mode == "redispatch denied" {
+					_, err = m.dispatchRecovery(context.Background(), current)
+					require.ErrorContains(t, err, "capacity exhausted")
+				}
 				if mode == "redispatched" {
 					current, err = m.dispatchRecovery(context.Background(), current)
 					require.NoError(t, err)
@@ -679,4 +686,82 @@ func TestRecoveryFailedReportRemainsRetryableUntilFailureIsDurable(t *testing.T)
 	require.NotNil(t, queued)
 	m.repushRecovery(current)
 	require.True(t, m.recoveryQueue.Has(current.Key()), "failed persistence must not make the dispatch ineligible for repush")
+}
+
+func TestRecoveryVerificationUnknownDoesNotExhaustDataRecovery(t *testing.T) {
+	for _, queryErr := range []error{context.DeadlineExceeded, errors.New("chain temporarily unavailable")} {
+		t.Run(queryErr.Error(), func(t *testing.T) {
+			m, object, params, _, _, memory, _ := recoveryFixture(t, -1)
+			initial := &gfsptask.GfSpRecoverPieceTask{}
+			initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+			require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+			current, err := m.dispatchRecovery(context.Background(), initial)
+			require.NoError(t, err)
+			key, err := gfsptask.RecoveryStageKey(current)
+			require.NoError(t, err)
+			require.NoError(t, memory.PutPiece(context.Background(), key, []byte("efgh")))
+			entered := make(chan struct{})
+			var once sync.Once
+			chain := consensus.NewMockConsensus(gomock.NewController(t))
+			chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").DoAndReturn(func(context.Context, string) (*st.ObjectInfo, error) {
+				once.Do(func() { close(entered) })
+				return nil, queryErr
+			}).AnyTimes()
+			m.baseApp.SetConsensus(chain)
+			attempt := m.findRecovery(current)
+			current.SetRecoverDone()
+			require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
+			<-entered
+			attempt.mu.Lock()
+			attempt.mu.Unlock()
+			for i := 0; i < 7; i++ {
+				m.retryRecoveryFinalizations(context.Background())
+			}
+			require.True(t, m.recoveryPublicationPending(91, 2, -1))
+			require.Equal(t, int64(1), current.GetRetry())
+			require.NotEmpty(t, m.recoveryTaskMap)
+		})
+	}
+}
+
+func TestRecoveryFinalChainUnknownKeepsAcceptedStagingRetryable(t *testing.T) {
+	m, object, params, db, _, memory, meta := recoveryFixture(t, -1)
+	initial := &gfsptask.GfSpRecoverPieceTask{}
+	initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+	require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+	current, err := m.dispatchRecovery(context.Background(), initial)
+	require.NoError(t, err)
+	key, err := gfsptask.RecoveryStageKey(current)
+	require.NoError(t, err)
+	require.NoError(t, memory.PutPiece(context.Background(), key, []byte("efgh")))
+	entered := make(chan struct{})
+	var calls int
+	chain := consensus.NewMockConsensus(gomock.NewController(t))
+	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").DoAndReturn(func(context.Context, string) (*st.ObjectInfo, error) {
+		calls++
+		if calls == 5 {
+			close(entered)
+		}
+		if calls%5 == 0 {
+			return nil, errors.New("final chain query unavailable")
+		}
+		return object, nil
+	}).AnyTimes()
+	m.baseApp.SetConsensus(chain)
+	db.EXPECT().PublishRecoveryIntegrity(gomock.Any()).Return(nil).AnyTimes()
+	db.EXPECT().GetObjectIntegrity(uint64(91), int32(-1)).Return(meta, nil).AnyTimes()
+	attempt := m.findRecovery(current)
+	current.SetRecoverDone()
+	require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
+	<-entered
+	attempt.mu.Lock()
+	attempt.mu.Unlock()
+	for i := 0; i < 7; i++ {
+		m.retryRecoveryFinalizations(context.Background())
+	}
+	require.True(t, m.recoveryPublicationPending(91, 2, -1))
+	data, err := memory.GetPiece(context.Background(), key, 0, 5)
+	require.NoError(t, err)
+	require.Equal(t, []byte("efgh"), data)
+	require.Equal(t, int64(1), current.GetRetry())
 }

@@ -245,8 +245,12 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	succeeded := false
+	publicationFailed := false
+	var err error
 	defer func() {
-		if !succeeded && a.active {
+		// Unknown validation (including final chain reads) and budget expiry must not consume the
+		// durable data-recovery retry budget. Only actual publication failures do.
+		if !succeeded && a.active && publicationFailed && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.Canceled && status.Code(err) != codes.DeadlineExceeded {
 			a.publicationFailures++
 			if a.publicationFailures >= maxRecoveryRetry {
 				m.failRecoveryPublicationLocked(a)
@@ -300,6 +304,7 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 				}
 				canonical := m.baseApp.PieceOp().ChallengePieceKey(object.Id.Uint64(), i, t.EcIdx, object.Version)
 				if err = m.baseApp.PieceStore().PutPiece(ctx, canonical, data); err != nil {
+					publicationFailed = true
 					break
 				}
 			}
@@ -309,9 +314,11 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 			published, valid, err = m.collectRecoveryPieces(ctx, object, params, t.EcIdx, nil, candidate.PieceChecksumList)
 			if err == nil && !valid {
 				err = fmt.Errorf("canonical recovery verification failed")
+				publicationFailed = true
 			}
 			if err == nil {
 				err = m.baseApp.GfSpDB().PublishRecoveryIntegrity(published)
+				publicationFailed = err != nil
 			}
 			if err == nil {
 				var readback *spdb.IntegrityMeta
@@ -319,6 +326,7 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 				if err == nil && !equalRecoveryIntegrity(published, readback) {
 					err = fmt.Errorf("recovery integrity readback differs")
 				}
+				publicationFailed = err != nil
 			}
 			if err == nil {
 				err = m.checkRecoveryChain(ctx, object)
@@ -333,6 +341,7 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 		return
 	}
 	if err = m.baseApp.GfSpDB().DeleteRecoverFailedObject(t.ObjectInfo.Id.Uint64()); err != nil {
+		publicationFailed = true
 		return
 	}
 	if ctx.Err() != nil {

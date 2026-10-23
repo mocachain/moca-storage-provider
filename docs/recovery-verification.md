@@ -20,7 +20,9 @@ The manager verifies the complete candidate, rechecks staged data before copying
 verifies canonical data, atomically publishes the full integrity row, reads it
 back and checks the chain again. Publication failures retain the unfinished marker. A single retry worker retries
 transient publication failures from accepted staging every three seconds, for at
-most five publication attempts. After exhaustion it persists a failed-object row
+most five failed publication attempts. Unknown validation, chain RPC errors at any phase, and context
+cancellation/deadline failures remain unresolved without consuming this budget
+or the durable data-recovery RetryTime. After exhaustion it persists a failed-object row
 before releasing the slot and marking successor segments failed. Failed persistence
 remains unresolved and retries only persistence. The failed-object scheduler then
 owns the existing durable RetryTime (incremented once after full enqueue), maximum

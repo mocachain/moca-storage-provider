@@ -213,18 +213,26 @@ func (m *ManageModular) dispatchRecovery(ctx context.Context, t coretask.Recover
 		}
 		return nil, ErrCanceledTask
 	}
+	var claim string
 	if d.task.GetRetry() > 0 {
 		size, err := m.recoveryPieceSize(d.task.ObjectInfo, d.task.StorageParams, d.task.EcIdx, d.task.SegmentIdx)
 		if err != nil {
 			return nil, err
 		}
-		// The preceding dispatch may still write. Its capacity remains reserved.
-		a.orphaned = true
-		d.capacityClaim, err = m.reserveRecoveryCapacity(uint64(size))
+		claim, err = m.reserveRecoveryCapacity(uint64(size))
 		if err != nil {
 			return nil, err
 		}
 	}
+	// Until a replacement is queued, no new writer can own this claim.
+	admitted := false
+	defer func() {
+		if !admitted {
+			if err := m.releaseRecoveryCapacity(claim); err != nil {
+				log.Errorw("failed to release unused recovery claim", "error", err)
+			}
+		}
+	}()
 	old := d.task
 	next := copyRecovery(old)
 	token := make([]byte, gfsptask.RecoveryFenceSize)
@@ -241,6 +249,12 @@ func (m *ManageModular) dispatchRecovery(ctx context.Context, t coretask.Recover
 	if err := m.recoveryQueue.Push(copyRecovery(next)); err != nil {
 		return nil, err
 	}
+	if claim != "" {
+		// Only an actual redispatch invalidates the old writer's accounting.
+		a.orphaned = true
+		d.capacityClaim = claim
+	}
+	admitted = true
 	d.task = next
 	d.dispatched = true
 	m.recoverMtx.Lock()
