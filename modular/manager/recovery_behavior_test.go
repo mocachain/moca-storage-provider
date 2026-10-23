@@ -600,3 +600,64 @@ func TestRecoveryAdmissionLedgerDoesNotBlockUnrelatedDispatch(t *testing.T) {
 	}
 }
 
+func TestRecoveryPublicationExhaustionPersistsFailureAndReleasesSlot(t *testing.T) {
+	for _, full := range []bool{false, true} {
+		for _, mode := range []string{"canonical put", "failed cleanup"} {
+			t.Run(fmt.Sprintf("successor=%t/%s", full, mode), func(t *testing.T) {
+				m, object, params, db, _, memory, meta := recoveryFixture(t, -1)
+				store := &recoveryFaultStore{recoveryMemoryStore: memory, mode: mode, entered: make(chan struct{}), reads: make(map[string]int)}
+				m.baseApp.SetPieceStore(store)
+				if mode == "failed cleanup" {
+					db.EXPECT().PublishRecoveryIntegrity(gomock.Any()).Return(nil).Times(5)
+					db.EXPECT().GetObjectIntegrity(uint64(91), int32(-1)).Return(meta, nil).Times(5)
+					db.EXPECT().DeleteRecoverFailedObject(uint64(91)).Return(errors.New("delete failed row denied")).Times(5)
+				}
+				// Persistence failure must keep the slot unresolved and retry persistence,
+				// without performing a sixth publication or exposing false completion.
+				gomock.InOrder(
+					db.EXPECT().InsertRecoverFailedObject(&spdb.RecoverFailedObject{ObjectID: 91, VirtualGroupID: 50, RedundancyIndex: -1}).Return(errors.New("database unavailable")),
+					db.EXPECT().InsertRecoverFailedObject(&spdb.RecoverFailedObject{ObjectID: 91, VirtualGroupID: 50, RedundancyIndex: -1}).Return(nil),
+				)
+				var current *gfsptask.GfSpRecoverPieceTask
+				for i, data := range [][]byte{[]byte("abcd"), []byte("efgh"), []byte("i")} {
+					if !full && i != 1 {
+						continue
+					}
+					initial := &gfsptask.GfSpRecoverPieceTask{}
+					initial.InitRecoverPieceTask(object, params, 85, uint32(i), -1, 4, 50, 5)
+					initial.SetBySuccessorSP(full)
+					require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+					var err error
+					current, err = m.dispatchRecovery(context.Background(), initial)
+					require.NoError(t, err)
+					key, err := gfsptask.RecoveryStageKey(current)
+					require.NoError(t, err)
+					require.NoError(t, memory.PutPiece(context.Background(), key, data))
+					current.SetRecoverDone()
+					require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
+				}
+				attempt := m.findRecovery(current)
+				<-store.entered
+				attempt.mu.Lock()
+				require.False(t, attempt.finalizing)
+				attempt.mu.Unlock()
+				for i := 0; i < 4; i++ {
+					m.retryRecoveryFinalizations(context.Background())
+				}
+				require.True(t, m.recoveryPublicationPending(91, 2, -1), "failed-row persistence must finish before retirement")
+				m.retryRecoveryFinalizations(context.Background())
+				require.False(t, m.recoveryPublicationPending(91, 2, -1), "exhausted publication must release monitor")
+				require.Nil(t, m.findRecovery(current))
+				require.Empty(t, m.recoveryTaskMap)
+				if full {
+					stats := m.recoverObjectStats
+					require.True(t, stats.isObjectProcessed(91, 2, -1))
+				}
+				// A successor's complete retry is now admitted; the scheduler owns RetryTime
+				// and increments it once after queueFailedObjectRecovery succeeds.
+				scheduler := &RecoverFailedObjectScheduler{manager: m}
+				require.True(t, scheduler.queueFailedObjectRecovery(object, params, &spdb.RecoverFailedObject{ObjectID: 91, VirtualGroupID: 50, RedundancyIndex: -1, RetryTime: 4}, 4, 3))
+			})
+		}
+	}
+}
