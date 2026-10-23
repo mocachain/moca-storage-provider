@@ -397,6 +397,7 @@ func (s *RecoverGVGScheduler) queueRecoveryObject(objectInfo *types.ObjectInfo, 
 
 func (s *RecoverGVGScheduler) monitorBatch() {
 	ticker := time.NewTicker(recoverInterval)
+	defer ticker.Stop()
 
 	startTime := time.Now()
 	for range ticker.C {
@@ -417,6 +418,7 @@ func (s *RecoverGVGScheduler) monitorBatch() {
 				}
 				if err := s.manager.baseApp.GfSpDB().InsertRecoverFailedObject(failedObject); err != nil {
 					log.Errorw("failed to insert recover_failed_object", "object_id", object.objectID, "error", err)
+					processed = false
 					break
 				}
 			} else {
