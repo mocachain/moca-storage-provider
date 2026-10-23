@@ -14,8 +14,8 @@ import (
 	metatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
- "google.golang.org/grpc/codes"
- "google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestRecoveryFenceReportsCannotMutateCurrentDispatch(t *testing.T) {
@@ -125,15 +125,15 @@ func TestVerifyGVGDeletedObjectRequiresDurableCleanup(t *testing.T) {
 }
 
 func TestRecoveryDeletionClassifierRejectsTransportAndGenericNotFound(t *testing.T) {
- for _, rpcErr := range []error{status.Error(codes.NotFound, "not found"), status.Error(codes.Unavailable, "No such object"), status.Error(codes.DeadlineExceeded, "No such object"), status.Error(codes.Canceled, "No such object"), context.Canceled, context.DeadlineExceeded} {
-  t.Run(rpcErr.Error(), func(t *testing.T) {
-   m, object, _, _, _, _, _ := recoveryFixture(t, -1)
-   chain := consensus.NewMockConsensus(gomock.NewController(t))
-   chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").Return(nil, rpcErr)
-   m.baseApp.SetConsensus(chain)
-   ok, err := verifyIntegrity(m, object, -1)
-   require.False(t, ok)
-   require.ErrorIs(t, err, rpcErr)
-  })
- }
+	for _, rpcErr := range []error{status.Error(codes.NotFound, "not found"), status.Error(codes.Unavailable, "No such object"), status.Error(codes.DeadlineExceeded, "No such object"), status.Error(codes.Canceled, "No such object"), context.Canceled, context.DeadlineExceeded} {
+		t.Run(rpcErr.Error(), func(t *testing.T) {
+			m, object, _, _, _, _, _ := recoveryFixture(t, -1)
+			chain := consensus.NewMockConsensus(gomock.NewController(t))
+			chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").Return(nil, rpcErr)
+			m.baseApp.SetConsensus(chain)
+			ok, err := verifyIntegrity(m, object, -1)
+			require.False(t, ok)
+			require.ErrorIs(t, err, rpcErr)
+		})
+	}
 }

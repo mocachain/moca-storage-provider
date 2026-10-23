@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mocachain/moca-common/go/hash"
@@ -15,6 +16,8 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/store/piecestore/storage"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -42,7 +45,11 @@ func (m *ManageModular) queryRecoveryObject(ctx context.Context, id string) (*st
 	defer cancel()
 	object, err := m.baseApp.Consensus().QueryObjectInfoByID(child, id)
 	if err != nil {
-		if child.Err() == nil && errors.Is(err, storagetypes.ErrNoSuchObject) {
+		// Preserve the repository's chain-query contract until target-chain RPC
+		// evidence supports a typed mapping. Transport failures are never deletion.
+		code := status.Code(err)
+		transport := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || code == codes.Canceled || code == codes.DeadlineExceeded || code == codes.Unavailable
+		if child.Err() == nil && !transport && (errors.Is(err, storagetypes.ErrNoSuchObject) || strings.Contains(err.Error(), "No such object")) {
 			return nil, errRecoveryObjectDeleted
 		}
 		return nil, err
