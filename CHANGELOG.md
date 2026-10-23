@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#219](https://github.com/mocachain/moca-storage-provider/pull/219)  fix(executor): record a secondary signature parse failure on the task
 * [#193](https://github.com/mocachain/moca-storage-provider/pull/193)  fix(blocksyncer): keep the block prefetch bounded after a restart so a block that repeatedly fails to export cannot exhaust memory
 
 IMPROVEMENTS
