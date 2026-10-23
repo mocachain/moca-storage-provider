@@ -210,6 +210,19 @@ func (k pendingTerminalKind) auditEvents() []string {
 	}
 }
 
+// notAdmitted reports whether the transition is a node's refusal of the
+// send, which only the sending lease holder observed.
+func (k pendingTerminalKind) notAdmitted() bool {
+	return k == terminalNotAdmittedNonceLow || k == terminalNotAdmittedNonceHigh || k == terminalNotAdmittedRejected
+}
+
+// doneEvent is the audit event whose presence proves the transition for a
+// hash committed.
+func (k pendingTerminalKind) doneEvent() string {
+	events := k.auditEvents()
+	return events[len(events)-1]
+}
+
 // pendingTerminal is the evidence that ends a pending row.
 type pendingTerminal struct {
 	Kind          pendingTerminalKind
@@ -340,4 +353,10 @@ func verifySignedTxEvidence(evidence *signedTxEvidence, ref evidenceRef) (*types
 func sameEvidence(a, b signedTxEvidence) bool {
 	return a.ChainID == b.ChainID && a.EvmChainID == b.EvmChainID && a.Scope == b.Scope && a.Operation == b.Operation &&
 		a.From == b.From && a.Nonce == b.Nonce && a.TxHash == b.TxHash && bytes.Equal(a.Raw, b.Raw)
+}
+
+// evmStateCtx detaches state writes from the request: a cancelled request
+// must not abort the bookkeeping of bytes that may already be on the wire.
+func evmStateCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), evmStateWriteTimeout)
 }

@@ -14,43 +14,81 @@ import (
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/mocachain/moca/v2/sdk/client"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
+
+// signFakeTx signs a plain transfer with the fake key at nonce.
+func signFakeTx(t *testing.T, nonce uint64, gasPrice int64) *ethtypes.Transaction {
+	t.Helper()
+	key, err := crypto.HexToECDSA(fakeEvmPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := ethcmn.HexToAddress("0x00000000000000000000000000000000000000aa")
+	tx, err := ethtypes.SignNewTx(key, ethtypes.LatestSignerForChainID(big.NewInt(5151)), &ethtypes.LegacyTx{
+		Nonce: nonce, GasPrice: big.NewInt(gasPrice), Gas: 21000, To: &to, Value: big.NewInt(1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tx
+}
+
+// seedPending records tx as the scope's pending transaction for operation.
+func seedPending(t *testing.T, signClient *MocaChainSignClient, scope SignType, operation ethcmn.Hash,
+	tx *ethtypes.Transaction,
+) pendingRecord {
+	t.Helper()
+	original := blockNumberFn
+	defer func() { blockNumberFn = original }()
+	blockNumberFn = func(context.Context, *ethclient.Client) (uint64, error) { return 100, nil }
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence, _ := signClient.evm.lease.fence()
+	pending, err := signClient.recordPendingEvmTx(context.Background(), signClient.evm, fence, scope, operation, tx, raw)
+	if err != nil {
+		t.Fatalf("seed pending: %v", err)
+	}
+	return pending
+}
+
+func newPendingUnitClient(t *testing.T) *MocaChainSignClient {
+	t.Helper()
+	node := newFakeEvmNode(t, 17)
+	installFakeEvmSeams(t, node)
+	return newFakeEvmSignClient(t, node, 17)
+}
 
 func TestResolvePendingEvmTxLookupErrorKeepsExactHash(t *testing.T) {
 	originalReceipt := transactionReceiptFn
 	defer func() { transactionReceiptFn = originalReceipt }()
 
-	pendingHash := ethcmn.HexToHash("0x899")
+	signerClient := newPendingUnitClient(t)
 	operation := ethcmn.HexToHash("0x01")
+	pending := seedPending(t, signerClient, SignOperator, operation, signFakeTx(t, 17, 1))
 	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, hash ethcmn.Hash) (*ethtypes.Receipt, error) {
-		if hash != pendingHash {
-			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pendingHash.Hex())
+		if hash != pending.TxHash {
+			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pending.TxHash.Hex())
 		}
 		return nil, errors.New("receipt unavailable")
-	}
-
-	signerClient := &MocaChainSignClient{
-		mocaClients: map[SignType]*client.MocaClient{SignOperator: nil},
-		pendingEvmTxs: map[SignType]pendingEvmTx{
-			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
-		},
 	}
 
 	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
 	if !handled {
 		t.Fatal("unconfirmed transaction must block a new submission")
 	}
-	if txHash != pendingHash.String() {
-		t.Fatalf("expected submitted hash %s, got %s", pendingHash.String(), txHash)
+	if txHash != pending.TxHash.String() {
+		t.Fatalf("expected submitted hash %s, got %s", pending.TxHash.String(), txHash)
 	}
 	if err == nil || !strings.Contains(err.Error(), "submitted but unconfirmed") ||
-		!strings.Contains(err.Error(), "nonce=17") || !strings.Contains(err.Error(), pendingHash.Hex()) {
+		!strings.Contains(err.Error(), "nonce=17") || !strings.Contains(err.Error(), pending.TxHash.Hex()) {
 		t.Fatalf("unexpected recovery error: %v", err)
 	}
-	if _, ok := signerClient.pendingEvmTxs[SignOperator]; !ok {
+	if _, ok := memStoreOf(t, signerClient).pendingOf(SignOperator); !ok {
 		t.Fatal("unconfirmed transaction was removed from pending state")
 	}
 }
@@ -59,32 +97,27 @@ func TestResolvePendingEvmTxNilReceiptKeepsExactHash(t *testing.T) {
 	originalReceipt := transactionReceiptFn
 	defer func() { transactionReceiptFn = originalReceipt }()
 
-	pendingHash := ethcmn.HexToHash("0x899")
+	signerClient := newPendingUnitClient(t)
 	operation := ethcmn.HexToHash("0x01")
+	pending := seedPending(t, signerClient, SignOperator, operation, signFakeTx(t, 17, 1))
 	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, hash ethcmn.Hash) (*ethtypes.Receipt, error) {
-		if hash != pendingHash {
-			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pendingHash.Hex())
+		if hash != pending.TxHash {
+			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pending.TxHash.Hex())
 		}
 		return nil, nil
-	}
-
-	signerClient := &MocaChainSignClient{
-		pendingEvmTxs: map[SignType]pendingEvmTx{
-			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
-		},
 	}
 
 	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
 	if !handled {
 		t.Fatal("nil receipt must block a new submission")
 	}
-	if txHash != pendingHash.String() {
-		t.Fatalf("expected submitted hash %s, got %s", pendingHash.String(), txHash)
+	if txHash != pending.TxHash.String() {
+		t.Fatalf("expected submitted hash %s, got %s", pending.TxHash.String(), txHash)
 	}
 	if err == nil || !strings.Contains(err.Error(), "submitted but unconfirmed") {
 		t.Fatalf("unexpected recovery error: %v", err)
 	}
-	if _, ok := signerClient.pendingEvmTxs[SignOperator]; !ok {
+	if _, ok := memStoreOf(t, signerClient).pendingOf(SignOperator); !ok {
 		t.Fatal("transaction with nil receipt was removed from pending state")
 	}
 }
@@ -93,19 +126,14 @@ func TestResolvePendingEvmTxFailedReceiptClearsPendingAndPermitsRetry(t *testing
 	originalReceipt := transactionReceiptFn
 	defer func() { transactionReceiptFn = originalReceipt }()
 
-	pendingHash := ethcmn.HexToHash("0x899")
+	signerClient := newPendingUnitClient(t)
 	operation := ethcmn.HexToHash("0x01")
+	pending := seedPending(t, signerClient, SignOperator, operation, signFakeTx(t, 17, 1))
 	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, hash ethcmn.Hash) (*ethtypes.Receipt, error) {
-		if hash != pendingHash {
-			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pendingHash.Hex())
+		if hash != pending.TxHash {
+			t.Fatalf("looked up %s instead of exact pending hash %s", hash.Hex(), pending.TxHash.Hex())
 		}
 		return &ethtypes.Receipt{Status: ethtypes.ReceiptStatusFailed, BlockNumber: big.NewInt(10)}, nil
-	}
-
-	signerClient := &MocaChainSignClient{
-		pendingEvmTxs: map[SignType]pendingEvmTx{
-			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
-		},
 	}
 
 	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
@@ -118,8 +146,12 @@ func TestResolvePendingEvmTxFailedReceiptClearsPendingAndPermitsRetry(t *testing
 	if txHash != "" {
 		t.Fatalf("failed transaction returned prior hash %s", txHash)
 	}
-	if _, ok := signerClient.pendingEvmTxs[SignOperator]; ok {
+	store := memStoreOf(t, signerClient)
+	if _, ok := store.pendingOf(SignOperator); ok {
 		t.Fatal("failed transaction remained pending")
+	}
+	if len(store.outcomeRows()) != 0 || len(store.auditEvents(evmAuditResolvedFailed)) != 1 {
+		t.Fatalf("failed receipt must only be audited: outcomes=%v", store.outcomeRows())
 	}
 }
 
@@ -127,17 +159,11 @@ func TestResolvePendingEvmTxMatchingConfirmedOperationReturnsOriginalHash(t *tes
 	originalReceipt := transactionReceiptFn
 	defer func() { transactionReceiptFn = originalReceipt }()
 
-	pendingHash := ethcmn.HexToHash("0x899")
+	signerClient := newPendingUnitClient(t)
 	operation := ethcmn.HexToHash("0x01")
+	pending := seedPending(t, signerClient, SignOperator, operation, signFakeTx(t, 17, 1))
 	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, _ ethcmn.Hash) (*ethtypes.Receipt, error) {
 		return &ethtypes.Receipt{Status: ethtypes.ReceiptStatusSuccessful, BlockNumber: big.NewInt(10)}, nil
-	}
-
-	signerClient := &MocaChainSignClient{
-		mocaClients: map[SignType]*client.MocaClient{SignOperator: nil},
-		pendingEvmTxs: map[SignType]pendingEvmTx{
-			SignOperator: {operation: operation, nonce: 17, hash: pendingHash},
-		},
 	}
 
 	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, operation)
@@ -147,86 +173,111 @@ func TestResolvePendingEvmTxMatchingConfirmedOperationReturnsOriginalHash(t *tes
 	if !handled {
 		t.Fatal("matching confirmed operation must not be resubmitted")
 	}
-	if txHash != pendingHash.String() {
-		t.Fatalf("expected original hash %s, got %s", pendingHash.String(), txHash)
+	if txHash != pending.TxHash.String() {
+		t.Fatalf("expected original hash %s, got %s", pending.TxHash.String(), txHash)
 	}
-	if _, ok := signerClient.pendingEvmTxs[SignOperator]; ok {
+	store := memStoreOf(t, signerClient)
+	if _, ok := store.pendingOf(SignOperator); ok {
 		t.Fatal("confirmed transaction remained pending")
+	}
+	if len(store.outcomeRows()) != 0 || len(store.auditEvents(evmAuditOutcomeConsumed)) != 1 {
+		t.Fatalf("direct consume must not keep an outcome: %v", store.outcomeRows())
 	}
 }
 
-func TestResolvePendingEvmTxDifferentConfirmedOperationPermitsSubmission(t *testing.T) {
+// F1: a success seen by a request for another operation is kept as a
+// succeeded outcome for the original operation instead of being dropped.
+func TestResolvePendingEvmTxDifferentConfirmedOperationKeepsOutcome(t *testing.T) {
 	originalReceipt := transactionReceiptFn
 	defer func() { transactionReceiptFn = originalReceipt }()
 
-	pendingHash := ethcmn.HexToHash("0x899")
+	signerClient := newPendingUnitClient(t)
+	first := ethcmn.HexToHash("0x01")
+	pending := seedPending(t, signerClient, SignOperator, first, signFakeTx(t, 17, 1))
 	transactionReceiptFn = func(_ context.Context, _ *ethclient.Client, _ ethcmn.Hash) (*ethtypes.Receipt, error) {
 		return &ethtypes.Receipt{Status: ethtypes.ReceiptStatusSuccessful, BlockNumber: big.NewInt(10)}, nil
 	}
 
-	signerClient := &MocaChainSignClient{
-		mocaClients: map[SignType]*client.MocaClient{SignOperator: nil},
-		pendingEvmTxs: map[SignType]pendingEvmTx{
-			SignOperator: {operation: ethcmn.HexToHash("0x01"), nonce: 17, hash: pendingHash},
-		},
+	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, ethcmn.HexToHash("0x02"))
+	if err != nil || handled || txHash != "" {
+		t.Fatalf("different operation must be allowed to sign: hash=%q handled=%t err=%v", txHash, handled, err)
+	}
+	store := memStoreOf(t, signerClient)
+	outcomes := store.outcomeRows()
+	if len(outcomes) != 1 || outcomes[0].State != evmOutcomeSucceeded || outcomes[0].Operation != first ||
+		outcomes[0].ResultTxHash != pending.TxHash || outcomes[0].SignedTxID != pending.SignedTxID {
+		t.Fatalf("expected a succeeded outcome for the original operation, got %+v", outcomes)
 	}
 
-	txHash, handled, err := signerClient.resolvePendingEvmTx(context.Background(), SignOperator, ethcmn.HexToHash("0x02"))
-	if err != nil {
-		t.Fatalf("unexpected recovery error: %v", err)
+	txHash, handled, err = signerClient.resolvePendingEvmTx(context.Background(), SignOperator, first)
+	if err != nil || !handled || txHash != pending.TxHash.String() {
+		t.Fatalf("original operation must get its hash: hash=%q handled=%t err=%v", txHash, handled, err)
 	}
-	if handled {
-		t.Fatalf("different operation was incorrectly handled as prior success with hash %s", txHash)
-	}
-	if txHash != "" {
-		t.Fatalf("different operation received prior hash %s", txHash)
-	}
-	if _, ok := signerClient.pendingEvmTxs[SignOperator]; ok {
-		t.Fatal("confirmed prior transaction remained pending")
+	if len(store.outcomeRows()) != 0 {
+		t.Fatal("consumed outcome remained active")
 	}
 }
 
-func TestRecordPendingEvmTxClearsOnlyExactHash(t *testing.T) {
-	signerClient := &MocaChainSignClient{}
-	operation := ethcmn.HexToHash("0x01")
-	pendingHash := ethcmn.HexToHash("0x899")
+func TestEvmStateTransitionsTouchOnlyExactHash(t *testing.T) {
+	signerClient := newPendingUnitClient(t)
+	store := memStoreOf(t, signerClient)
+	pending := seedPending(t, signerClient, SignSeal, ethcmn.HexToHash("0x01"), signFakeTx(t, 23, 1))
+	fence, _ := signerClient.evm.lease.fence()
 
-	signerClient.recordPendingEvmTx(SignSeal, operation, 23, pendingHash, []byte{0x01})
-	pending, ok := signerClient.pendingEvmTxs[SignSeal]
-	if !ok || pending.operation != operation || pending.nonce != 23 || pending.hash != pendingHash ||
-		string(pending.raw) != "\x01" || pending.ambiguous {
-		t.Fatalf("unexpected pending transaction: %+v", pending)
+	other := pending
+	other.TxHash = ethcmn.HexToHash("0x900")
+	if _, err := store.ResolvePending(context.Background(), fence, other, pendingTerminal{Kind: terminalFailed}); !errors.Is(err, errEvmStateConflict) {
+		t.Fatalf("a different hash must conflict, got %v", err)
 	}
-
-	signerClient.clearPendingEvmTx(SignSeal, ethcmn.HexToHash("0x900"))
-	if _, ok := signerClient.pendingEvmTxs[SignSeal]; !ok {
+	if err := store.MarkAmbiguous(context.Background(), fence, other); !errors.Is(err, errEvmStateConflict) {
+		t.Fatalf("a different hash must conflict, got %v", err)
+	}
+	if _, ok := store.pendingOf(SignSeal); !ok {
 		t.Fatal("a different hash cleared pending state")
 	}
-
-	signerClient.clearPendingEvmTx(SignSeal, pendingHash)
-	if _, ok := signerClient.pendingEvmTxs[SignSeal]; ok {
-		t.Fatal("exact confirmed hash remained pending")
+	if _, err := store.ResolvePending(context.Background(), fence, pending, pendingTerminal{Kind: terminalFailed}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolvePending(context.Background(), fence, pending, pendingTerminal{Kind: terminalFailed}); !errors.Is(err, errEvmRowGone) {
+		t.Fatalf("a second delete must report the row gone, got %v", err)
 	}
 }
 
 func TestPendingEvmTxStateIsSafeAcrossSigningAccounts(t *testing.T) {
-	signerClient := &MocaChainSignClient{}
+	signerClient := newPendingUnitClient(t)
+	store := memStoreOf(t, signerClient)
+	fence, _ := signerClient.evm.lease.fence()
+	original := blockNumberFn
+	defer func() { blockNumberFn = original }()
+	blockNumberFn = func(context.Context, *ethclient.Client) (uint64, error) { return 100, nil }
 
 	var wg sync.WaitGroup
-	for _, scope := range []SignType{SignOperator, SignSeal, SignGc} {
-		scope := scope
+	for i, scope := range []SignType{SignOperator, SignSeal, SignGc} {
+		scope, base := scope, uint64(i*1000)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 1000; i++ {
-				hash := ethcmn.BigToHash(big.NewInt(int64(i + 1)))
-				signerClient.recordPendingEvmTx(scope, hash, uint64(i), hash, nil)
-				signerClient.markPendingEvmTxAmbiguous(scope, hash)
-				signerClient.clearPendingEvmTx(scope, hash)
+			for n := uint64(0); n < 50; n++ {
+				tx := signFakeTx(t, base+n, 1)
+				raw, _ := tx.MarshalBinary()
+				pending, err := signerClient.recordPendingEvmTx(context.Background(), signerClient.evm, fence, scope,
+					ethcmn.BigToHash(big.NewInt(int64(base+n+1))), tx, raw)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				signerClient.markPendingEvmTxAmbiguous(context.Background(), signerClient.evm, fence, pending)
+				if _, err := store.ResolvePending(context.Background(), fence, pending, pendingTerminal{Kind: terminalFailed}); err != nil {
+					t.Error(err)
+					return
+				}
 			}
 		}()
 	}
 	wg.Wait()
+	if rows := store.pendingRows(); len(rows) != 0 {
+		t.Fatalf("pending rows left: %v", rows)
+	}
 }
 
 func TestCompleteSPExitFingerprintIgnoresUnsubmittedStorageProvider(t *testing.T) {

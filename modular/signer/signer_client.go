@@ -141,16 +141,6 @@ type GasInfo struct {
 	FeeAmount sdk.Coins
 }
 
-type pendingEvmTx struct {
-	operation ethcmn.Hash
-	nonce     uint64
-	hash      ethcmn.Hash
-	raw       []byte
-	// ambiguous is set once a send of these bytes had an unknown outcome.
-	// From then on only a receipt may clear the entry.
-	ambiguous bool
-}
-
 // MocaChainSignClient the moca chain client
 type MocaChainSignClient struct {
 	signer *SignModular
@@ -167,9 +157,11 @@ type MocaChainSignClient struct {
 	operatorAccNonce uint64
 	sealAccNonce     uint64
 	gcAccNonce       uint64
-	pendingEvmTxMu   sync.Mutex
-	pendingEvmTxs    map[SignType]pendingEvmTx
 	blsKm            keys.KeyManager
+	// evm is the persisted EVM submission state; nil refuses every EVM
+	// transaction.
+	evm       *evmState
+	evmCloser func() error
 }
 
 // NewMocaChainSignClient return the MocaChainSignClient instance
@@ -282,7 +274,6 @@ func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[Gas
 		sealAccNonce:     sealAccNonce,
 		gcAccNonce:       gcAccNonce,
 		operatorAccNonce: operatorAccNonce,
-		pendingEvmTxs:    make(map[SignType]pendingEvmTx, 3),
 		blsKm:            blsKM,
 		evmClient:        evmClient,
 	}, nil
@@ -2675,72 +2666,31 @@ func completeSPExitEvmFingerprint(msg *virtualgrouptypes.MsgCompleteStorageProvi
 	})
 }
 
-func (client *MocaChainSignClient) resolvePendingEvmTx(ctx context.Context, scope SignType,
-	operation ethcmn.Hash,
-) (string, bool, error) {
-	client.pendingEvmTxMu.Lock()
-	pending, ok := client.pendingEvmTxs[scope]
-	client.pendingEvmTxMu.Unlock()
-	if !ok {
-		return "", false, nil
-	}
-
-	receipt, err := transactionReceiptFn(ctx, client.evmClient, pending.hash)
-	if err != nil || receipt == nil {
-		// The bytes may never have reached a node (cancelled mid-send, lost
-		// before forwarding). Re-sending the identical transaction can execute
-		// at most once, so it is safe and keeps the scope from blocking forever.
-		client.rebroadcastPendingEvmTx(ctx, scope, pending)
-		reason := "receipt unavailable"
-		if err != nil {
-			reason = err.Error()
-		}
-		return pending.hash.String(), true, fmt.Errorf(
-			"EVM transaction submitted but unconfirmed: scope=%s nonce=%d hash=%s ambiguous=%t: %s",
-			scope, pending.nonce, pending.hash.Hex(), pending.ambiguous, reason)
-	}
-
-	client.clearPendingEvmTx(scope, pending.hash)
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return "", false, nil
-	}
-	if pending.operation == operation {
-		return pending.hash.String(), true, nil
-	}
-	return "", false, nil
-}
-
-func (client *MocaChainSignClient) rebroadcastPendingEvmTx(ctx context.Context, scope SignType, pending pendingEvmTx) {
-	if len(pending.raw) == 0 || ctx.Err() != nil {
-		return
-	}
-	signedTx := new(types.Transaction)
-	if err := signedTx.UnmarshalBinary(pending.raw); err != nil {
-		log.CtxErrorw(ctx, "failed to decode pending EVM tx", "scope", scope, "tx_hash", pending.hash.Hex(), "error", err)
-		return
-	}
-	resendCtx, cancel := context.WithTimeout(ctx, evmResendTimeout)
-	defer cancel()
-	err := sendEvmTxFn(resendCtx, client.evmClient, signedTx)
-	log.CtxWarnw(ctx, "re-broadcast unconfirmed EVM tx; check the hash on chain before any manual action",
-		"scope", scope, "nonce", pending.nonce, "tx_hash", pending.hash.Hex(), "operation", pending.operation.Hex(), "error", err)
-}
-
 // submitEvmTx sends a transaction signed with NoSend and waits for its
-// receipt. The pending entry is recorded before the first send, so an unknown
-// outcome blocks the scope instead of letting the operation be signed again
-// at a later nonce.
+// receipt. The evidence and the pending row are committed to the state store
+// before the first send, so an unknown outcome blocks the scope, across
+// restarts too, instead of letting the operation be signed again at a later
+// nonce.
 //
 // An empty hash means nothing may have been admitted: the context was done
-// before sending, or the node verifiably refused the bytes. A nonce refusal
-// is returned as evmNonceRejectedError and is the only case where the caller
-// may refresh the nonce and sign again. A non-empty hash with an error means
-// the transaction may be on chain and stays pending.
+// or the state could not be recorded before sending, or the node verifiably
+// refused the bytes. A nonce refusal is returned as evmNonceRejectedError
+// only once the refusal is recorded; it is the only case where the caller may
+// refresh the nonce and sign again. A non-empty hash with an error means the
+// transaction may be on chain and stays pending.
 func (client *MocaChainSignClient) submitEvmTx(ctx context.Context, scope SignType, operation ethcmn.Hash,
 	nonce uint64, signedTx *types.Transaction,
 ) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	st := client.evm
+	if st == nil {
+		return "", errEvmStateNotConfigured
+	}
+	fence, ok := st.lease.fence()
+	if !ok {
+		return "", errEvmLeaseNotHeld
 	}
 	raw, err := signedTx.MarshalBinary()
 	if err != nil {
@@ -2748,17 +2698,31 @@ func (client *MocaChainSignClient) submitEvmTx(ctx context.Context, scope SignTy
 	}
 	txHash := signedTx.Hash()
 
-	client.recordPendingEvmTx(scope, operation, nonce, txHash, raw)
+	pending, err := client.recordPendingEvmTx(ctx, st, fence, scope, operation, signedTx, raw)
+	if err != nil {
+		return "", err
+	}
 	sendErr := sendEvmTxFn(ctx, client.evmClient, signedTx)
 	switch classifyEvmSendError(ctx, sendErr) {
 	case evmSendNonceRejected:
-		client.clearPendingEvmTx(scope, txHash)
+		kind := terminalNotAdmittedNonceLow
+		if isEvmNonceHighError(sendErr.Error()) {
+			kind = terminalNotAdmittedNonceHigh
+		}
+		if err := client.finishPendingEvmTx(ctx, st, fence, pending, pendingTerminal{Kind: kind, Detail: sendErr.Error()}); err != nil {
+			// Not evmNonceRejectedError: the caller must not re-sign while
+			// the refused bytes are still recorded as pending.
+			return "", fmt.Errorf("EVM tx refused for its nonce (%v), but the refusal could not be recorded: %w", sendErr, err)
+		}
 		return "", &evmNonceRejectedError{err: sendErr}
 	case evmSendRejected:
-		client.clearPendingEvmTx(scope, txHash)
+		if err := client.finishPendingEvmTx(ctx, st, fence, pending,
+			pendingTerminal{Kind: terminalNotAdmittedRejected, Detail: sendErr.Error()}); err != nil {
+			return "", fmt.Errorf("EVM tx refused by node (%v), but the refusal could not be recorded: %w", sendErr, err)
+		}
 		return "", sendErr
 	case evmSendAmbiguous:
-		client.markPendingEvmTxAmbiguous(scope, txHash)
+		client.markPendingEvmTxAmbiguous(ctx, st, fence, pending)
 		log.CtxWarnw(ctx, "EVM tx submit outcome unknown; re-broadcasting the same signed bytes",
 			"scope", scope, "nonce", nonce, "tx_hash", txHash.Hex(), "error", sendErr)
 		// No response from here on may clear the entry: a refusal of a
@@ -2778,39 +2742,15 @@ func (client *MocaChainSignClient) submitEvmTx(ctx context.Context, scope SignTy
 	if err != nil {
 		return txHash.String(), err
 	}
-	client.clearPendingEvmTx(scope, txHash)
+	terminal := pendingTerminal{Kind: terminalSuccessConsume, ReceiptStatus: uint64Ptr(receipt.Status), Source: evmOutcomeSourceSubmit}
+	if receipt.BlockNumber != nil {
+		terminal.ReceiptBlock = receipt.BlockNumber.Uint64()
+	}
+	if err := client.finishPendingEvmTx(ctx, st, fence, pending, terminal); err != nil {
+		return txHash.String(), fmt.Errorf("EVM tx confirmed but its state could not be recorded: %w", err)
+	}
 	log.CtxDebugw(ctx, "transaction confirmed", "tx_hash", txHash.Hex(), "block", receipt.BlockNumber.Uint64())
 	return txHash.String(), nil
-}
-
-func (client *MocaChainSignClient) recordPendingEvmTx(scope SignType, operation ethcmn.Hash, nonce uint64,
-	txHash ethcmn.Hash, raw []byte,
-) {
-	client.pendingEvmTxMu.Lock()
-	defer client.pendingEvmTxMu.Unlock()
-	if client.pendingEvmTxs == nil {
-		client.pendingEvmTxs = make(map[SignType]pendingEvmTx, 3)
-	}
-	client.pendingEvmTxs[scope] = pendingEvmTx{operation: operation, nonce: nonce, hash: txHash, raw: raw}
-}
-
-func (client *MocaChainSignClient) markPendingEvmTxAmbiguous(scope SignType, txHash ethcmn.Hash) {
-	client.pendingEvmTxMu.Lock()
-	defer client.pendingEvmTxMu.Unlock()
-	pending, ok := client.pendingEvmTxs[scope]
-	if ok && pending.hash == txHash {
-		pending.ambiguous = true
-		client.pendingEvmTxs[scope] = pending
-	}
-}
-
-func (client *MocaChainSignClient) clearPendingEvmTx(scope SignType, txHash ethcmn.Hash) {
-	client.pendingEvmTxMu.Lock()
-	defer client.pendingEvmTxMu.Unlock()
-	pending, ok := client.pendingEvmTxs[scope]
-	if ok && pending.hash == txHash {
-		delete(client.pendingEvmTxs, scope)
-	}
 }
 
 func (client *MocaChainSignClient) ReserveSwapIn(ctx context.Context, scope SignType,
