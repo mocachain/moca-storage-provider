@@ -347,8 +347,14 @@ type recoveryFaultStore struct {
 }
 
 func (s *recoveryFaultStore) GetPiece(ctx context.Context, key string, offset, limit int64) ([]byte, error) {
-	s.once.Do(func() { close(s.entered) })
-	s.reads[key]++
+	s.once.Do(func() {
+		if s.entered != nil {
+			close(s.entered)
+		}
+	})
+	if s.reads != nil {
+		s.reads[key]++
+	}
 	if s.mode == "canonical reread" && key == "s91_s1_v2" {
 		return []byte("bad!"), nil
 	}
@@ -508,4 +514,52 @@ func TestRecoveryFinalizationExpiredSnapshotReleasesMonitor(t *testing.T) {
 			require.False(t, m.recoveryPublicationPending(91, 2, -1), "a deleted or superseded chain snapshot must not hold the initial monitor forever")
 		})
 	}
+}
+
+func TestRecoveryCapacityReusedAfterTerminalStageCleanup(t *testing.T) {
+	for _, mode := range []string{"clean", "stage delete failure", "redispatched"} {
+		t.Run(mode, func(t *testing.T) {
+			m, object, params, db, _, memory, meta := recoveryFixture(t, -1)
+			t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "13") // one attempt plus one redispatch
+			store := &recoveryFaultStore{recoveryMemoryStore: memory, mode: mode}
+			m.baseApp.SetPieceStore(store)
+			for round := 0; round < 2; round++ {
+				initial := &gfsptask.GfSpRecoverPieceTask{}
+				initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+				err := m.HandleRecoverPieceTask(context.Background(), initial)
+				if round == 1 && mode != "clean" {
+					require.ErrorContains(t, err, "capacity exhausted", "unconfirmed cleanup and orphan writers must retain capacity")
+					return
+				}
+				require.NoError(t, err, "successful cleanup must allow repeated recovery under the same budget")
+				current, err := m.dispatchRecovery(context.Background(), initial)
+				require.NoError(t, err)
+				if mode == "redispatched" {
+					current, err = m.dispatchRecovery(context.Background(), current)
+					require.NoError(t, err)
+				}
+				key, err := gfsptask.RecoveryStageKey(current)
+				require.NoError(t, err)
+				require.NoError(t, memory.PutPiece(context.Background(), key, []byte("efgh")))
+				published := make(chan struct{})
+				db.EXPECT().PublishRecoveryIntegrity(gomock.Any()).DoAndReturn(func(*spdb.IntegrityMeta) error { close(published); return nil })
+				db.EXPECT().GetObjectIntegrity(uint64(91), int32(-1)).Return(meta, nil)
+				db.EXPECT().DeleteRecoverFailedObject(uint64(91)).Return(nil)
+				attempt := m.findRecovery(current)
+				current.SetRecoverDone()
+				require.NoError(t, m.HandleRecoverPieceTask(context.Background(), current))
+				<-published
+				attempt.mu.Lock()
+				require.False(t, attempt.active)
+				attempt.mu.Unlock()
+			}
+		})
+	}
+}
+
+func (s *recoveryFaultStore) DeletePiece(ctx context.Context, key string) error {
+	if s.mode == "stage delete failure" {
+		return errors.New("delete denied")
+	}
+	return s.recoveryMemoryStore.DeletePiece(ctx, key)
 }
