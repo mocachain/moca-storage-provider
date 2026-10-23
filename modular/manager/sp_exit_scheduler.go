@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -1288,6 +1289,17 @@ func isAlreadyExists(err error) bool {
 
 type SendTxFunc func() (string, error)
 
+// sendAndConfirmBackoff is the delay before the i-th attempt in SendAndConfirmTx.
+// It is a variable so tests can skip the wait.
+var sendAndConfirmBackoff = func(i int) time.Duration {
+	return time.Duration(i*backoffSecondInterval) * time.Second
+}
+
+// SendAndConfirmTx sends a tx and waits until it is confirmed on chain.
+//
+// Send errors are retried by calling sendTxFunc again. Once sendTxFunc has
+// returned a hash, only that hash is confirmed again; the tx is never sent a
+// second time. A tx that is on chain but failed is returned at once.
 func SendAndConfirmTx(chainClient consensus.Consensus, sendTxFunc SendTxFunc) error {
 	var (
 		txHash string
@@ -1295,21 +1307,29 @@ func SendAndConfirmTx(chainClient consensus.Consensus, sendTxFunc SendTxFunc) er
 		ctx    = context.Background()
 	)
 	for i := 0; i < confirmRetryNumber; i++ {
-		time.Sleep(time.Duration(i*backoffSecondInterval) * time.Second)
+		time.Sleep(sendAndConfirmBackoff(i))
 		txHash, err = sendTxFunc()
-		if err != nil {
-			log.Errorw("failed to send tx", "txHash", txHash, "error", err)
-			continue
+		if err == nil {
+			break
 		}
-		if txHash == "" { // No need to confirm due to tx has already on chain
-			return nil
-		}
+		log.Errorw("failed to send tx", "txHash", txHash, "error", err)
+	}
+	if err != nil {
+		return err
+	}
+	if txHash == "" { // No need to confirm due to tx has already on chain
+		return nil
+	}
+	for i := 0; i < confirmRetryNumber; i++ {
+		time.Sleep(sendAndConfirmBackoff(i))
 		_, err = chainClient.ConfirmTransaction(ctx, txHash)
-		if err != nil {
-			log.Errorw("failed to confirm tx", "txHash", txHash, "error", err)
-			continue
+		if err == nil {
+			return nil // succeed
 		}
-		return nil // succeed
+		log.Errorw("failed to confirm tx", "txHash", txHash, "error", err)
+		if errors.Is(err, consensus.ErrTxExecutionFailed) {
+			return err
+		}
 	}
 	return err
 }
