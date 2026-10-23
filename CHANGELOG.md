@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#220](https://github.com/mocachain/moca-storage-provider/pull/220)  fix(executor): log task info instead of the whole task after sealing
 * [#193](https://github.com/mocachain/moca-storage-provider/pull/193)  fix(blocksyncer): keep the block prefetch bounded after a restart so a block that repeatedly fails to export cannot exhaust memory
 
 IMPROVEMENTS

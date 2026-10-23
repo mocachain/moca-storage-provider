@@ -120,7 +120,7 @@ func (e *ExecuteModular) HandleReplicatePieceTask(ctx context.Context, task core
 	if sealErr == nil {
 		task.SetSealed(true)
 	}
-	log.CtxDebugw(ctx, "finish combine seal object", "task", task, "error", sealErr)
+	log.CtxDebugw(ctx, "finish combine seal object", "task_info", task.Info(), "error", sealErr)
 }
 
 func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretask.ReplicatePieceTask) (err error) {
