@@ -333,13 +333,6 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 			m.recoverObjectStats.addSegmentRecord(t.ObjectInfo.Id.Uint64(), t.ObjectInfo.Version, true, i, t.EcIdx)
 		}
 	}
-	// Exact deletion is safe for accepted terminal dispatches. Timed-out writers
-	// are never assumed stopped; their isolated orphan keys require rollout cleanup.
-	for _, key := range stages {
-		if delErr := m.baseApp.PieceStore().DeletePiece(ctx, key); delErr != nil {
-			log.Errorw("failed to clean accepted recovery stage", "error", delErr)
-		}
-	}
 	m.retireRecoveryLocked(a)
 }
 func equalRecoveryIntegrity(a, b *spdb.IntegrityMeta) bool {

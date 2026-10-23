@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -234,9 +235,11 @@ func TestRecoveryCapacityReservationsSurviveManagerRestart(t *testing.T) {
 	t.Setenv("RECOVERY_STAGING_LEDGER_DIR", t.TempDir())
 	t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "9")
 	m := new(ManageModular)
-	require.NoError(t, m.reserveRecoveryCapacity(9))
+	_, err := m.reserveRecoveryCapacity(9)
+	require.NoError(t, err)
 	restarted := new(ManageModular)
-	require.Error(t, restarted.reserveRecoveryCapacity(1))
+	_, err = restarted.reserveRecoveryCapacity(1)
+	require.Error(t, err)
 }
 
 func TestVerifyIntegrityEmptyObjectUsesUploadProtocolVector(t *testing.T) {
@@ -563,3 +566,37 @@ func (s *recoveryFaultStore) DeletePiece(ctx context.Context, key string) error 
 	}
 	return s.recoveryMemoryStore.DeletePiece(ctx, key)
 }
+
+func TestRecoveryAdmissionLedgerDoesNotBlockUnrelatedDispatch(t *testing.T) {
+	m, object, params, _, chain, _, _ := recoveryFixture(t, -1)
+	initial := &gfsptask.GfSpRecoverPieceTask{}
+	initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+	require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+	other := *object
+	other.Id = sdkmath.NewUint(92)
+	entered := make(chan struct{})
+	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "92").DoAndReturn(func(context.Context, string) (*st.ObjectInfo, error) { close(entered); return &other, nil })
+	next := &gfsptask.GfSpRecoverPieceTask{}
+	next.InitRecoverPieceTask(&other, params, 85, 1, -1, 4, 50, 5)
+	m.recoveryCapacityMu.Lock() // suspend ledger IO without suspending registry access
+	done := make(chan error, 1)
+	go func() { done <- m.HandleRecoverPieceTask(context.Background(), next) }()
+	defer func() { m.recoveryCapacityMu.Unlock(); require.NoError(t, <-done) }()
+	<-entered
+	// Wait for the gated admission placeholder, then exercise an existing slot.
+	dispatched := make(chan error, 1)
+	go func() {
+		for m.findRecovery(next) == nil {
+			runtime.Gosched()
+		}
+		_, err := m.dispatchRecovery(context.Background(), initial)
+		dispatched <- err
+	}()
+	select {
+	case err := <-dispatched:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ledger IO blocked unrelated dispatch")
+	}
+}
+

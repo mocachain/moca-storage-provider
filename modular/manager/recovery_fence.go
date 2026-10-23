@@ -12,6 +12,7 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
+	"github.com/mocachain/moca-storage-provider/pkg/log"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
@@ -19,21 +20,24 @@ import (
 // Queue callbacks never acquire its lock: lock order is attempt -> queue.
 // Invalidated entries remain inactive even if a taskCh consumer retains a pointer.
 type recoveryAttempt struct {
-	mu         sync.Mutex
-	active     bool
-	full       bool
-	finalizing bool
-	ready      bool
-	canonical  *gfsptask.GfSpRecoverPieceTask
-	segments   map[uint32]*recoveryDispatch
-	count      uint32
-	started    time.Time
+	mu            sync.Mutex
+	active        bool
+	full          bool
+	finalizing    bool
+	ready         bool
+	canonical     *gfsptask.GfSpRecoverPieceTask
+	segments      map[uint32]*recoveryDispatch
+	count         uint32
+	started       time.Time
+	capacityClaim string
+	orphaned      bool
 }
 type recoveryDispatch struct {
-	task       *gfsptask.GfSpRecoverPieceTask
-	dispatched bool
-	accepted   bool
-	failed     bool
+	task          *gfsptask.GfSpRecoverPieceTask
+	dispatched    bool
+	accepted      bool
+	failed        bool
+	capacityClaim string
 }
 
 func recoverySlot(t coretask.RecoveryPieceTask) string {
@@ -87,7 +91,11 @@ func (m *ManageModular) registerRecovery(ctx context.Context, t coretask.Recover
 		}
 		if replace {
 			previous.mu.Lock()
-			m.retireRecoveryLocked(previous)
+			// Recheck after the chain RPC: a report may have made the old
+			// attempt ready while admission was outside its gate.
+			if previous.active && ((time.Since(previous.started) > 2*time.Minute && !previous.ready) || !gfsptask.RecoverySnapshotEqual(previous.canonical.ObjectInfo, snapshot.ObjectInfo)) {
+				m.retireRecoveryLocked(previous)
+			}
 			previous.mu.Unlock()
 		}
 	}
@@ -104,6 +112,17 @@ func (m *ManageModular) registerRecovery(ctx context.Context, t coretask.Recover
 			m.recoveryStateMu.Unlock()
 			return ErrExceedTask
 		}
+		a = &recoveryAttempt{active: true, full: snapshot.BySuccessorSP(), canonical: snapshot, segments: make(map[uint32]*recoveryDispatch), count: count, started: time.Now()}
+		// Publish a gated placeholder; ledger IO must not hold recoveryStateMu.
+		a.mu.Lock()
+		m.recoveryAttempts[slot] = a
+	}
+	m.recoveryStateMu.Unlock()
+	if !created {
+		a.mu.Lock()
+	}
+	defer a.mu.Unlock()
+	if created {
 		budget := snapshot.ObjectInfo.PayloadSize
 		if snapshot.EcIdx >= 0 && count > 0 {
 			shardCount := uint64(snapshot.StorageParams.GetRedundantDataChunkNum())
@@ -115,17 +134,13 @@ func (m *ManageModular) registerRecovery(ctx context.Context, t coretask.Recover
 			shardSize := func(size uint64) uint64 { return size/shardCount + boolRecoveryRemainder(size%shardCount != 0) }
 			budget = uint64(count-1)*shardSize(segmentSize) + shardSize(tail)
 		}
-
-		if err = m.reserveRecoveryCapacity(budget); err != nil {
-			m.recoveryStateMu.Unlock()
+		a.capacityClaim, err = m.reserveRecoveryCapacity(budget)
+		if err != nil {
+			m.retireRecoveryLocked(a)
 			return err
 		}
-		a = &recoveryAttempt{active: true, full: snapshot.BySuccessorSP(), canonical: snapshot, segments: make(map[uint32]*recoveryDispatch), count: count, started: time.Now()}
-		m.recoveryAttempts[slot] = a
 	}
-	m.recoveryStateMu.Unlock()
-	a.mu.Lock()
-	defer a.mu.Unlock()
+
 	if !a.active || a.finalizing || !gfsptask.RecoverySnapshotEqual(a.canonical.ObjectInfo, snapshot.ObjectInfo) || !proto.Equal(a.canonical.StorageParams, snapshot.StorageParams) || a.canonical.GetGVGID() != snapshot.GetGVGID() || a.full != snapshot.BySuccessorSP() {
 		return ErrCanceledTask
 	}
@@ -204,7 +219,10 @@ func (m *ManageModular) dispatchRecovery(ctx context.Context, t coretask.Recover
 		if err != nil {
 			return nil, err
 		}
-		if err = m.reserveRecoveryCapacity(uint64(size)); err != nil {
+		// The preceding dispatch may still write. Its capacity remains reserved.
+		a.orphaned = true
+		d.capacityClaim, err = m.reserveRecoveryCapacity(uint64(size))
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -297,6 +315,7 @@ func (m *ManageModular) invalidateRecovery(objectID uint64, redundancy int32) {
 }
 func (m *ManageModular) retireRecoveryLocked(a *recoveryAttempt) {
 	a.active = false
+	m.cleanupRecoveryLocked(a)
 	for _, d := range a.segments {
 		m.recoveryQueue.PopByKey(d.task.Key())
 		m.recoverMtx.Lock()
@@ -423,4 +442,37 @@ func (m *ManageModular) recoveryPublicationPending(id uint64, version int64, r i
 	}
 	defer a.mu.Unlock()
 	return a.active && a.ready && a.canonical.ObjectInfo.Version == version
+}
+
+// Only accepted dispatches prove writer termination. A timeout/redispatch leaves
+// the original claim reserved, even if newer dispatches eventually succeed.
+func (m *ManageModular) cleanupRecoveryLocked(a *recoveryAttempt) {
+	clean := !a.orphaned
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, d := range a.segments {
+		if !d.accepted {
+			if d.task.GetRetry() > 0 {
+				clean = false
+			}
+			continue
+		}
+		key, err := gfsptask.RecoveryStageKey(d.task)
+		if err == nil {
+			err = m.baseApp.PieceStore().DeletePiece(ctx, key)
+		}
+		if err != nil {
+			clean = false
+			log.Errorw("failed to clean accepted recovery stage", "error", err)
+			continue
+		}
+		if err = m.releaseRecoveryCapacity(d.capacityClaim); err != nil {
+			log.Errorw("failed to release recovery capacity", "error", err)
+		}
+	}
+	if clean {
+		if err := m.releaseRecoveryCapacity(a.capacityClaim); err != nil {
+			log.Errorw("failed to release recovery capacity", "error", err)
+		}
+	}
 }
