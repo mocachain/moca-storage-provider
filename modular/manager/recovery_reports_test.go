@@ -12,9 +12,10 @@ import (
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	metatypes "github.com/mocachain/moca-storage-provider/modular/metadata/types"
-	st "github.com/mocachain/moca/v2/x/storage/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+ "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/status"
 )
 
 func TestRecoveryFenceReportsCannotMutateCurrentDispatch(t *testing.T) {
@@ -99,7 +100,7 @@ func TestVerifyGVGDeletedObjectRequiresDurableCleanup(t *testing.T) {
 	m, object, _, db, _, _, _ := recoveryFixture(t, -1)
 	ctrl := gomock.NewController(t)
 	chain := consensus.NewMockConsensus(ctrl)
-	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").Return(nil, st.ErrNoSuchObject).AnyTimes()
+	chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").Return(nil, status.Error(codes.Unknown, "rpc error: code = Unknown desc = No such object: key not found")).AnyTimes()
 	m.baseApp.SetConsensus(chain)
 	client := gfspclient.NewMockGfSpClientAPI(ctrl)
 	client.EXPECT().ListObjectsInGVG(gomock.Any(), uint32(7), uint64(0), verifyGVGQueryLimit).Return([]*metatypes.ObjectDetails{{Object: &metatypes.Object{ObjectInfo: object}}}, nil).Times(2)
@@ -121,4 +122,18 @@ func TestVerifyGVGDeletedObjectRequiresDurableCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, complete)
 	require.Equal(t, spdb.Completed, stats.Status)
+}
+
+func TestRecoveryDeletionClassifierRejectsTransportAndGenericNotFound(t *testing.T) {
+ for _, rpcErr := range []error{status.Error(codes.NotFound, "not found"), status.Error(codes.Unavailable, "No such object"), status.Error(codes.DeadlineExceeded, "No such object"), status.Error(codes.Canceled, "No such object"), context.Canceled, context.DeadlineExceeded} {
+  t.Run(rpcErr.Error(), func(t *testing.T) {
+   m, object, _, _, _, _, _ := recoveryFixture(t, -1)
+   chain := consensus.NewMockConsensus(gomock.NewController(t))
+   chain.EXPECT().QueryObjectInfoByID(gomock.Any(), "91").Return(nil, rpcErr)
+   m.baseApp.SetConsensus(chain)
+   ok, err := verifyIntegrity(m, object, -1)
+   require.False(t, ok)
+   require.ErrorIs(t, err, rpcErr)
+  })
+ }
 }
