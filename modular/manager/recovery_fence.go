@@ -20,23 +20,23 @@ import (
 // Queue callbacks never acquire its lock: lock order is attempt -> queue.
 // Invalidated entries remain inactive even if a taskCh consumer retains a pointer.
 type recoveryAttempt struct {
-	mu            sync.Mutex
-	active        bool
-	full          bool
-	finalizing    bool
-	ready         bool
-	canonical     *gfsptask.GfSpRecoverPieceTask
-	segments      map[uint32]*recoveryDispatch
-	count         uint32
-	started       time.Time
-	capacityClaim string
-	orphaned      bool
+	mu                  sync.Mutex
+	active              bool
+	full                bool
+	finalizing          bool
+	ready               bool
+	canonical           *gfsptask.GfSpRecoverPieceTask
+	segments            map[uint32]*recoveryDispatch
+	count               uint32
+	started             time.Time
+	capacityClaim       string
+	orphaned            bool
+	publicationFailures int
 }
 type recoveryDispatch struct {
 	task          *gfsptask.GfSpRecoverPieceTask
 	dispatched    bool
 	accepted      bool
-	failed        bool
 	capacityClaim string
 }
 
@@ -208,7 +208,6 @@ func (m *ManageModular) dispatchRecovery(ctx context.Context, t coretask.Recover
 		return nil, ErrCanceledTask
 	}
 	if d.task.ExceedRetry() {
-		d.failed = true
 		if err := m.failRecoveryLocked(a); err != nil {
 			return nil, err
 		}
@@ -259,7 +258,7 @@ func (m *ManageModular) reportRecovery(ctx context.Context, t coretask.RecoveryP
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	d := a.segments[t.GetSegmentIdx()]
-	if !a.active || !recoveryMatches(d, t) || !d.dispatched || d.accepted || d.failed {
+	if !a.active || !recoveryMatches(d, t) || !d.dispatched || d.accepted {
 		return ErrCanceledTask
 	}
 	if t.Error() != nil {
@@ -267,7 +266,6 @@ func (m *ManageModular) reportRecovery(ctx context.Context, t coretask.RecoveryP
 		// No terminal report is allowed to supply a replacement task.
 		d.dispatched = false
 		if d.task.ExceedRetry() {
-			d.failed = true
 			return m.failRecoveryLocked(a)
 		}
 		return nil
@@ -279,7 +277,7 @@ func (m *ManageModular) reportRecovery(ctx context.Context, t coretask.RecoveryP
 	m.recoveryQueue.PopByKey(d.task.Key())
 	complete := !a.full || uint32(len(a.segments)) == a.count
 	for _, segment := range a.segments {
-		complete = complete && segment.accepted && !segment.failed
+		complete = complete && segment.accepted
 	}
 	if complete && !a.finalizing {
 		a.ready = true
@@ -296,7 +294,7 @@ func (m *ManageModular) repushRecovery(t coretask.RecoveryPieceTask) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	d := a.segments[t.GetSegmentIdx()]
-	if a.active && recoveryMatches(d, t) && !d.accepted && !d.failed {
+	if a.active && recoveryMatches(d, t) && !d.accepted {
 		_ = m.recoveryQueue.Push(copyRecovery(d.task))
 	}
 }
@@ -391,7 +389,7 @@ func (m *ManageModular) failRecoveryLocked(a *recoveryAttempt) error {
 	return nil
 }
 
-// One retry worker reuses accepted staging without new dispatches or RetryTime.
+// One retry worker reuses accepted staging within a bounded publication budget.
 // It never waits behind a publisher holding an object gate over blocking IO.
 func (m *ManageModular) retryRecoveryFinalizations(ctx context.Context) {
 	m.recoveryStateMu.Lock()
@@ -474,5 +472,22 @@ func (m *ManageModular) cleanupRecoveryLocked(a *recoveryAttempt) {
 		if err := m.releaseRecoveryCapacity(a.capacityClaim); err != nil {
 			log.Errorw("failed to release recovery capacity", "error", err)
 		}
+	}
+}
+
+// Publication retries are local to this attempt. After five failures, persist
+// the terminal failure before releasing its slot. The failed-object scheduler
+// retains its durable RetryTime and the existing maximum-five/discontinue exit.
+func (m *ManageModular) failRecoveryPublicationLocked(a *recoveryAttempt) {
+	log.Errorw("recovery publication retries exhausted; preserving failed-object recovery and discontinue exit", "object_id", a.canonical.ObjectInfo.Id.String(), "redundancy", a.canonical.EcIdx, "publication_failures", a.publicationFailures)
+	if !a.full {
+		t := a.canonical
+		if err := m.baseApp.GfSpDB().InsertRecoverFailedObject(&spdb.RecoverFailedObject{ObjectID: t.ObjectInfo.Id.Uint64(), VirtualGroupID: t.GetGVGID(), RedundancyIndex: t.EcIdx}); err != nil {
+			log.Errorw("failed to persist exhausted recovery publication", "error", err)
+			return
+		}
+	}
+	if err := m.failRecoveryLocked(a); err != nil {
+		log.Errorw("failed to persist exhausted recovery publication", "error", err)
 	}
 }

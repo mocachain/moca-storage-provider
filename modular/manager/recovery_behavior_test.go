@@ -626,6 +626,7 @@ func TestRecoveryPublicationExhaustionPersistsFailureAndReleasesSlot(t *testing.
 					initial := &gfsptask.GfSpRecoverPieceTask{}
 					initial.InitRecoverPieceTask(object, params, 85, uint32(i), -1, 4, 50, 5)
 					initial.SetBySuccessorSP(full)
+					initial.SetGVGID(50)
 					require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
 					var err error
 					current, err = m.dispatchRecovery(context.Background(), initial)
@@ -660,4 +661,22 @@ func TestRecoveryPublicationExhaustionPersistsFailureAndReleasesSlot(t *testing.
 			})
 		}
 	}
+}
+
+func TestRecoveryFailedReportRemainsRetryableUntilFailureIsDurable(t *testing.T) {
+	m, object, params, db, _, _, _ := recoveryFixture(t, -1)
+	initial := &gfsptask.GfSpRecoverPieceTask{}
+	initial.InitRecoverPieceTask(object, params, 85, 0, -1, 4, 50, 1)
+	initial.SetBySuccessorSP(true)
+	require.NoError(t, m.HandleRecoverPieceTask(context.Background(), initial))
+	current, err := m.dispatchRecovery(context.Background(), initial)
+	require.NoError(t, err)
+	db.EXPECT().InsertRecoverFailedObject(gomock.Any()).Return(errors.New("database unavailable"))
+	current.SetError(errors.New("source unavailable"))
+	require.Error(t, m.HandleRecoverPieceTask(context.Background(), current))
+	require.False(t, m.recoverObjectStats.isObjectProcessed(91, 2, -1))
+	queued := m.recoveryQueue.PopByKey(current.Key())
+	require.NotNil(t, queued)
+	m.repushRecovery(current)
+	require.True(t, m.recoveryQueue.Has(current.Key()), "failed persistence must not make the dispatch ineligible for repush")
 }

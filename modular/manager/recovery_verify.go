@@ -238,12 +238,25 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 	if !a.active {
 		return
 	}
+	if a.publicationFailures >= maxRecoveryRetry {
+		m.failRecoveryPublicationLocked(a)
+		return
+	}
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
+	succeeded := false
+	defer func() {
+		if !succeeded && a.active {
+			a.publicationFailures++
+			if a.publicationFailures >= maxRecoveryRetry {
+				m.failRecoveryPublicationLocked(a)
+			}
+		}
+	}()
 	t := a.canonical
 	stages := make(map[uint32]string, len(a.segments))
 	for i, d := range a.segments {
-		if !d.accepted || d.failed {
+		if !d.accepted {
 			return
 		}
 		key, err := gfsptask.RecoveryStageKey(d.task)
@@ -333,6 +346,7 @@ func (m *ManageModular) finalizeRecoveryContext(parent context.Context, a *recov
 			m.recoverObjectStats.addSegmentRecord(t.ObjectInfo.Id.Uint64(), t.ObjectInfo.Version, true, i, t.EcIdx)
 		}
 	}
+	succeeded = true
 	m.retireRecoveryLocked(a)
 }
 func equalRecoveryIntegrity(a, b *spdb.IntegrityMeta) bool {
