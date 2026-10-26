@@ -50,14 +50,16 @@ func (c *replicateLogCapture) String() string {
 	return c.buf.String()
 }
 
-// Override only the post-replication read: production first verifies and replaces
-// RPC signatures, so preloading a malformed real task cannot reach this branch.
+// Production replaces the task's signatures with the ones the secondaries
+// returned; keep the injected set so the task carries it like a real one.
 type replicateSignatureTask struct {
 	*gfsptask.GfSpReplicatePieceTask
 	signatures [][]byte
 }
 
-func (t *replicateSignatureTask) GetSecondarySignatures() [][]byte { return t.signatures }
+func (t *replicateSignatureTask) SetSecondarySignatures([][]byte) {
+	t.GfSpReplicatePieceTask.SecondarySignatures = t.signatures
+}
 
 func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 	if os.Getenv(blsLogChildEnv) != "1" {
@@ -107,8 +109,9 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 			e.baseApp.SetGfSpClient(client)
 			task := &replicateSignatureTask{GfSpReplicatePieceTask: &gfsptask.GfSpReplicatePieceTask{
 				Task: &gfsptask.GfSpTask{}, GlobalVirtualGroupId: 7,
-				ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(42), BucketName: "bucket", ObjectName: "object", RedundancyType: storagetypes.REDUNDANCY_REPLICA_TYPE},
-				StorageParams: &storagetypes.Params{},
+				ObjectInfo:          &storagetypes.ObjectInfo{Id: sdkmath.NewUint(42), BucketName: "bucket", ObjectName: "object", RedundancyType: storagetypes.REDUNDANCY_REPLICA_TYPE},
+				StorageParams:       &storagetypes.Params{},
+				SecondarySignatures: tc.signatures,
 			}, signatures: tc.signatures}
 			counter := metrics.ExecutorCounter.WithLabelValues(ExecutorSuccessReplicateAllPiece)
 			beforeCounter := replicateCounterValue(t, counter)
@@ -131,6 +134,17 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 			}
 			logged := capture.String()[beforeLog:]
 			require.Contains(t, logged, "succeed to replicate all pieces")
+			lowered := strings.ToLower(logged)
+			require.NotContains(t, lowered, "secondary_signatures")
+			require.NotContains(t, lowered, "secondarysignatures")
+			for _, sig := range tc.signatures {
+				if len(sig) == 0 {
+					continue
+				}
+				for _, material := range []string{base64.StdEncoding.EncodeToString(sig), hex.EncodeToString(sig)} {
+					require.NotContains(t, logged, material)
+				}
+			}
 			var events []map[string]any
 			for _, line := range strings.Split(strings.TrimSpace(logged), "\n") {
 				var event map[string]any
