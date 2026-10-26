@@ -5,10 +5,14 @@
 BUGFIXES
 
 * [#220](https://github.com/mocachain/moca-storage-provider/pull/220)  fix(executor): log task info instead of the whole task after sealing
+* [#219](https://github.com/mocachain/moca-storage-provider/pull/219)  fix(executor): record a secondary signature parse failure on the task
+* [#217](https://github.com/mocachain/moca-storage-provider/pull/217)  fix(downloader): report the piece store read error on object download
 * [#193](https://github.com/mocachain/moca-storage-provider/pull/193)  fix(blocksyncer): keep the block prefetch bounded after a restart so a block that repeatedly fails to export cannot exhaust memory
 
 IMPROVEMENTS
 
+* [#218](https://github.com/mocachain/moca-storage-provider/pull/218)  chore(ci): run the SP e2e, Go-SDK e2e and SP exit e2e workflows on Node.js 24 instead of the end-of-life 14.x, which only installs ethers and generates the test private key
+* [#214](https://github.com/mocachain/moca-storage-provider/pull/214)  chore(build): run the goreleaser release image (Dockerfile.release) on debian:trixie-slim (glibc 2.41) instead of debian:bookworm-slim (glibc 2.36), so the image's glibc is not older than the Ubuntu 24.04 goreleaser-cross:v1.26.10 build image (glibc 2.39)
 * [#209](https://github.com/mocachain/moca-storage-provider/pull/209)  chore(build): build the release binaries with goreleaser-cross:v1.26.10 directly now that the 1.26.10 cross image is published, dropping the temporary GOTOOLCHAIN override added in #201
 * [#201](https://github.com/mocachain/moca-storage-provider/pull/201)  chore(build): bump the Go toolchain to 1.26.10 (latest 1.26 patch release) across the build Dockerfile, the CI workflow go-version pins, and the goreleaser release builds
 * [#193](https://github.com/mocachain/moca-storage-provider/pull/193)  chore(blocksyncer): redact the password from the DSN startup log
