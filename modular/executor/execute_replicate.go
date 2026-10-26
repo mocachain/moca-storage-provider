@@ -69,11 +69,12 @@ func (e *ExecuteModular) HandleReplicatePieceTask(ctx context.Context, task core
 	log.CtxDebugw(ctx, "succeed to replicate all pieces", "task_info", task.Info())
 
 	blsSigBts := task.GetSecondarySignatures()
-	for _, sigBts := range blsSigBts {
+	for signatureIndex, sigBts := range blsSigBts {
 		signature, err := bls.UnmarshalSignature(sigBts)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to generate multiple signatures",
-				"origin_signature", blsSigBts, "error", err)
+				"signature_index", signatureIndex, "signature_length", len(sigBts),
+				"object_id", task.GetObjectInfo().Id, "gvg_id", task.GetGlobalVirtualGroupId(), "error", err)
 			return
 		}
 		blsSig = append(blsSig, signature)
