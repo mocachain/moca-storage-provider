@@ -1879,3 +1879,27 @@ func TestCheckRecoveryPieceLength(t *testing.T) {
 		})
 	}
 }
+
+func TestExecuteModular_HandleSealObjectTask_RecordsSignatureParseFailure(t *testing.T) {
+	valid := mustMarshalBLSSignatures(t, 1)[0]
+	invalidPoint := make([]byte, len(valid))
+	for i := range invalidPoint {
+		invalidPoint[i] = 0xff
+	}
+	for name, signatures := range map[string][][]byte{
+		"short":         {[]byte("test")},
+		"empty later":   {valid, {}},
+		"invalid point": {valid, invalidPoint},
+	} {
+		t.Run(name, func(t *testing.T) {
+			task := &gfsptask.GfSpSealObjectTask{
+				Task:                &gfsptask.GfSpTask{MaxRetry: 1},
+				ObjectInfo:          &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+				StorageParams:       &storagetypes.Params{},
+				SecondarySignatures: signatures,
+			}
+			setup(t).HandleSealObjectTask(context.TODO(), task)
+			assert.Equal(t, ErrInvalidSecondaryBlsSignature, task.Error())
+		})
+	}
+}

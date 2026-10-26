@@ -124,7 +124,11 @@ func TestHandleReplicatePieceTask_BlsParseFailureLogRedaction(t *testing.T) {
 				chain.EXPECT().ListenObjectSeal(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil)
 			}
 			e.HandleReplicatePieceTask(context.Background(), task)
-			require.NoError(t, task.Error()) // Known loop-local err shadowing; changing this behavior is a separate follow-up.
+			if tc.badIndex < 0 {
+				require.NoError(t, task.Error())
+			} else {
+				require.Equal(t, ErrInvalidSecondaryBlsSignature, task.Error())
+			}
 			logged := capture.String()[beforeLog:]
 			require.Contains(t, logged, "succeed to replicate all pieces")
 			var events []map[string]any

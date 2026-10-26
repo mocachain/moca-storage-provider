@@ -68,9 +68,13 @@ func (e *ExecuteModular) HandleSealObjectTask(ctx context.Context, task coretask
 	}
 	var blsSig bls.Signatures
 	blsSigBts := task.GetSecondarySignatures()
-	for _, sigBts := range blsSigBts {
+	for signatureIndex, sigBts := range blsSigBts {
 		signature, err := bls.UnmarshalSignature(sigBts)
 		if err != nil {
+			log.CtxErrorw(ctx, "failed to parse secondary signature",
+				"signature_index", signatureIndex, "signature_length", len(sigBts),
+				"object_id", task.GetObjectInfo().Id, "gvg_id", task.GetGlobalVirtualGroupId(), "error", err)
+			task.SetError(ErrInvalidSecondaryBlsSignature)
 			return
 		}
 		blsSig = append(blsSig, signature)
