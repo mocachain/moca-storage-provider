@@ -27,6 +27,7 @@ func (m *ManageModular) reserveRecoveryCapacity(bytes uint64) (string, error) {
 	}
 	m.recoveryCapacityMu.Lock()
 	defer m.recoveryCapacityMu.Unlock()
+	// #nosec G703 -- Deployment-owned absolute ledger root; callers cannot supply this path. See docs/recovery-verification.md.
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
@@ -57,6 +58,7 @@ func (m *ManageModular) reserveRecoveryCapacity(bytes uint64) (string, error) {
 		return "", err
 	}
 	claim := filepath.Join(dir, fmt.Sprintf("%d-%s", bytes, hex.EncodeToString(token)))
+	// #nosec G703 -- Claim basename is decimal bytes plus random hex under the deployment-owned ledger root; O_EXCL prevents final-link reuse.
 	file, err := os.OpenFile(claim, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return "", err
@@ -68,6 +70,7 @@ func (m *ManageModular) reserveRecoveryCapacity(bytes uint64) (string, error) {
 	if err = file.Close(); err != nil {
 		return "", err
 	}
+	// #nosec G703 -- Sync the same deployment-owned ledger root used for capacity accounting.
 	parent, err := os.Open(dir)
 	if err != nil {
 		return "", err

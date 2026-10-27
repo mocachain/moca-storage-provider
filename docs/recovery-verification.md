@@ -59,7 +59,26 @@ the current extra claim can be released after terminal cleanup. Deletion failure
 retain capacity. Ledger IO holds only its dedicated capacity lock and the affected
 object gate, not the global registry lock. Old orphan claims can still accumulate
 and eventually stop admission until operator cleanup. It is not a distributed lease, quota against unrelated
-writers, or protection against losing/replacing the ledger volume.
+writers.
+
+The ledger path selects a deployment-owned root, not an untrusted subpath. Keep
+the resolved directory, every ancestor and any symlink target under the control of
+the deployment owner or manager service identity; untrusted local users or groups
+must not be able to write, rename or replace them. Check existing-directory
+permissions explicitly: MkdirAll does not tighten them. Keep configuration,
+symlink targets and the persistent mount unchanged while managers or recovery
+writers are active. IsAbs does not reject parent traversal or prevent symlink
+redirection. Replacing the root can split reservations across directories and
+undercount capacity. The ledger does not defend against a user that can modify
+its files or replace its volume. These prerequisites must be checked before
+rollout; missing evidence blocks deployment.
+
+Retain rollout evidence for the manager service identity, ownership, mode bits and
+ACLs of the resolved root, every ancestor and every symlink target, plus the
+persistent mount identity and stability across manager handoff. A configured
+absolute path or successful MkdirAll is not permission evidence. If an untrusted
+local writer can replace these paths, this deployment is outside the ledger's
+trust contract and requires a new design before rollout.
 
 Monitor ledger bytes (sum filename byte prefixes), file count, free storage,
 `recovery staging capacity exhausted`, publication errors and unfinished tasks.

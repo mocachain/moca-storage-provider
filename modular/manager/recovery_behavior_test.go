@@ -6,8 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -240,6 +243,164 @@ func TestRecoveryCapacityReservationsSurviveManagerRestart(t *testing.T) {
 	restarted := new(ManageModular)
 	_, err = restarted.reserveRecoveryCapacity(1)
 	require.Error(t, err)
+}
+
+// These exercise the existing capacity/admission seam; they do not establish
+// safety against a local writer that can replace the ledger or its ancestors.
+func TestRecoveryCapacityInvalidLedgerPreventsAdmission(t *testing.T) {
+	for _, mode := range []string{
+		"missing root", "relative root", "missing capacity", "zero capacity", "invalid capacity",
+		"root is file", "ancestor is file", "permission denied", "malformed claim",
+		"invalid byte count", "subdirectory", "accounting overflow",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			m, object, params, _, _, memory, _ := recoveryFixture(t, -1)
+			dir := t.TempDir()
+			t.Setenv("RECOVERY_STAGING_LEDGER_DIR", dir)
+			switch mode {
+			case "missing root":
+				t.Setenv("RECOVERY_STAGING_LEDGER_DIR", "")
+			case "relative root":
+				t.Setenv("RECOVERY_STAGING_LEDGER_DIR", "relative-ledger")
+			case "missing capacity":
+				t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "")
+			case "zero capacity":
+				t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "0")
+			case "invalid capacity":
+				t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "not-a-budget")
+			case "root is file", "ancestor is file":
+				file := filepath.Join(dir, "file")
+				require.NoError(t, os.WriteFile(file, nil, 0600))
+				if mode == "ancestor is file" {
+					file = filepath.Join(file, "ledger")
+				}
+				t.Setenv("RECOVERY_STAGING_LEDGER_DIR", file)
+			case "permission denied":
+				if os.Geteuid() == 0 {
+					t.Skip("requires a non-root identity to verify directory permissions")
+				}
+				require.NoError(t, os.Chmod(dir, 0500))
+				t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0700)) })
+			case "malformed claim":
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "broken"), nil, 0600))
+			case "invalid byte count":
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "invalid-token"), nil, 0600))
+			case "subdirectory":
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "1-token"), 0700))
+			case "accounting overflow":
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "18446744073709551615-a"), nil, 0600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "1-b"), nil, 0600))
+			}
+			initial := &gfsptask.GfSpRecoverPieceTask{}
+			initial.InitRecoverPieceTask(object, params, 85, 1, -1, 4, 50, 5)
+			require.Error(t, m.HandleRecoverPieceTask(context.Background(), initial))
+			require.Zero(t, m.recoveryQueue.Len(), "invalid ledger must not enqueue a writer")
+			_, err := m.dispatchRecovery(context.Background(), initial)
+			require.Error(t, err)
+			memory.mu.Lock()
+			defer memory.mu.Unlock()
+			require.Len(t, memory.pieces, 3, "admission failure must not publish or stage pieces")
+		})
+	}
+}
+
+func TestRecoveryCapacityClaimStaysWithinConfiguredRoot(t *testing.T) {
+	for _, mode := range []string{"new directory", "absolute parent traversal", "stable symlink"} {
+		t.Run(mode, func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "ledger")
+			switch mode {
+			case "absolute parent traversal":
+				require.NoError(t, os.Mkdir(filepath.Join(parent, "child"), 0700))
+				// Deliberately retain ..: IsAbs is not a containment check.
+				dir = parent + "/child/../ledger"
+			case "stable symlink":
+				target := filepath.Join(parent, "target")
+				require.NoError(t, os.Mkdir(target, 0700))
+				require.NoError(t, os.Symlink(target, dir))
+			}
+			t.Setenv("RECOVERY_STAGING_LEDGER_DIR", dir)
+			t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "18446744073709551615")
+			m := new(ManageModular)
+			claim, err := m.reserveRecoveryCapacity(math.MaxUint64)
+			require.NoError(t, err)
+			rel, err := filepath.Rel(dir, claim)
+			require.NoError(t, err)
+			require.Regexp(t, `^18446744073709551615-[0-9a-f]{64}$`, rel)
+			info, err := os.Lstat(claim)
+			require.NoError(t, err)
+			require.True(t, info.Mode().IsRegular())
+			require.Zero(t, info.Size())
+			require.Zero(t, info.Mode().Perm() & ^os.FileMode(0600))
+			info, err = os.Stat(dir)
+			require.NoError(t, err)
+			require.Zero(t, info.Mode().Perm() & ^os.FileMode(0700))
+			_, err = m.reserveRecoveryCapacity(1)
+			require.ErrorContains(t, err, "capacity exhausted")
+			require.NoError(t, m.releaseRecoveryCapacity(claim))
+			zeroClaim, err := m.reserveRecoveryCapacity(0)
+			require.NoError(t, err)
+			require.Regexp(t, `^1-[0-9a-f]{64}$`, filepath.Base(zeroClaim))
+		})
+	}
+}
+
+func TestRecoveryCapacityConcurrentReservationsRespectBudget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RECOVERY_STAGING_LEDGER_DIR", dir)
+	t.Setenv("RECOVERY_STAGING_CAPACITY_BYTES", "9")
+	m := new(ManageModular)
+	type reservation struct {
+		claim string
+		err   error
+	}
+	results := make(chan reservation, 20)
+	for i := 0; i < cap(results); i++ {
+		go func() {
+			claim, err := m.reserveRecoveryCapacity(3)
+			results <- reservation{claim, err}
+		}()
+	}
+	var claims []string
+	for i := 0; i < cap(results); i++ {
+		result := <-results
+		if result.err != nil {
+			require.ErrorContains(t, result.err, "capacity exhausted")
+		} else {
+			claims = append(claims, result.claim)
+		}
+	}
+	require.Len(t, claims, 3)
+	require.NotEqual(t, claims[0], claims[1])
+	require.NotEqual(t, claims[1], claims[2])
+	require.NotEqual(t, claims[0], claims[2])
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	for _, claim := range claims {
+		require.NoError(t, m.releaseRecoveryCapacity(claim))
+	}
+	entries, err = os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestRecoveryCapacityExclusiveCreateDoesNotFollowFinalSymlink(t *testing.T) {
+	// Isolated OS-semantics fixture: this proves only the final-component
+	// O_EXCL contract, not protection against replacement of a root/ancestor.
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	require.NoError(t, os.WriteFile(target, []byte("preserve"), 0600))
+	claim := filepath.Join(dir, "1-"+strings.Repeat("a", 64))
+	require.NoError(t, os.Symlink(target, claim))
+	file, err := os.OpenFile(claim, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if file != nil {
+		require.NoError(t, file.Close())
+	}
+	require.ErrorIs(t, err, os.ErrExist)
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, "preserve", string(data))
 }
 
 func TestVerifyIntegrityEmptyObjectUsesUploadProtocolVector(t *testing.T) {
