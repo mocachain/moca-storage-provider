@@ -11,9 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestVerifyStepsFailOnEmptyTables runs every verify step against tables that
-// exist but hold no rows. A step that passes there asserts nothing about what
-// the blocksyncer wrote.
+// every verify step must fail against empty tables
 func TestVerifyStepsFailOnEmptyTables(t *testing.T) {
 	for i, verify := range verifyFuncs {
 		step := i + 1
