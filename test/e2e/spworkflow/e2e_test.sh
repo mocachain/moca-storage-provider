@@ -84,8 +84,7 @@ function update_sp_quota() {
   return 1
 }
 
-# moca-cmd prints a failed command, and the head commands a missing resource, on stdout and exits 0,
-# so its output decides
+# moca-cmd reports failures on stdout with exit 0, so the output decides
 CMD_FAILURE_PATTERN='run command error:|The operator account have no balance|no such bucket|no such object|no such group|no such virtual group family|the user does not exist in the group'
 RETRY_CMD_OUTPUT=""
 
@@ -118,7 +117,6 @@ function retry_cmd() {
 }
 
 # wait_until <timeout seconds> <interval seconds> <description> <predicate...>
-# The predicate prints its current state and succeeds once the condition holds.
 function wait_until() {
   local timeout=$1
   local interval=$2
@@ -518,8 +516,7 @@ function sp_exit_plan_ready() {
   [[ "${units}" == *"->"* ]]
 }
 
-# the SP in $1 reads a piece from its own piece store and checks it against the on-chain checksums
-# (redundancy index -1 is a primary segment)
+# the SP in $1 checks a piece from its own store against the on-chain checksums (redundancy -1 = primary)
 function challenge_piece_ok() {
   local sp_dir=$1 object=$2 redundancy_idx=$3 segment_idx=$4
   local out
@@ -558,8 +555,7 @@ function sp_exit_fail() {
 ################
 # test sp exit #
 ################
-# The exiting SP leads one bucket's family and is a secondary SP in another bucket's GVG: both
-# go to a successor, the SP leaves the chain and every object is served intact by the others.
+# the family primary and a secondary slot both move to successors, then every object is re-read
 function test_sp_exit() {
   set -e
   local exit_sp_dir exit_sp_name exit_sp_bin operator_address exit_sp_id
@@ -901,8 +897,7 @@ function assert_object_sealed() {
   echo "object ${object} sealed on chain with payload_size=${size} content_type=${ctype}"
 }
 
-# sealing is asynchronous: poll the chain until the object is sealed with the expected size and
-# type, then require the same from `object head`
+# poll until the object is sealed on chain with the expected size and type
 function wait_object_sealed() {
   local bucket=$1
   local object=$2

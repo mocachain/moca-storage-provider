@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// scriptFuncs returns the source of the named top-level functions of e2e_test.sh, with the
-// failure pattern retry_cmd matches, so the helpers can be exercised without a running stack.
+// scriptFuncs returns the source of the named functions of e2e_test.sh plus the retry_cmd failure pattern.
 func scriptFuncs(t *testing.T, names ...string) string {
 	t.Helper()
 	script, err := os.ReadFile("e2e_test.sh")
