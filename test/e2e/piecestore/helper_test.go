@@ -54,6 +54,9 @@ func skipUnlessConfigured(t *testing.T, store string, envNames ...string) {
 
 func setup(t *testing.T, storageType, bucketURL, iamType string, shards int) *piece.PieceStore {
 	t.Helper()
+	// BUCKET_URL overrides or conflicts with the bucket URL configured here: hide it for the test
+	t.Setenv(storage.BucketURL, "")
+	require.NoError(t, os.Unsetenv(storage.BucketURL))
 	handler, err := piece.NewPieceStore(&storage.PieceStoreConfig{
 		Shards: shards,
 		Store: storage.ObjectStorageConfig{

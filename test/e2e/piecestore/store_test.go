@@ -1,6 +1,7 @@
 package piecestore_e2e
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/mocachain/moca-storage-provider/store/piecestore/storage"
@@ -37,5 +38,11 @@ func TestDiskFileStore(t *testing.T) {
 
 func TestMemoryStore(t *testing.T) {
 	handler := setup(t, storage.MemoryStore, "", storage.AKSKIAMType, 0)
+	doOperations(t, handler)
+}
+
+func TestStoresIgnoreTheBucketURLEnvironment(t *testing.T) {
+	t.Setenv(storage.BucketURL, filepath.Join(t.TempDir(), "elsewhere"))
+	handler := setup(t, storage.DiskFileStore, t.TempDir(), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }
