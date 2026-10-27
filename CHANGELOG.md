@@ -11,6 +11,7 @@ BUGFIXES
 
 IMPROVEMENTS
 
+* [#226](https://github.com/mocachain/moca-storage-provider/pull/226)  ci(e2e): `make test` and the unit-test workflow now run the `test/e2e/piecestore` and `test/e2e/spworkflow` Go packages from an explicit list instead of dropping every path containing `e2e` (the S3, OSS, MinIO and B2 piece store cases skip without credentials), the go-sdk e2e fails when no test ran or any was skipped, the e2e script runs with `set -euo pipefail` and waits for `make proto-gen` before building the chain
 * [#221](https://github.com/mocachain/moca-storage-provider/pull/221)  chore(ci): start the runner's MySQL with systemd so the workflows run on the Ubuntu 26.04 runner image
 * [#218](https://github.com/mocachain/moca-storage-provider/pull/218)  chore(ci): run the SP e2e, Go-SDK e2e and SP exit e2e workflows on Node.js 24 instead of the end-of-life 14.x, which only installs ethers and generates the test private key
 * [#214](https://github.com/mocachain/moca-storage-provider/pull/214)  chore(build): run the goreleaser release image (Dockerfile.release) on debian:trixie-slim (glibc 2.41) instead of debian:bookworm-slim (glibc 2.36), so the image's glibc is not older than the Ubuntu 24.04 goreleaser-cross:v1.26.10 build image (glibc 2.39)

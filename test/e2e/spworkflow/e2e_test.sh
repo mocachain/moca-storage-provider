@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 export CGO_CFLAGS="-O -D__BLST_PORTABLE__"
 export CGO_CFLAGS_ALLOW="-O -D__BLST_PORTABLE__"
 
-workspace=${GITHUB_WORKSPACE}
+workspace=${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must point at the checkout}
 
 # some constants
 # Keep refs override-friendly and default the whole e2e stack to main so the
@@ -11,11 +12,12 @@ workspace=${GITHUB_WORKSPACE}
 MOCA_TAG="${MOCA_TAG:-main}"
 MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
 MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
+SDK_E2E_RUN="${SDK_E2E_RUN:-TestBucketMigrateTestSuiteTestSuite}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
-TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
-TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
+TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR:?ACCOUNT_ADDR must be the test account address}
+TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY:?PRIVATE_KEY must be the test account private key}
 DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
@@ -225,7 +227,7 @@ function moca_chain() {
   echo "${workspace}"
   sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
   cd "${workspace}"/moca/
-  make proto-gen &
+  make proto-gen
   make build
 
   # start Moca chain
@@ -548,13 +550,13 @@ function assert_tx_ok() {
   local label=$2
   local hash status code attempt
 
-  hash=$(echo "${out}" | grep -oiE '(0x)?[0-9a-f]{64}' | tail -1 | sed 's/^0x//')
+  hash=$(echo "${out}" | grep -oiE '(0x)?[0-9a-f]{64}' | tail -1 | sed 's/^0x//' || true)
   if [ -z "${hash}" ]; then
     echo "${label}: no tx hash in the command output"
     return 1
   fi
   for attempt in $(seq 1 30); do
-    status=$(evm_rpc eth_getTransactionReceipt "[\"0x${hash}\"]" | jq -r '.result.status // empty')
+    status=$(evm_rpc eth_getTransactionReceipt "[\"0x${hash}\"]" | jq -r '.result.status // empty' || true)
     if [ "${status}" = "0x1" ]; then
       echo "${label}: EVM receipt status=0x1 (0x${hash:0:12}...)"
       return 0
@@ -563,7 +565,7 @@ function assert_tx_ok() {
       echo "${label}: EVM tx 0x${hash} reverted"
       return 1
     fi
-    code=$(curl -s "${CHAIN_RPC}/tx?hash=0x${hash}" | jq -r '.result.tx_result.code // empty')
+    code=$(curl -s "${CHAIN_RPC}/tx?hash=0x${hash}" | jq -r '.result.tx_result.code // empty' || true)
     if [ "${code}" = "0" ]; then
       echo "${label}: cosmos tx code=0 (0x${hash:0:12}...)"
       return 0
@@ -908,26 +910,55 @@ function run_sp_exit_e2e() {
 ###################
 # run go-sdk e2e #
 ###################
+# fail unless the go test log has passing tests and no skipped or failed ones: a renamed
+# suite or a topology that skips its cases would otherwise leave the step green
+function check_go_test_results() {
+  local log=$1
+  local passed skipped failed
+
+  passed=$(grep -cE '^[[:space:]]*--- PASS: ' "${log}" || true)
+  skipped=$(grep -cE '^[[:space:]]*--- SKIP: ' "${log}" || true)
+  failed=$(grep -cE '^[[:space:]]*--- FAIL: ' "${log}" || true)
+  echo "go test results: ${passed} passed, ${skipped} skipped, ${failed} failed"
+  if [ "${passed}" -eq 0 ]; then
+    echo "no test ran: the -run filter matched nothing"
+    return 1
+  fi
+  if [ "${skipped}" -ne 0 ]; then
+    echo "${skipped} test(s) were skipped:"
+    grep -E '^[[:space:]]*--- SKIP: ' "${log}"
+    return 1
+  fi
+  [ "${failed}" -eq 0 ]
+}
+
 function run_go_sdk_e2e() {
   set +e
+  local log="${workspace}/.github/action-logs/go-sdk-e2e-go-test.log"
+  local rc
+
   cd "${workspace}"/moca-go-sdk/
   echo 'run moca go sdk e2e test'
   export MOCA_E2E_ENDPOINT="http://localhost:26657"
   export MOCA_E2E_EVM_ENDPOINT="http://localhost:8545"
   export MOCA_E2E_CHAIN_ID="moca_5151-1"
   export MOCA_E2E_LOCALUP_DIR="${workspace}/moca/deployment/localup/.local"
-  go test -count=1 -timeout 30m -v ./e2e -run TestBucketMigrateTestSuiteTestSuite
-  exit_status_command=$?
-  if [ $exit_status_command -eq 0 ]; then
-    echo "make e2e_test successful."
-  else
+  mkdir -p "$(dirname "${log}")"
+  go test -count=1 -timeout 30m -v ./e2e -run "${SDK_E2E_RUN}" 2>&1 | tee "${log}"
+  rc=${PIPESTATUS[0]}
+  if [ "${rc}" -ne 0 ]; then
     dump_sp_logs
-    exit $exit_status_command
+    exit "${rc}"
   fi
+  if ! check_go_test_results "${log}"; then
+    dump_sp_logs
+    exit 1
+  fi
+  echo "make e2e_test successful."
 }
 
 function main() {
-  CMD=$1
+  CMD=${1:-}
   case ${CMD} in
   --startChain)
     moca_chain
@@ -954,7 +985,11 @@ function main() {
     build_moca-go-sdk
     run_go_sdk_e2e
     ;;
+  *)
+    echo "unknown mode '${CMD}'" >&2
+    exit 1
+    ;;
   esac
 }
 
-main $@
+main "$@"
