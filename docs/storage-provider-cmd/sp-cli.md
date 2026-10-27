@@ -6,6 +6,19 @@ There is no set way to create a CLI, but Moca Storage Provider typically use the
 Building a CLI with urfave cli entails defining commands, arguments, and flags. Commands understand the actions users wish to take, such as `config.dump` cmd dumps default configuration for editing and `config.upload` uploads the configuration to db, all service gets the configuration from db with `--config.remote` flag.
 Users also supply **Arguments**, such as the db address that uploading configuration and flags to modify various aspects of the commands, such `--server gateway, uploader, downaloader` starts the gateway, uploader and downloader services in one process, combines the required services arbitrarily.
 
+## Legacy funding configuration
+
+Service startup rejects `SIGNER_FUNDING_PRIV_KEY` whenever it is present, even
+when empty or when starting only non-signer services. Remove the variable from
+your manifests, `envFrom` sources and other injection mechanisms before upgrading.
+Non-empty TOML `SpAccount.FundingPrivateKey` is also rejected and takes precedence
+when both inputs are present. Funding operations use `OperatorPrivateKey`.
+
+Only an authorized operator should clean up the unused Secret entry, after old
+Pods and manifests no longer reference it. Setting the variable to an empty
+string is not a migration. See the [deployment migration instructions](../../deployment/k8s/base/vendors/aws/README.md#remove-legacy-funding-configuration-before-upgrading)
+for the supported key environment variables and their precedence.
+
 ## Commands
 
 ```shell
