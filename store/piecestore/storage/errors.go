@@ -18,4 +18,6 @@ var (
 	ErrUnsupportedMethod = errors.New("unsupported method")
 	// ErrNoPermissionAccessBucket defines deny access bucket error
 	ErrNoPermissionAccessBucket = errors.New("deny access bucket")
+	// ErrInvalidChecksum defines unparseable checksum metadata error
+	ErrInvalidChecksum = errors.New("invalid crc32c checksum metadata")
 )

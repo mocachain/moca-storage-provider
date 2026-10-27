@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
 	"github.com/mocachain/moca-storage-provider/base/gfsppieceop"
+	"github.com/mocachain/moca-storage-provider/base/types/gfsperrors"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/piecestore"
@@ -658,4 +660,45 @@ func TestPreDownloadPiece_ExhaustedQuotaKeepsItsOwnError(t *testing.T) {
 
 	err := d.PreDownloadPiece(context.TODO(), task)
 	assert.Equal(t, ErrExceedBucketQuota, err)
+}
+
+// A piece-store read failure must come back as the piece-store error for that
+// read, and be recorded on the task; it used to be built from the wrong variable.
+func TestHandleDownloadObjectTask_PieceStoreErrorIsReported(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		readErr error
+		wrap    func(string) *gfsperrors.GfSpError
+	}{
+		{name: "read error", readErr: errors.New("checksum metadata invalid"), wrap: ErrPieceStoreWithDetail},
+		{name: "no such key", readErr: errors.New("NoSuchKey: the specified key does not exist"), wrap: ErrPieceStoreNoSuchKeyWithDetail},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := setup(t)
+			d.downloading = 1
+			d.downloadParallel = 100
+			d.baseApp.SetPieceOp(&gfsppieceop.GfSpPieceOp{})
+			d.pieceCache, _ = lru.New(100)
+			mockTask := &gfsptask.GfSpDownloadObjectTask{
+				Task:          &gfsptask.GfSpTask{},
+				BucketInfo:    &storagetypes.BucketInfo{Id: sdkmath.NewUint(100), BucketName: "mock_bucket"},
+				ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(100), ObjectStatus: storagetypes.OBJECT_STATUS_SEALED, PayloadSize: 100},
+				StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 16 * 1024 * 1024}},
+			}
+			ctrl := gomock.NewController(t)
+			mockPieceStoreAPI := piecestore.NewMockPieceStore(ctrl)
+			d.baseApp.SetPieceStore(mockPieceStoreAPI)
+			mockPieceStoreAPI.EXPECT().GetPiece(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, tc.readErr)
+
+			data, err := d.HandleDownloadObjectTask(context.TODO(), mockTask)
+			require.Nil(t, data)
+			var got *gfsperrors.GfSpError
+			require.ErrorAs(t, err, &got)
+			want := tc.wrap("")
+			assert.Equal(t, want.InnerCode, got.InnerCode)
+			assert.Equal(t, want.HttpStatusCode, got.HttpStatusCode)
+			assert.Contains(t, got.Description, tc.readErr.Error())
+			assert.Equal(t, err, mockTask.Error())
+		})
+	}
 }

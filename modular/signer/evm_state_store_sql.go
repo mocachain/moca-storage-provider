@@ -86,13 +86,19 @@ func insertAudit(tx *gorm.DB, chainID string, epoch uint64, event evmAuditEvent)
 		OutcomeID:      event.OutcomeID,
 		OutcomeState:   string(event.OutcomeState),
 		OutcomeReason:  event.OutcomeReason,
-		Actor:          evmAuditActor(),
+		Actor:          event.Actor,
+		Reason:         event.Reason,
+		DecisionRef:    event.DecisionRef,
+		ChainHeight:    event.ChainHeight,
 		Detail:         event.Detail,
 		EvidenceTxHash: event.EvidenceTxHash,
 		EvidenceKind:   event.EvidenceKind,
 		ToolVersion:    evmToolVersion(),
 		LeaseEpoch:     epoch,
 		CreatedAt:      time.Now().Unix(),
+	}
+	if row.Actor == "" {
+		row.Actor = evmAuditActor()
 	}
 	if event.From != (ethcmn.Address{}) {
 		row.FromAddress = event.From.Hex()
@@ -466,5 +472,122 @@ func (s *sqlEvmStateStore) AppendAudit(ctx context.Context, fence *evmFence, cha
 			epoch = fence.Epoch
 		}
 		return insertAudit(tx, chainID, epoch, event)
+	})
+}
+
+func (s *sqlEvmStateStore) GetSignedTxByHash(ctx context.Context, chainID string, txHash ethcmn.Hash) (*signedTxEvidence, error) {
+	var rows []sqldb.SignerEvmSignedTxTable
+	if err := s.db.WithContext(ctx).Where("chain_id = ? AND tx_hash = ?", chainID, txHash.Hex()).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	evidence := evidenceFromRow(rows[0])
+	return &evidence, nil
+}
+
+func (s *sqlEvmStateStore) GetOutcomeByID(ctx context.Context, chainID string, id uint64) (*outcomeRecord, error) {
+	var rows []sqldb.SignerEvmStateTable
+	if err := s.db.WithContext(ctx).Where("state <> 'pending' AND chain_id = ? AND id = ?", chainID, id).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	record := outcomeFromRow(rows[0])
+	return &record, nil
+}
+
+// lockEvidence takes a shared lock on the evidence row a new outcome will
+// reference, so it cannot go away before the transaction commits.
+func lockEvidence(tx *gorm.DB, id uint64) error {
+	var ids []uint64
+	if err := tx.Raw(`SELECT id FROM `+sqldb.SignerEvmSignedTxTableName+` WHERE id = ? FOR SHARE`, id).Scan(&ids).Error; err != nil {
+		return err
+	}
+	if len(ids) != 1 {
+		return fmt.Errorf("%w: evidence row %d is missing", errEvmStateConflict, id)
+	}
+	return nil
+}
+
+// outcomeColumns are the columns a manual transition sets when it turns a
+// row into, or updates, an active outcome.
+func outcomeColumns(o *outcomeRecord) map[string]interface{} {
+	result := ""
+	if o.ResultTxHash != (ethcmn.Hash{}) {
+		result = o.ResultTxHash.Hex()
+	}
+	return map[string]interface{}{
+		"state": string(o.State), "result_tx_hash": result, "evidence_tx_hash": o.EvidenceTxHash,
+		"evidence_kind": o.EvidenceKind, "reason": o.Reason, "receipt_block": o.ReceiptBlock, "source": o.Source,
+		"updated_at": time.Now().Unix(),
+	}
+}
+
+func (s *sqlEvmStateStore) ManualResolvePending(ctx context.Context, pending pendingRecord, result *outcomeRecord, event evmAuditEvent) error {
+	return s.txn(ctx, func(tx *gorm.DB) error {
+		if err := lockPending(tx, pending); err != nil {
+			return err
+		}
+		query := tx.Model(&sqldb.SignerEvmStateTable{}).Where("id = ? AND tx_hash = ? AND state = 'pending'", pending.ID, pending.TxHash.Hex())
+		var res *gorm.DB
+		if result != nil {
+			if err := lockEvidence(tx, pending.SignedTxID); err != nil {
+				return err
+			}
+			columns := outcomeColumns(result)
+			columns["ambiguous"] = false
+			res = query.Updates(columns)
+		} else {
+			res = query.Delete(&sqldb.SignerEvmStateTable{})
+		}
+		if res.Error != nil {
+			if isDuplicateKey(res.Error) {
+				return fmt.Errorf("%w: operation %s already has an active outcome", errEvmStateConflict, pending.Operation.Hex())
+			}
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("%w: resolving pending %d affected %d rows", errEvmStateConflict, pending.ID, res.RowsAffected)
+		}
+		return insertAudit(tx, pending.ChainID, 0, event)
+	})
+}
+
+func (s *sqlEvmStateStore) ManualSettleOutcome(ctx context.Context, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord,
+	event evmAuditEvent,
+) error {
+	return s.txn(ctx, func(tx *gorm.DB) error {
+		var rows []sqldb.SignerEvmStateTable
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("state <> 'pending' AND chain_id = ? AND id = ?", outcome.ChainID, outcome.ID).Find(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return errEvmRowGone
+		}
+		row := rows[0]
+		if err := checkSettleable(outcomeFromRow(row), outcome, from); err != nil {
+			return err
+		}
+		query := tx.Model(&sqldb.SignerEvmStateTable{}).Where("id = ? AND state = ?", outcome.ID, row.State)
+		var res *gorm.DB
+		if to != nil {
+			if err := lockEvidence(tx, row.SignedTxID); err != nil {
+				return err
+			}
+			res = query.Updates(outcomeColumns(to))
+		} else {
+			res = query.Delete(&sqldb.SignerEvmStateTable{})
+		}
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("%w: settling outcome %d affected %d rows", errEvmStateConflict, outcome.ID, res.RowsAffected)
+		}
+		return insertAudit(tx, outcome.ChainID, 0, event)
 	})
 }

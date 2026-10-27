@@ -95,10 +95,12 @@ func (s *s3Store) GetObject(ctx context.Context, key string, offset, limit int64
 	if offset > 0 || limit > 0 {
 		return verifiedRange(resp.Body, cs, offset, limit)
 	}
-	if cs != "" {
-		resp.Body = verifyChecksum(resp.Body, cs)
+	body, err := verifyChecksum(resp.Body, cs)
+	if err != nil {
+		log.Errorw("S3 object has invalid checksum metadata", "key", key, "error", err)
+		return nil, err
 	}
-	return resp.Body, nil
+	return body, nil
 }
 
 func (s *s3Store) PutObject(ctx context.Context, key string, reader io.Reader) error {
