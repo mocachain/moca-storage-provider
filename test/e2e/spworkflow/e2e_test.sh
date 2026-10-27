@@ -84,8 +84,9 @@ function update_sp_quota() {
   return 1
 }
 
-# moca-cmd prints a failed command on stdout and exits 0, so its output decides
-CMD_FAILURE_PATTERN='run command error:|The operator account have no balance'
+# moca-cmd prints a failed command, and the head commands a missing resource, on stdout and exits 0,
+# so its output decides
+CMD_FAILURE_PATTERN='run command error:|The operator account have no balance|no such bucket|no such object|no such group|no such virtual group family|the user does not exist in the group'
 RETRY_CMD_OUTPUT=""
 
 function retry_cmd() {
@@ -566,6 +567,7 @@ function test_sp_exit() {
   local family_id sec_family_id sec_gvg sec_redundancy_idx
   local successor_id successor_operator successor_dir successor_endpoint
   local random_id example_id secondary_id
+  local sec_holder_id sec_holder_operator sec_holder_dir
 
   exit_sp_dir=$(select_exit_sp_dir)
   exit_sp_name=$(basename "${exit_sp_dir}")
@@ -690,13 +692,21 @@ function test_sp_exit() {
   get_object_until_match moca://spexit/random_file ./new_random_file1 ./random_file 40
   get_object_until_match moca://spexit-sec/secondary_object.txt ./new_secondary_object1.txt ./secondary_object.txt 40
 
-  echo "--- the successor holds the migrated pieces ---"
+  echo "--- the new primary and the new secondary hold the migrated pieces ---"
   challenge_piece_ok "${successor_dir}" "${random_id}" -1 0 || sp_exit_fail "successor lacks segment 0 of random_file"
   challenge_piece_ok "${successor_dir}" "${random_id}" -1 1 || sp_exit_fail "successor lacks segment 1 of random_file"
   challenge_piece_ok "${successor_dir}" "${example_id}" -1 0 || sp_exit_fail "successor lacks segment 0 of example.json"
-  challenge_piece_ok "${successor_dir}" "${secondary_id}" "${sec_redundancy_idx}" 0 \
-    || sp_exit_fail "successor lacks redundancy piece ${sec_redundancy_idx} of secondary_object.txt"
-  echo "SP exit completed: ${exit_sp_name} (sp ${exit_sp_id}) left, sp ${successor_id} took over, all objects verified by sha256"
+  # a secondary slot is swapped out per GVG, to an SP chosen independently of the family successor
+  sec_holder_id=$(mocad_q virtualgroup global-virtual-group "${sec_gvg}" \
+    | jq -r --argjson idx "${sec_redundancy_idx}" '.global_virtual_group.secondary_sp_ids[$idx] // empty')
+  if [ -z "${sec_holder_id}" ] || [ "${sec_holder_id}" = "${exit_sp_id}" ]; then
+    sp_exit_fail "slot ${sec_redundancy_idx} of gvg ${sec_gvg} is held by sp '${sec_holder_id}', not by a successor of sp ${exit_sp_id}"
+  fi
+  sec_holder_operator=$(sp_chain_field_by_id "${sec_holder_id}" operator_address)
+  sec_holder_dir=$(sp_dir_by_operator "${sec_holder_operator}") || sp_exit_fail "no local SP directory for sp ${sec_holder_id}"
+  challenge_piece_ok "${sec_holder_dir}" "${secondary_id}" "${sec_redundancy_idx}" 0 \
+    || sp_exit_fail "sp ${sec_holder_id} lacks redundancy piece ${sec_redundancy_idx} of secondary_object.txt"
+  echo "SP exit completed: ${exit_sp_name} (sp ${exit_sp_id}) left, sp ${successor_id} took over its family, sp ${sec_holder_id} its slot in gvg ${sec_gvg}, all objects verified by sha256"
 }
 
 #######################################################################
@@ -913,23 +923,22 @@ function assert_object_sealed_quiet() {
   assert_object_sealed "$@" 2>/dev/null
 }
 
-# bucket head must show the bucket under the test account's name
-function assert_bucket_head() {
+function bucket_head_shows_owner() {
   local bucket=$1
   local out
 
-  retry_cmd 12 10 "head bucket ${bucket}" \
-    ./moca-cmd -c ./config.toml --home ./ bucket head "moca://${bucket}"
-  out=${RETRY_CMD_OUTPUT}
-  if ! grep -q "bucket_name:\"${bucket}\"" <<<"${out}"; then
-    echo "bucket head does not show bucket_name \"${bucket}\""
-    return 1
+  out=$(./moca-cmd -c ./config.toml --home ./ bucket head "moca://${bucket}" 2>&1) || true
+  if grep -q "bucket_name:\"${bucket}\"" <<<"${out}" && grep -qi "owner:\"${TEST_ACCOUNT_ADDRESS}\"" <<<"${out}"; then
+    echo "bucket_name=${bucket} owner=${TEST_ACCOUNT_ADDRESS}"
+    return 0
   fi
-  if ! grep -qi "owner:\"${TEST_ACCOUNT_ADDRESS}\"" <<<"${out}"; then
-    echo "bucket ${bucket} is not owned by ${TEST_ACCOUNT_ADDRESS}"
-    return 1
-  fi
-  echo "bucket ${bucket} exists on chain, owned by ${TEST_ACCOUNT_ADDRESS}"
+  echo "$(head -n 1 <<<"${out}" | cut -c1-160)"
+  return 1
+}
+
+# bucket create only broadcasts: poll bucket head until it shows the bucket under the test account
+function assert_bucket_head() {
+  wait_until "${2:-180}" "${3:-5}" "bucket ${1} head" bucket_head_shows_owner "$1"
 }
 
 #############################################################

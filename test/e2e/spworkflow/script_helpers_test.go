@@ -71,6 +71,11 @@ func TestRetryCmdTreatsAPrintedCommandErrorAsFailure(t *testing.T) {
 	for _, msg := range []string{
 		"run command error: bucket not exist",
 		"The operator account have no balance, please transfer token to your account",
+		"no such bucket",
+		"no such object",
+		"no such group",
+		"no such virtual group family: 3",
+		"the user does not exist in the group",
 	} {
 		out, code := runBash(t, scriptFuncs(t, "retry_cmd")+`
 dump_sp_logs() { echo dumped; }
@@ -139,4 +144,45 @@ wait_until 1 1 "stuck call" stuck`)
 	require.Equal(t, 1, code, out)
 	require.Contains(t, out, "stuck call: not satisfied within 1s, last state: state=stuck")
 	require.Equal(t, 1, strings.Count(out, "waiting, state=stuck"), out)
+}
+
+// fakeMocaCmd writes a ./moca-cmd that prints a missing bucket for the first calls and then the bucket
+const fakeMocaCmd = `
+cd "$(mktemp -d)"
+cat >moca-cmd <<'FAKE'
+#!/usr/bin/env bash
+n=$(cat calls 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "${n}" >calls
+if [ "${n}" -le "${MISSING_CALLS}" ]; then
+  echo "no such bucket"
+else
+  printf 'latest bucket info:\nbucket_status: BUCKET_STATUS_CREATED\nowner:"%s"\nbucket_name:"spbucket"\n' "${BUCKET_OWNER}"
+fi
+FAKE
+chmod +x moca-cmd
+TEST_ACCOUNT_ADDRESS=0xAbCd000000000000000000000000000000000001
+`
+
+func TestAssertBucketHeadPollsUntilTheBucketShowsUp(t *testing.T) {
+	out, code := runBash(t, scriptFuncs(t, "wait_until", "bucket_head_shows_owner", "assert_bucket_head")+fakeMocaCmd+`
+MISSING_CALLS=2 BUCKET_OWNER=0xabcd000000000000000000000000000000000001 assert_bucket_head spbucket 20 0
+echo "calls=$(cat calls)"`)
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "bucket spbucket head: bucket_name=spbucket owner=0xAbCd000000000000000000000000000000000001")
+	require.Contains(t, out, "calls=3")
+}
+
+func TestAssertBucketHeadFailsWhenTheBucketNeverShowsUp(t *testing.T) {
+	out, code := runBash(t, scriptFuncs(t, "wait_until", "bucket_head_shows_owner", "assert_bucket_head")+fakeMocaCmd+`
+MISSING_CALLS=1000 BUCKET_OWNER=0x1 assert_bucket_head spbucket 2 1`)
+	require.Equal(t, 1, code, out)
+	require.Contains(t, out, "bucket spbucket head: not satisfied within 2s, last state: no such bucket")
+}
+
+func TestAssertBucketHeadFailsForAnotherOwner(t *testing.T) {
+	out, code := runBash(t, scriptFuncs(t, "wait_until", "bucket_head_shows_owner", "assert_bucket_head")+fakeMocaCmd+`
+MISSING_CALLS=0 BUCKET_OWNER=0x2222222222222222222222222222222222222222 assert_bucket_head spbucket 2 1`)
+	require.Equal(t, 1, code, out)
+	require.Contains(t, out, "not satisfied within 2s")
 }
