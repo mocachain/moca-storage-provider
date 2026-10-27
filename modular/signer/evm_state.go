@@ -5,6 +5,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"slices"
 	"time"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
@@ -158,6 +159,12 @@ type evmAuditEvent struct {
 	Detail         string
 	EvidenceTxHash string
 	EvidenceKind   string
+	// Set by manual transitions only. An empty Actor is filled in with the
+	// process identity.
+	Actor       string
+	Reason      string
+	DecisionRef string
+	ChainHeight *uint64
 }
 
 func uint64Ptr(v uint64) *uint64 { return &v }
@@ -210,6 +217,19 @@ func (k pendingTerminalKind) auditEvents() []string {
 	}
 }
 
+// notAdmitted reports whether the transition is a node's refusal of the
+// send, which only the sending lease holder observed.
+func (k pendingTerminalKind) notAdmitted() bool {
+	return k == terminalNotAdmittedNonceLow || k == terminalNotAdmittedNonceHigh || k == terminalNotAdmittedRejected
+}
+
+// doneEvent is the audit event whose presence proves the transition for a
+// hash committed.
+func (k pendingTerminalKind) doneEvent() string {
+	events := k.auditEvents()
+	return events[len(events)-1]
+}
+
 // pendingTerminal is the evidence that ends a pending row.
 type pendingTerminal struct {
 	Kind          pendingTerminalKind
@@ -252,8 +272,23 @@ type evmStateStore interface {
 	// ConsumeOutcome deletes a succeeded outcome by id.
 	ConsumeOutcome(ctx context.Context, fence evmFence, outcome outcomeRecord) error
 	// AppendAudit inserts one audit row. A nil fence skips the fencing check;
-	// only lease and evidence events use that.
+	// only lease and evidence events and the CLI use that.
 	AppendAudit(ctx context.Context, fence *evmFence, chainID string, event evmAuditEvent) error
+
+	// The manual transitions of the signer-evm CLI. They take no lease: each
+	// locks its target row, requires it to still be what the operator
+	// decided on, and otherwise rolls back with errEvmRowGone or
+	// errEvmStateConflict.
+	GetSignedTxByHash(ctx context.Context, chainID string, txHash ethcmn.Hash) (*signedTxEvidence, error)
+	GetOutcomeByID(ctx context.Context, chainID string, id uint64) (*outcomeRecord, error)
+	// ManualResolvePending deletes the pending row matching pending.ID and
+	// pending.TxHash, or, when result is non-nil, turns it into the active
+	// outcome result (same id, same evidence), and writes event.
+	ManualResolvePending(ctx context.Context, pending pendingRecord, result *outcomeRecord, event evmAuditEvent) error
+	// ManualSettleOutcome deletes the outcome row outcome.ID, or updates it
+	// to the state and result of to, provided the row still belongs to the
+	// same operation and evidence and is in one of the states from.
+	ManualSettleOutcome(ctx context.Context, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord, event evmAuditEvent) error
 }
 
 // evidenceRef is the set of columns a referencing row (pending or outcome)
@@ -340,4 +375,25 @@ func verifySignedTxEvidence(evidence *signedTxEvidence, ref evidenceRef) (*types
 func sameEvidence(a, b signedTxEvidence) bool {
 	return a.ChainID == b.ChainID && a.EvmChainID == b.EvmChainID && a.Scope == b.Scope && a.Operation == b.Operation &&
 		a.From == b.From && a.Nonce == b.Nonce && a.TxHash == b.TxHash && bytes.Equal(a.Raw, b.Raw)
+}
+
+// evmStateCtx detaches state writes from the request: a cancelled request
+// must not abort the bookkeeping of bytes that may already be on the wire.
+func evmStateCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), evmStateWriteTimeout)
+}
+
+// checkSettleable requires the locked outcome row to be the one a manual
+// transition was decided on: same operation, evidence and original
+// transaction, in one of the states from.
+func checkSettleable(current, want outcomeRecord, from []evmOutcomeState) error {
+	if current.ChainID != want.ChainID || current.Scope != want.Scope || current.Operation != want.Operation ||
+		current.SignedTxID != want.SignedTxID || current.TxHash != want.TxHash || current.Nonce != want.Nonce ||
+		current.From != want.From {
+		return fmt.Errorf("%w: outcome %d no longer matches what was checked", errEvmStateConflict, want.ID)
+	}
+	if !slices.Contains(from, current.State) {
+		return fmt.Errorf("%w: outcome %d is %s, expected one of %v", errEvmStateConflict, want.ID, current.State, from)
+	}
+	return nil
 }

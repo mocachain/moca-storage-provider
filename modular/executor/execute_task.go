@@ -69,9 +69,13 @@ func (e *ExecuteModular) HandleSealObjectTask(ctx context.Context, task coretask
 	}
 	var blsSig bls.Signatures
 	blsSigBts := task.GetSecondarySignatures()
-	for _, sigBts := range blsSigBts {
+	for signatureIndex, sigBts := range blsSigBts {
 		signature, err := bls.UnmarshalSignature(sigBts)
 		if err != nil {
+			log.CtxErrorw(ctx, "failed to parse secondary signature",
+				"signature_index", signatureIndex, "signature_length", len(sigBts),
+				"object_id", task.GetObjectInfo().Id, "gvg_id", task.GetGlobalVirtualGroupId(), "error", err)
+			task.SetError(ErrInvalidSecondaryBlsSignature)
 			return
 		}
 		blsSig = append(blsSig, signature)
@@ -500,10 +504,11 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 		log.CtxErrorw(ctx, "get piece from secondary not enough", "get secondary piece num:", doneTaskNum, "error", ErrRecoveryPieceNotEnough)
 		return ErrRecoveryPieceNotEnough
 	}
-	ecTotalSize := int64(uint32(downLoadPieceSize) * dataShards)
-	if ecTotalSize < segmentSize || ecTotalSize > segmentSize+int64(dataShards) {
-		log.CtxErrorw(ctx, "get secondary piece data length error")
-		return ErrRecoveryPieceLength
+	if lengthErr := checkRecoveryPieceLength(downLoadPieceSize, dataShards, segmentSize); lengthErr != nil {
+		log.CtxErrorw(ctx, "get secondary piece data length error", "object_name", task.GetObjectInfo().GetObjectName(),
+			"segment_idx", task.GetSegmentIdx(), "piece_size", downLoadPieceSize, "data_shards", dataShards,
+			"segment_size", segmentSize, "error", lengthErr)
+		return lengthErr
 	}
 
 	recoverySegData, recoverErr := redundancy.DecodeRawSegment(recoveryDataSources, segmentSize, int(dataShards), int(parityShards))
@@ -546,6 +551,16 @@ func (e *ExecuteModular) recoverBySecondarySP(ctx context.Context, task coretask
 	}
 
 	log.CtxDebugw(ctx, "finish recovery from secondary SPs", "object_name:", task.GetObjectInfo().GetObjectName(), "segment_idx", task.GetSegmentIdx())
+	return nil
+}
+
+// checkRecoveryPieceLength rejects a downloaded EC piece whose size cannot
+// reconstruct a segment of segmentSize bytes from dataShards pieces.
+func checkRecoveryPieceLength(pieceSize int, dataShards uint32, segmentSize int64) error {
+	ecTotalSize := int64(pieceSize) * int64(dataShards)
+	if ecTotalSize < segmentSize || ecTotalSize > segmentSize+int64(dataShards) {
+		return ErrRecoveryPieceLength
+	}
 	return nil
 }
 

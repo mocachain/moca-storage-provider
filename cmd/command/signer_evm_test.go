@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -280,6 +281,13 @@ func envOrDefault(key, fallback string) string {
 
 func runSignerEvmApp(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	out, errOut, err := runSignerEvmAppStreams(t, args...)
+	return out + errOut, err
+}
+
+// runSignerEvmAppStreams runs the CLI and returns stdout and stderr apart.
+func runSignerEvmAppStreams(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	app := &cli.App{
 		Name:      "moca-sp",
@@ -292,7 +300,7 @@ func runSignerEvmApp(t *testing.T, args ...string) (string, error) {
 		},
 	}
 	err := app.Run(append([]string{"moca-sp"}, args...))
-	return out.String() + errOut.String(), err
+	return out.String(), errOut.String(), err
 }
 
 // migrate and list end to end against MySQL.
@@ -347,5 +355,224 @@ VALUES ('moca_5151-1', LAST_INSERT_ID(), 'operator', ?, 7, ?, ?, 1, 0, 0)`,
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != signerEvmExitNotSatisfied ||
 		!strings.Contains(out, `"evidence_valid": false`) || !strings.Contains(out, "does not decode") {
 		t.Fatalf("list must flag the corrupt row with exit code 2: %v\n%s", err, out)
+	}
+}
+
+func exitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr cli.ExitCoder
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+// release and dispose-outcome end to end against MySQL: their flags, exit
+// codes, dry run and audit. resolve and resolve-outcome need a chain; their
+// decisions are covered in modular/signer.
+func TestSignerEvmOutcomeCommands(t *testing.T) {
+	user := envOrDefault("SIGNER_EVM_TEST_DB_USER", envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root"))
+	password := envOrDefault("SIGNER_EVM_TEST_DB_PASSWORD", envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root"))
+	address := envOrDefault("SIGNER_EVM_TEST_DB_ADDRESS", envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306"))
+	database := test.CreateDatabase(t, user, password, address, "signer_evm_cli")
+	for _, env := range []string{"SP_DB_USER", "SP_DB_PASSWORD", "SP_DB_ADDRESS", "SP_DB_DATABASE"} {
+		if value, ok := os.LookupEnv(env); ok {
+			t.Cleanup(func() { _ = os.Setenv(env, value) })
+			_ = os.Unsetenv(env)
+		}
+	}
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	config := fmt.Sprintf("[Chain]\nChainID = 'moca_5151-1'\n\n[SpDB]\nUser = '%s'\nPasswd = '%s'\nAddress = '%s'\nDatabase = '%s'\n",
+		user, password, address, database)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runSignerEvmApp(t, "-c", configPath, "signer-evm", "migrate"); err != nil {
+		t.Fatalf("migrate: %v\n%s", err, out)
+	}
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s)/%s", user, password, address, database))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// one blocked_unknown and one succeeded outcome with valid evidence
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	// insertRow adds a state row and its evidence; corrupt flips the last raw
+	// byte, so the evidence no longer matches the hash the row references.
+	insertRow := func(nonce uint64, operation, state string, corrupt bool) (int64, ethcmn.Hash) {
+		to := ethcmn.HexToAddress("0x2000")
+		tx, err := types.SignNewTx(key, types.LatestSignerForChainID(big.NewInt(5151)), &types.LegacyTx{
+			Nonce: nonce, GasPrice: big.NewInt(1), Gas: 21000, To: &to, Value: big.NewInt(0),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := tx.MarshalBinary()
+		if corrupt {
+			raw[len(raw)-1] ^= 0xff
+		}
+		res, err := db.Exec(`INSERT INTO signer_evm_signed_tx (chain_id, evm_chain_id, scope, operation, from_address, nonce, tx_hash, raw, recorded_block, lease_epoch, created_at)
+VALUES ('moca_5151-1', 5151, 'operator', ?, ?, ?, ?, ?, 100, 1, 0)`, operation, from.Hex(), nonce, tx.Hash().Hex(), raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signedTxID, _ := res.LastInsertId()
+		res, err = db.Exec(`INSERT INTO signer_evm_state (chain_id, signed_tx_id, scope, from_address, nonce, tx_hash, operation, state, reason, source, created_at)
+VALUES ('moca_5151-1', ?, 'operator', ?, ?, ?, ?, ?, 'receipt_missing', 'manual', 0)`, signedTxID, from.Hex(), nonce, tx.Hash().Hex(), operation, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := res.LastInsertId()
+		return id, tx.Hash()
+	}
+	insert := func(nonce uint64, operation, state string) int64 {
+		id, _ := insertRow(nonce, operation, state, false)
+		return id
+	}
+	blocked := insert(7, ethcmn.HexToHash("0x01").Hex(), "blocked_unknown")
+	succeeded := insert(8, ethcmn.HexToHash("0x02").Hex(), "succeeded")
+	count := func(query string, args ...interface{}) int {
+		var n int
+		if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	id := func(v int64) string { return fmt.Sprint(v) }
+	base := []string{"-c", configPath, "signer-evm"}
+	run := func(args ...string) (string, int) {
+		out, err := runSignerEvmApp(t, append(append([]string{}, base...), args...)...)
+		return out, exitCodeOf(err)
+	}
+
+	for _, args := range [][]string{
+		{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "r", "--business-evidence", "e"},
+		{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "r", "--decision-ref", "d"},
+		{"release", "--outcome-id", id(blocked), "--reason", "r", "--decision-ref", "d", "--business-evidence", "e"},
+		{"resolve", "--scope", "operator", "--tx-hash", "0x12", "--operator", "ops", "--reason", "r"},
+		{"resolve", "--scope", "operator", "--tx-hash", ethcmn.HexToHash("0x12").Hex(), "--operator", "ops", "--reason", "r"},
+	} {
+		if out, code := run(args...); code != 1 {
+			t.Fatalf("%v: want exit 1, got %d\n%s", args, code, out)
+		}
+	}
+	release := []string{"release", "--outcome-id", id(blocked), "--operator", "ops", "--reason", "Board approved",
+		"--decision-ref", "https://board.example/d/1", "--business-evidence", "deposit balance unchanged"}
+	if out, code := run(append(release, "--dry-run")...); code != 0 || !strings.Contains(out, "action (would)") ||
+		count("SELECT COUNT(*) FROM signer_evm_state") != 2 || count("SELECT COUNT(*) FROM signer_evm_audit") != 0 {
+		t.Fatalf("dry run: exit %d\n%s", code, out)
+	}
+	if out, code := run(release...); code != 0 || count("SELECT COUNT(*) FROM signer_evm_state WHERE id = ?", blocked) != 0 ||
+		count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'manual_release_unknown' AND decision_ref = 'https://board.example/d/1' AND actor LIKE 'ops (os user %'") != 1 {
+		t.Fatalf("release: exit %d\n%s", code, out)
+	}
+	if out, code := run(release...); code != 3 || count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'manual_rejected'") != 1 {
+		t.Fatalf("a second release must exit 3 with manual_rejected: exit %d\n%s", code, out)
+	}
+	dispose := []string{"dispose-outcome", "--outcome-id", id(succeeded), "--operator", "ops", "--reason", "business confirmed", "--json"}
+	if out, code := run(dispose...); code != 0 || !strings.Contains(out, `"audit_event": "manual_dispose_outcome"`) ||
+		count("SELECT COUNT(*) FROM signer_evm_state") != 0 {
+		t.Fatalf("dispose-outcome: exit %d\n%s", code, out)
+	}
+
+	// resolve of a pending row whose evidence is corrupt: exit 4 before any
+	// chain call, and the stderr record names the target like the audit row.
+	_, pendingHash := insertRow(9, ethcmn.HexToHash("0x03").Hex(), "pending", true)
+	rpcConfig := filepath.Join(t.TempDir(), "config.toml")
+	// nothing listens there: the command must stop before it talks to the chain
+	withRPC := strings.Replace(config, "[Chain]\n", "[Chain]\nRpcAddress = ['http://127.0.0.1:1']\n", 1)
+	if withRPC == config {
+		t.Fatal("the test config has no [Chain] section to add the RPC address to")
+	}
+	if err := os.WriteFile(rpcConfig, []byte(withRPC), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := runSignerEvmAppStreams(t, "-c", rpcConfig, "signer-evm", "resolve", "--scope", "operator",
+		"--tx-hash", pendingHash.Hex(), "--operator", "ops", "--reason", "stuck deposit")
+	if code := exitCodeOf(err); code != signer.EvmDisposeExitEvidenceInvalid || !strings.Contains(stdout, "tx_hash="+pendingHash.Hex()) {
+		t.Fatalf("resolve of corrupt evidence: exit %d\nstdout %s\nstderr %s", code, stdout, stderr)
+	}
+	lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("want one stderr line, got %q", stderr)
+	}
+	var logged signerEvmDisposeLog
+	dec := json.NewDecoder(strings.NewReader(lines[0]))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&logged); err != nil {
+		t.Fatalf("stderr is not one JSON record: %v: %q", err, stderr)
+	}
+	if n := count("SELECT COUNT(*) FROM signer_evm_audit WHERE event = 'evidence_invalid'"); n != 1 {
+		t.Fatalf("want one evidence_invalid audit row, got %d", n)
+	}
+	var auditHash, auditActor, auditReason string
+	if err := db.QueryRow("SELECT tx_hash, actor, reason FROM signer_evm_audit WHERE event = 'evidence_invalid'").
+		Scan(&auditHash, &auditActor, &auditReason); err != nil {
+		t.Fatalf("one evidence_invalid audit row: %v", err)
+	}
+	if logged.Command != signer.EvmDisposeResolve || logged.TxHash != pendingHash.Hex() || logged.TxHash != auditHash ||
+		logged.OutcomeID != 0 || logged.AuditEvent != "evidence_invalid" || logged.ExitCode != signer.EvmDisposeExitEvidenceInvalid ||
+		logged.Actor != auditActor || logged.OperatorReason != "stuck deposit" || auditReason != "stuck deposit" {
+		t.Fatalf("stderr record %+v, audit tx_hash=%s actor=%q reason=%q", logged, auditHash, auditActor, auditReason)
+	}
+	if count("SELECT COUNT(*) FROM signer_evm_state WHERE state = 'pending' AND tx_hash = ?", pendingHash.Hex()) != 1 {
+		t.Fatal("the pending row must stay")
+	}
+}
+
+// A disposition command writes one structured line to stderr that matches
+// the report, without transaction bytes; stdout keeps the human-readable
+// report. The signer tests check the report against the audit row.
+func TestSignerEvmDisposeStderrLog(t *testing.T) {
+	for _, report := range []*signer.EvmDisposeReport{
+		{Command: signer.EvmDisposeRelease, OutcomeID: 7, TxHash: "0x" + strings.Repeat("ab", 32), Action: "delete outcome 7",
+			Applied: true, Event: "manual_release_unknown", Actor: "ops (os user sp)", OperatorReason: "board approved",
+			DecisionRef: "https://board.example/decisions/42"},
+		{Command: signer.EvmDisposeDisposeOutcome, OutcomeID: 7, Action: "none", Event: "manual_rejected",
+			Error: "outcome 7 is not in state succeeded", ExitCode: signer.EvmDisposeExitPrecondition, Actor: "ops (os user sp)",
+			OperatorReason: "cleanup"},
+		{Command: signer.EvmDisposeResolve, Scope: "operator", TxHash: "0x" + strings.Repeat("cd", 32), Error: "failed to read the pending row",
+			ExitCode: signer.EvmDisposeExitError, Actor: "ops (os user sp)"},
+	} {
+		t.Run(fmt.Sprintf("%s exit %d", report.Command, report.ExitCode), func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := &cli.App{
+				Writer: &out, ErrWriter: &errOut,
+				Action:         func(ctx *cli.Context) error { return finishSignerEvmDispose(ctx, report) },
+				ExitErrHandler: func(*cli.Context, error) {},
+			}
+			err := app.Run([]string{"moca-sp"})
+			if exitCodeOf(err) != report.ExitCode {
+				t.Fatalf("exit code %d, want %d", exitCodeOf(err), report.ExitCode)
+			}
+			lines := strings.Split(strings.TrimRight(errOut.String(), "\n"), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("want one stderr line, got %q", errOut.String())
+			}
+			// only the known fields: nothing else, such as transaction bytes, is logged
+			var logged signerEvmDisposeLog
+			dec := json.NewDecoder(strings.NewReader(lines[0]))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&logged); err != nil {
+				t.Fatalf("stderr is not one JSON record: %v: %q", err, lines[0])
+			}
+			want := signerEvmDisposeLog{Msg: "signer-evm disposition", Command: report.Command, Scope: report.Scope,
+				TxHash: report.TxHash, OutcomeID: report.OutcomeID, Action: report.Action, Applied: report.Applied,
+				AuditEvent: report.Event, ExitCode: report.ExitCode, Actor: report.Actor, OperatorReason: report.OperatorReason,
+				DecisionRef: report.DecisionRef, Error: report.Error}
+			if logged != want {
+				t.Fatalf("stderr record %+v, want %+v", logged, want)
+			}
+			if !strings.Contains(out.String(), "exit code:") {
+				t.Fatalf("unexpected output:\nstdout %q\nstderr %q", out.String(), errOut.String())
+			}
+		})
 	}
 }
