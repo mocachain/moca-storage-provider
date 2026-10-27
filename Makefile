@@ -181,8 +181,7 @@ test-mysql:
 test-mysql-down:
 	@bash ./script/test-mysql.sh down
 
-# test/e2e Go packages that need no running stack; the cloud piece stores in them skip without credentials.
-# Every other test/e2e path needs a live chain and runs in the e2e workflows.
+# test/e2e Go packages that need no running stack (cloud stores skip without credentials)
 E2E_UNIT_PKGS := ./test/e2e/piecestore ./test/e2e/spworkflow
 UNIT_PKGS_CMD = { $(GO_REPO_ENV) $(GO) list ./... | grep -v '/test/e2e/'; $(GO_REPO_ENV) $(GO) list $(E2E_UNIT_PKGS); }
 

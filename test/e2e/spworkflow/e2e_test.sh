@@ -910,8 +910,7 @@ function run_sp_exit_e2e() {
 ###################
 # run go-sdk e2e #
 ###################
-# fail unless the go test log has passing tests and no skipped or failed ones: a renamed
-# suite or a topology that skips its cases would otherwise leave the step green
+# fail unless the go test log shows passing tests and no skipped or failed ones
 function check_go_test_results() {
   local log=$1
   local passed skipped failed
