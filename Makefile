@@ -212,7 +212,7 @@ check-p2p-coverage: test-p2p
 	awk -v actual="$$coverage" -v minimum="$(P2P_COVERAGE_MIN)" 'BEGIN { if (actual + 0 < minimum + 0) { printf "P2P coverage %.1f%% is below the required %.1f%%\n", actual, minimum; exit 1 } printf "P2P coverage %.1f%% meets the required %.1f%%\n", actual, minimum }'
 
 test-changed: check-go-env test-mysql
-	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
+	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true )"; \
 	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
 		pkgs="$$($(UNIT_PKGS_CMD))"; \
@@ -230,7 +230,7 @@ test-changed: check-go-env test-mysql
 	fi
 
 test-staged: check-go-env test-mysql
-	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
+	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
 		pkgs="$$($(UNIT_PKGS_CMD))"; \
