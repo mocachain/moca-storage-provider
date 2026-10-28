@@ -181,10 +181,14 @@ test-mysql:
 test-mysql-down:
 	@bash ./script/test-mysql.sh down
 
-# only run unit tests, exclude e2e tests
+# test/e2e Go packages that need no running stack (cloud stores skip without credentials)
+E2E_UNIT_PKGS := ./test/e2e/piecestore ./test/e2e/spworkflow
+UNIT_PKGS_CMD = { $(GO_REPO_ENV) $(GO) list ./... | grep -v '/test/e2e/'; $(GO_REPO_ENV) $(GO) list $(E2E_UNIT_PKGS); }
+
+# run the unit tests, plus the e2e Go packages listed in E2E_UNIT_PKGS
 test: check-go-env test-mysql
 	@echo "--> Running local unit tests with coverage..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
+	@pkgs="$$($(UNIT_PKGS_CMD))"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -covermode=atomic -coverprofile=./coverage.out -timeout 99999s
 	# go test -cover ./...
 	# go test -coverprofile=coverage.out ./...
@@ -194,7 +198,7 @@ test: check-go-env test-mysql
 # artifacts, so pre-commit checks do not modify the worktree.
 test-local: check-go-env test-mysql
 	@echo "--> Running local unit tests..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
+	@pkgs="$$($(UNIT_PKGS_CMD))"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s
 
 P2P_COVERAGE_MIN ?= 5
@@ -208,16 +212,16 @@ check-p2p-coverage: test-p2p
 	awk -v actual="$$coverage" -v minimum="$(P2P_COVERAGE_MIN)" 'BEGIN { if (actual + 0 < minimum + 0) { printf "P2P coverage %.1f%% is below the required %.1f%%\n", actual, minimum; exit 1 } printf "P2P coverage %.1f%% meets the required %.1f%%\n", actual, minimum }'
 
 test-changed: check-go-env test-mysql
-	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
+	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true )"; \
 	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
+		pkgs="$$($(UNIT_PKGS_CMD))"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$changed_dirs" ]; then \
 		echo "--> No local changed Go packages to test"; \
 	else \
 		echo "--> Running unit tests for local changed Go packages..."; \
-		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | sort -u | comm -12 - <($(UNIT_PKGS_CMD) | sort -u))"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the local changed files"; \
 		else \
@@ -226,16 +230,16 @@ test-changed: check-go-env test-mysql
 	fi
 
 test-staged: check-go-env test-mysql
-	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
+	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e)"; \
+		pkgs="$$($(UNIT_PKGS_CMD))"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$staged_dirs" ]; then \
 		echo "--> No staged Go packages to test"; \
 	else \
 		echo "--> Running unit tests for staged Go packages..."; \
-		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | sort -u | comm -12 - <($(UNIT_PKGS_CMD) | sort -u))"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the staged files"; \
 		else \
