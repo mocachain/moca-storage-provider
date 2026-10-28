@@ -11,6 +11,7 @@ BUGFIXES
 
 IMPROVEMENTS
 
+* [#223](https://github.com/mocachain/moca-storage-provider/pull/223)  test(blocksyncer): make every BlockSyncer e2e verify step assert the rows and fields its block writes, so none passes against an empty table, and run all blocksyncer test packages from bs_test.sh
 * [#221](https://github.com/mocachain/moca-storage-provider/pull/221)  chore(ci): start the runner's MySQL with systemd so the workflows run on the Ubuntu 26.04 runner image
 * [#218](https://github.com/mocachain/moca-storage-provider/pull/218)  chore(ci): run the SP e2e, Go-SDK e2e and SP exit e2e workflows on Node.js 24 instead of the end-of-life 14.x, which only installs ethers and generates the test private key
 * [#214](https://github.com/mocachain/moca-storage-provider/pull/214)  chore(build): run the goreleaser release image (Dockerfile.release) on debian:trixie-slim (glibc 2.41) instead of debian:bookworm-slim (glibc 2.36), so the image's glibc is not older than the Ubuntu 24.04 goreleaser-cross:v1.26.10 build image (glibc 2.39)
