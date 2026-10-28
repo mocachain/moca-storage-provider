@@ -664,7 +664,6 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 
 	client.gcLock.Lock()
 	defer client.gcLock.Unlock()
-	nonce := client.gcAccNonce
 
 	msgDiscontinueBucket := storagetypes.NewMsgDiscontinueBucket(km.GetAddr(),
 		discontinueBucket.BucketName, discontinueBucket.Reason)
@@ -680,54 +679,73 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 		return pendingHash, nil
 	}
 
-	txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DiscontinueBucket].GasLimit, nonce, client.maxEvmGasPrice)
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
-		return "", err
-	}
-	txOpts.NoSend = true
-
-	session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to create session", "error", err)
-		return "", err
-	}
-
-	signedTx, err := session.DiscontinueBucket(
-		discontinueBucket.GetBucketName(),
-		discontinueBucket.GetReason(),
+	var (
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
+	for i := 0; i < BroadcastTxRetry; i++ {
+		nonce = client.gcAccNonce
 
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
-		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
-		return "", ErrDiscontinueBucketOnChain
-	}
-	txHash, err := client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
-	if txHash == "" && err != nil {
-		if isEvmNonceRejection(err) {
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DiscontinueBucket].GasLimit, nonce, client.maxEvmGasPrice)
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
+			return "", err
+		}
+		txOpts.NoSend = true
+
+		session, err := CreateStorageSession(client.evmClient, *txOpts, evmostypes.StorageAddress)
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to create session", "error", err)
+			return "", err
+		}
+
+		signedTx, err := session.DiscontinueBucket(
+			discontinueBucket.GetBucketName(),
+			discontinueBucket.GetReason(),
+		)
+
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrDiscontinueBucketOnChain
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "failed to broadcast discontinue bucket", "error", err, "discontinue_bucket", msgDiscontinueBucket.String())
+				ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to broadcast discontinue bucket, error: %v", err))
+				return "", ErrDiscontinueBucketOnChain
+			}
 			// if nonce mismatch, wait for next block, reset nonce by querying the nonce on chain
-			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
 				log.CtxErrorw(ctx, "failed to get gc account nonce", "error", nonceErr)
 				ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to get gc account nonce, error: %v", nonceErr))
 				return "", ErrDiscontinueBucketOnChain
 			}
 			client.gcAccNonce = nonce
+
+			log.CtxErrorw(ctx, "failed to broadcast discontinue bucket", "retry_number", i, "error", err, "discontinue_bucket", msgDiscontinueBucket.String())
+			broadcastErr = err
+			continue
 		}
-		log.CtxErrorw(ctx, "failed to broadcast discontinue bucket", "error", err, "discontinue_bucket", msgDiscontinueBucket.String())
-		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to broadcast discontinue bucket, error: %v", err))
-		return "", ErrDiscontinueBucketOnChain
-	}
-	client.gcAccNonce = nonce + 1
 
-	if err != nil {
-		log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
-		ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
-		return txHash, ErrDiscontinueBucketOnChain
+		client.gcAccNonce = nonce + 1
+
+		if err != nil {
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
+			ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return txHash, ErrDiscontinueBucketOnChain
+		}
+
+		return txHash, nil
 	}
 
-	return txHash, nil
+	// failed to broadcast tx
+	ErrDiscontinueBucketOnChain.SetError(fmt.Errorf("failed to broadcast discontinue bucket, error: %v", broadcastErr))
+	return "", ErrDiscontinueBucketOnChain
 }
 
 func (client *MocaChainSignClient) CreateGlobalVirtualGroup(ctx context.Context, scope SignType,
@@ -1106,7 +1124,6 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 
 	client.opLock.Lock()
 	defer client.opLock.Unlock()
-	nonce := client.operatorAccNonce
 
 	msgUpdateStorageSPPrice := &sptypes.MsgUpdateSpStoragePrice{
 		SpAddress:     km.GetAddr().String(),
@@ -1125,59 +1142,78 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 		}
 		return pendingHash, nil
 	}
-	txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[UpdateSPPrice].GasLimit, nonce, client.maxEvmGasPrice)
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
-		return "", err
-	}
-	txOpts.NoSend = true
 
-	session, err := CreateStorageProviderSession(client.evmClient, *txOpts, evmostypes.SpAddress)
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to create session", "error", err)
-		return "", err
-	}
-
-	signedTx, err := session.UpdateSPPrice(
-		priceInfo.ReadPrice.BigInt(),
-		priceInfo.FreeReadQuota,
-		priceInfo.StorePrice.BigInt(),
+	var (
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
+	for i := 0; i < BroadcastTxRetry; i++ {
+		nonce = client.operatorAccNonce
 
-	if err != nil {
-		log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
-		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
-		return "", ErrUpdateSPPriceOnChain
-	}
-	txHash, err := client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
-	if txHash == "" && err != nil {
-		if isEvmNonceRejection(err) {
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[UpdateSPPrice].GasLimit, nonce, client.maxEvmGasPrice)
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
+			return "", err
+		}
+		txOpts.NoSend = true
+
+		session, err := CreateStorageProviderSession(client.evmClient, *txOpts, evmostypes.SpAddress)
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to create session", "error", err)
+			return "", err
+		}
+
+		signedTx, err := session.UpdateSPPrice(
+			priceInfo.ReadPrice.BigInt(),
+			priceInfo.FreeReadQuota,
+			priceInfo.StorePrice.BigInt(),
+		)
+
+		if err != nil {
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrUpdateSPPriceOnChain
+		}
+		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
+		if txHash == "" && err != nil {
+			if !isEvmNonceRejection(err) {
+				log.CtxErrorw(ctx, "failed to broadcast update sp price msg", "error", err, "update_sp_price",
+					msgUpdateStorageSPPrice.String())
+				ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to broadcast msg to update sp price, error: %v", err))
+				return "", ErrUpdateSPPriceOnChain
+			}
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
-			nonce, nonceErr := client.getNonceOnChain(ctx, client.mocaClients[scope])
+			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get approval account nonce", "error", err)
-				ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to get approval account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get approval account nonce", "error", nonceErr)
+				ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to get approval account nonce, error: %v", nonceErr))
 				return "", ErrUpdateSPPriceOnChain
 			}
 			client.operatorAccNonce = nonce
+
+			log.CtxErrorw(ctx, "failed to broadcast update sp price msg", "retry_number", i, "error", err, "update_sp_price",
+				msgUpdateStorageSPPrice.String())
+			broadcastErr = err
+			continue
 		}
 
-		log.CtxErrorw(ctx, "failed to broadcast update sp price msg", "error", err, "update_sp_price",
-			msgUpdateStorageSPPrice.String())
-		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to broadcast msg to update sp price, error: %v", err))
-		return "", ErrUpdateSPPriceOnChain
+		// the nonce counts as used once the transaction may have been admitted
+		client.operatorAccNonce = nonce + 1
+
+		if err != nil {
+			log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
+			ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
+			return txHash, ErrUpdateSPPriceOnChain
+		}
+
+		return txHash, nil
 	}
 
-	// the nonce counts as used once the transaction may have been admitted
-	client.operatorAccNonce = nonce + 1
-
-	if err != nil {
-		log.CtxErrorw(ctx, "EVM tx submitted but unconfirmed", "tx_hash", txHash, "error", err)
-		ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("transaction failed: %w", err))
-		return txHash, ErrUpdateSPPriceOnChain
-	}
-
-	return txHash, nil
+	// failed to broadcast tx
+	ErrUpdateSPPriceOnChain.SetError(fmt.Errorf("failed to broadcast msg to update sp price, error: %v", broadcastErr))
+	return "", ErrUpdateSPPriceOnChain
 }
 
 func (client *MocaChainSignClient) SwapOut(ctx context.Context, scope SignType,
