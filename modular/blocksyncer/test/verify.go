@@ -1,12 +1,15 @@
 package test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	golog "log"
 	"math/big"
 	"os"
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 
 	bucketmodules "github.com/mocachain/moca-storage-provider/modular/blocksyncer/modules/bucket"
 	"github.com/mocachain/moca-storage-provider/store/bsdb"
+	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 )
 
@@ -136,6 +140,128 @@ func Verify(t *testing.T, dsn string) error {
 	return nil
 }
 
+const (
+	tagsOwner      = "0x2412c55D1b613C87E37aF2172b05343551D19e98"
+	tagsKey12      = `{"tags": [{"key": "key1", "value": "value1"}, {"key": "key2", "value": "value2"}]}`
+	tagsKey12Tag04 = `{"tags": [{"key": "key1", "value": "value1"}, {"key": "key2", "value": "value2"}, {"key": "tag04", "value": "tag04_value"}]}`
+)
+
+// getRow loads the first row of table matching query into dest and fails when there is none.
+func getRow(db *gorm.DB, table string, dest interface{}, query string, args ...interface{}) error {
+	if err := db.Table(table).Where(query, args...).Take(dest).Error; err != nil {
+		return fmt.Errorf("%s where %s %v: %w", table, query, args, err)
+	}
+	return nil
+}
+
+func eq[T comparable](field string, got, want T) error {
+	if got != want {
+		return fmt.Errorf("%s: got %v, want %v", field, got, want)
+	}
+	return nil
+}
+
+func eqBig(field string, got *common.Big, want string) error {
+	if got == nil {
+		return eq(field, "<nil>", want)
+	}
+	return eq(field, got.Raw().String(), want)
+}
+
+// eqJSON compares two JSON documents, reading a NULL column as null.
+func eqJSON(field string, got []byte, want string) error {
+	if len(got) == 0 {
+		got = []byte("null")
+	}
+	var g, w interface{}
+	if err := json.Unmarshal(got, &g); err != nil {
+		return fmt.Errorf("%s: got %q: %w", field, got, err)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		return fmt.Errorf("%s: want %q: %w", field, want, err)
+	}
+	if !reflect.DeepEqual(g, w) {
+		return fmt.Errorf("%s: got %s, want %s", field, got, want)
+	}
+	return nil
+}
+
+func idHash(id int64) common.Hash {
+	return common.BigToHash(big.NewInt(id))
+}
+
+func actionBits(actions ...permissiontypes.ActionType) int {
+	bits := 0
+	for _, action := range actions {
+		bits |= 1 << bsdb.ActionTypeMap[action]
+	}
+	return bits
+}
+
+func verifyGroup(db *gorm.DB, id int64, name, owner, tags string) error {
+	var g models.Group
+	if err := getRow(db, bsdb.GroupTableName, &g, "group_id = ? and account_id = ?", idHash(id), common.HexToAddress("0")); err != nil {
+		return err
+	}
+	return errors.Join(
+		eq("group_name", g.GroupName, name),
+		eq("owner", g.Owner, common.HexToAddress(owner)),
+		eq("source_type", g.SourceType, "SOURCE_TYPE_ORIGIN"),
+		eq("removed", g.Removed, false),
+		eqJSON("tags", g.Tags, tags),
+	)
+}
+
+func verifyTaggedBucket(db *gorm.DB, name string, id int64, tags string) error {
+	var b models.Bucket
+	if err := getRow(db, bsdb.BucketTableName, &b, "bucket_name = ?", name); err != nil {
+		return err
+	}
+	owner := common.HexToAddress(tagsOwner)
+	return errors.Join(
+		eq("bucket_id", b.BucketID, idHash(id)),
+		eq("owner", b.Owner, owner),
+		eq("payment_address", b.PaymentAddress, owner),
+		eq("global_virtual_group_family_id", b.GlobalVirtualGroupFamilyId, 1),
+		eq("charged_read_quota", b.ChargedReadQuota, 100),
+		eq("visibility", b.Visibility, "VISIBILITY_TYPE_PRIVATE"),
+		eq("status", b.Status, "BUCKET_STATUS_CREATED"),
+		eqJSON("tags", b.Tags, tags),
+	)
+}
+
+func verifyTaggedObject(db *gorm.DB, name string, id, bucketID int64, tags string) error {
+	var o models.Object
+	if err := getRow(db, GetObjectsTableName("ot005test-bucket"), &o, "bucket_name=? and object_name = ?", "ot005test-bucket", name); err != nil {
+		return err
+	}
+	owner := common.HexToAddress(tagsOwner)
+	return errors.Join(
+		eq("object_id", o.ObjectID, idHash(id)),
+		eq("bucket_id", o.BucketID, idHash(bucketID)),
+		eq("creator", o.Creator, owner),
+		eq("owner", o.Owner, owner),
+		eq("payload_size", o.PayloadSize, 1000),
+		eq("visibility", o.Visibility, "VISIBILITY_TYPE_PRIVATE"),
+		eq("content_type", o.ContentType, "text/plain"),
+		eq("status", o.Status, "OBJECT_STATUS_CREATED"),
+		eqJSON("tags", o.Tags, tags),
+	)
+}
+
+func verifyObjectsRemoved(db *gorm.DB, ids ...int64) error {
+	for _, id := range ids {
+		var o models.Object
+		if err := getRow(db, GetObjectsTableName("cxz"), &o, "object_id = ?", idHash(id)); err != nil {
+			return err
+		}
+		if !o.Removed {
+			return fmt.Errorf("object %d is not removed", id)
+		}
+	}
+	return nil
+}
+
 func verify1(t *testing.T, db *gorm.DB) error {
 	var bucket models.Bucket
 	if err := db.Table(bsdb.BucketTableName).Where("bucket_name = ?", "full-node-v1-acc0000000072-buc0000000000").Find(&bucket).Error; err != nil {
@@ -204,11 +330,7 @@ func verify6(t *testing.T, db *gorm.DB) error {
 }
 
 func verify7(t *testing.T, db *gorm.DB) error {
-	var g models.Group
-	if err := db.Table(bsdb.GroupTableName).Where("group_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002")).Find(&g).Error; err != nil {
-		return err
-	}
-	return nil
+	return verifyGroup(db, 2, "n3susb0", "0x6a45dE47a2Cd53084b4793fca7C1e706B9f54ED1", "null")
 }
 
 func verify8(t *testing.T, db *gorm.DB) error {
@@ -245,12 +367,31 @@ func verify10(t *testing.T, db *gorm.DB) error {
 }
 
 func verify11(t *testing.T, db *gorm.DB) error {
-	table := GetObjectsTableName("cxz")
 	var o models.Object
-	if err := db.Table(table).Where("object_id = ?", common.BigToHash(big.NewInt(1201))).Find(&o).Error; err != nil {
+	if err := getRow(db, GetObjectsTableName("cxz"), &o, "object_id = ?", idHash(1201)); err != nil {
 		return err
 	}
-	return nil
+	var m bsdb.ObjectIDMap
+	if err := getRow(db, bsdb.ObjectIDMapTableName, &m, "object_id = ?", idHash(1201)); err != nil {
+		return err
+	}
+	creator := common.HexToAddress("0xC56259Acb9c37F96a4476875d486D478a32Dbc26")
+	return errors.Join(
+		eq("bucket_id", o.BucketID, idHash(649851)),
+		eq("bucket_name", o.BucketName, "cxz"),
+		eq("object_name", o.ObjectName, "full-node-acc0000001201-buc0000000000-obj0000000000"),
+		eq("creator", o.Creator, creator),
+		eq("owner", o.Owner, creator),
+		eq("payload_size", o.PayloadSize, 1024),
+		eq("visibility", o.Visibility, "VISIBILITY_TYPE_INHERIT"),
+		eq("content_type", o.ContentType, "application/octet-stream"),
+		eq("status", o.Status, "OBJECT_STATUS_CREATED"),
+		eq("redundancy_type", o.RedundancyType, "REDUNDANCY_EC_TYPE"),
+		eq("source_type", o.SourceType, "SOURCE_TYPE_ORIGIN"),
+		eq("checksums", len(o.CheckSums), 7),
+		eq("create_time", o.CreateTime, 1692577044),
+		eq("object_id_map bucket_name", m.BucketName, "cxz"),
+	)
 }
 
 func verify12(t *testing.T, db *gorm.DB) error {
@@ -289,18 +430,30 @@ func verify13(t *testing.T, db *gorm.DB) error {
 
 func verify14(t *testing.T, db *gorm.DB) error {
 	var sr models.StreamRecord
-	if err := db.Table((&models.StreamRecord{}).TableName()).Where("account = ?", common.HexToAddress("0x51D2c7dFa2a58C73853c2657Dc505e7430879B1b")).Find(&sr).Error; err != nil {
+	if err := getRow(db, (&models.StreamRecord{}).TableName(), &sr, "account = ?", common.HexToAddress("0x51D2c7dFa2a58C73853c2657Dc505e7430879B1b")); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("crud_timestamp", sr.CrudTimestamp, 1692576365),
+		eq("settle_timestamp", sr.SettleTimestamp, 0),
+		eq("status", sr.Status, "STREAM_ACCOUNT_STATUS_ACTIVE"),
+		eqBig("netflow_rate", sr.NetflowRate, "0"),
+		eqBig("frozen_netflow_rate", sr.FrozenNetflowRate, "0"),
+		eqBig("static_balance", sr.StaticBalance, "0"),
+		eqBig("buffer_balance", sr.BufferBalance, "0"),
+		eqBig("lock_balance", sr.LockBalance, "2517955200"),
+	)
 }
 
 func verify15(t *testing.T, db *gorm.DB) error {
 	var p models.PaymentAccount
-	if err := db.Table((&models.PaymentAccount{}).TableName()).Where("addr = ?", common.HexToAddress("0x68bd245Df652435321989b999F9F70Cd31281b66")).Find(&p).Error; err != nil {
+	if err := getRow(db, (&models.PaymentAccount{}).TableName(), &p, "addr = ?", common.HexToAddress("0x68bd245Df652435321989b999F9F70Cd31281b66")); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("owner", p.Owner, common.HexToAddress("0x84A0d38d64498414B14cD979159D57557345Cd8B")),
+		eq("refundable", p.Refundable, false),
+	)
 }
 
 func verify16(t *testing.T, db *gorm.DB) error {
@@ -405,10 +558,21 @@ func verify24(t *testing.T, db *gorm.DB) error {
 
 func verify25(t *testing.T, db *gorm.DB) error {
 	var sp models.StorageProvider
-	if err := db.Table((&models.StorageProvider{}).TableName()).Where("sp_id = ?", 14).Find(&sp).Error; err != nil {
+	if err := getRow(db, (&models.StorageProvider{}).TableName(), &sp, "sp_id = ?", 14); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("operator_address", sp.OperatorAddress, common.HexToAddress("0xE127Da5a0138d1953363e6E0bF05d971a7c03481")),
+		eq("funding_address", sp.FundingAddress, common.HexToAddress("0xaFB4224211583b00C24F854B3ff74c34190971b9")),
+		eq("seal_address", sp.SealAddress, common.HexToAddress("0x573eB6Ad0a2334A7B64726d4f2E7d84EEd56E50d")),
+		eq("approval_address", sp.ApprovalAddress, common.HexToAddress("0x58e97D3Edd09FA541D06f34f2783F325870Acaed")),
+		eq("gc_address", sp.GcAddress, common.HexToAddress("0x3E467Acb8Fd962BC0C89409b19f61D209852ba30")),
+		eqBig("total_deposit", sp.TotalDeposit, "1000000000000000000000"),
+		eq("status", sp.Status, "STATUS_IN_MAINTENANCE"),
+		eq("endpoint", sp.Endpoint, "https://gf-devnet-sp-aa-bk.dev.nodereal.cc"),
+		eq("moniker", sp.Moniker, "QATest"),
+		eq("bls_key", sp.BlsKey, "a33e608a5a77cbefa0f33e022d0d47226f389a2ecd3072ea2930f3c64370f3cc84e2af4800652a4dab29fa4802318081"),
+	)
 }
 
 func verify26(t *testing.T, db *gorm.DB) error {
@@ -435,10 +599,29 @@ func verify27(t *testing.T, db *gorm.DB) error {
 
 func verify28(t *testing.T, db *gorm.DB) error {
 	var permission models.Permission
-	if err := db.Table((&models.Permission{}).TableName()).Where("policy_id = ?", common.BigToHash(big.NewInt(2))).Find(&permission).Error; err != nil {
+	if err := getRow(db, (&models.Permission{}).TableName(), &permission, "policy_id = ?", idHash(2)); err != nil {
 		return err
 	}
-	return nil
+	var statements []models.Statements
+	if err := db.Table((&models.Statements{}).TableName()).Where("policy_id = ?", idHash(2)).Order("id").Find(&statements).Error; err != nil {
+		return err
+	}
+	if len(statements) != 2 {
+		return fmt.Errorf("statements: got %d, want 2", len(statements))
+	}
+	return errors.Join(
+		eq("principal_type", permission.PrincipalType, int32(permissiontypes.PRINCIPAL_TYPE_GNFD_GROUP)),
+		eq("principal_value", permission.PrincipalValue, "3"),
+		eq("resource_type", permission.ResourceType, "RESOURCE_TYPE_BUCKET"),
+		eq("resource_id", permission.ResourceID, idHash(2)),
+		eq("expiration_time", permission.ExpirationTime, 0),
+		eq("statement 0 effect", statements[0].Effect, "EFFECT_ALLOW"),
+		eq("statement 0 actions", statements[0].ActionValue, actionBits(permissiontypes.ACTION_UPDATE_BUCKET_INFO, permissiontypes.ACTION_DELETE_BUCKET, permissiontypes.ACTION_CREATE_OBJECT)),
+		eq("statement 0 resources", strings.Join(statements[0].Resources, ","), ""),
+		eq("statement 1 effect", statements[1].Effect, "EFFECT_ALLOW"),
+		eq("statement 1 actions", statements[1].ActionValue, actionBits(permissiontypes.ACTION_GET_OBJECT, permissiontypes.ACTION_DELETE_OBJECT)),
+		eq("statement 1 resources", strings.Join(statements[1].Resources, ","), "grn:o::goatw/.*"),
+	)
 }
 
 func verify29(t *testing.T, db *gorm.DB) error {
@@ -475,7 +658,22 @@ func verify31(t *testing.T, db *gorm.DB) error {
 }
 
 func verify32(t *testing.T, db *gorm.DB) error {
-	return nil
+	var o models.Object
+	if err := getRow(db, GetObjectsTableName("cxz"), &o, "object_id = ?", idHash(1203)); err != nil {
+		return err
+	}
+	creator := common.HexToAddress("0xC56259Acb9c37F96a4476875d486D478a32Dbc26")
+	return errors.Join(
+		eq("bucket_id", o.BucketID, idHash(649851)),
+		eq("bucket_name", o.BucketName, "cxz"),
+		eq("object_name", o.ObjectName, "full-node-acc0000001201-b0"),
+		eq("creator", o.Creator, creator),
+		eq("owner", o.Owner, creator),
+		eq("payload_size", o.PayloadSize, 1024),
+		eq("visibility", o.Visibility, "VISIBILITY_TYPE_INHERIT"),
+		eq("status", o.Status, "OBJECT_STATUS_CREATED"),
+		eq("source_type", o.SourceType, "SOURCE_TYPE_ORIGIN"),
+	)
 }
 
 func verify33(t *testing.T, db *gorm.DB) error {
@@ -501,67 +699,97 @@ func verify34(t *testing.T, db *gorm.DB) error {
 }
 
 func verify35(t *testing.T, db *gorm.DB) error {
-	var object models.Object
-	if err := db.Table(GetObjectsTableName("cxz")).Where("object_id = ?", common.BigToHash(big.NewInt(1204))).Find(&object).Error; err != nil {
+	var o models.Object
+	if err := getRow(db, GetObjectsTableName("cxz"), &o, "object_id = ?", idHash(1204)); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("bucket_name", o.BucketName, "cxz"),
+		eq("object_name", o.ObjectName, "full-node-acc00000012ssss01-b0/"),
+		eq("operator", o.Operator, common.HexToAddress("0xC4a7F70B823D35c52bB89205475868E767e64bA0")),
+		eq("owner", o.Owner, common.HexToAddress("0xC56259Acb9c37F96a4476875d486D478a32Dbc26")),
+		eq("payload_size", o.PayloadSize, 1024),
+		eq("status", o.Status, "OBJECT_STATUS_CREATED"),
+	)
 }
 
 func verify36(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventCompleteMigrationBucket
-	if err := db.Table(bsdb.EventCompleteMigrationTableName).Where("bucket_id = ?", common.BigToHash(big.NewInt(4))).Find(&cmb).Error; err != nil {
+	var e bsdb.EventCompleteMigrationBucket
+	if err := getRow(db, bsdb.EventCompleteMigrationTableName, &e, "bucket_id = ?", idHash(4)); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("bucket_name", e.BucketName, "onkz"),
+		eq("operator", e.Operator, common.HexToAddress("0xe7194d50da3412972236Fb90dde4431698423457")),
+		eq("global_virtual_group_family_id", e.GlobalVirtualGroupFamilyId, 8),
+		eq("src_primary_sp_id", e.SrcPrimarySpId, 1),
+	)
 }
 
 func verify37(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventMigrationBucket
-	if err := db.Table(bsdb.EventMigrationTableName).Where("bucket_id = ?", common.BigToHash(big.NewInt(4))).Find(&cmb).Error; err != nil {
+	var e bsdb.EventMigrationBucket
+	if err := getRow(db, bsdb.EventMigrationTableName, &e, "bucket_id = ?", idHash(4)); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("bucket_name", e.BucketName, "onkz"),
+		eq("operator", e.Operator, common.HexToAddress("0xD05E628eBB81A2516DCe142702e28E765d463BB5")),
+		eq("dst_primary_sp_id", e.DstPrimarySpId, 8),
+	)
 }
 
 func verify38(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventCancelMigrationBucket
-	if err := db.Table(bsdb.EventCancelMigrationTableName).Where("bucket_id = ?", common.BigToHash(big.NewInt(4))).Find(&cmb).Error; err != nil {
+	var e bsdb.EventCancelMigrationBucket
+	if err := getRow(db, bsdb.EventCancelMigrationTableName, &e, "bucket_id = ?", idHash(4)); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("bucket_name", e.BucketName, "onkz"),
+		eq("operator", e.Operator, common.HexToAddress("0xD05E628eBB81A2516DCe142702e28E765d463BB5")),
+	)
 }
 
 func verify39(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventStorageProviderExit
-	if err := db.Table(bsdb.EventStorageProviderExitTableName).Where("storage_provider_id = ?", 9).Find(&cmb).Error; err != nil {
+	var e bsdb.EventStorageProviderExit
+	if err := getRow(db, bsdb.EventStorageProviderExitTableName, &e, "storage_provider_id = ?", 9); err != nil {
 		return err
 	}
-	return nil
+	return eq("operator_address", e.OperatorAddress, common.HexToAddress("0x83A948D6bd3641Cf772c2eE811baeA64F1c381fF"))
 }
 
 func verify40(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventSwapOut
-	if err := db.Table(bsdb.EventSwapOutTableName).Where("storage_provider_id = ?", 9).Find(&cmb).Error; err != nil {
+	var e bsdb.EventSwapOut
+	if err := getRow(db, bsdb.EventSwapOutTableName, &e, "storage_provider_id = ?", 9); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("successor_sp_id", e.SuccessorSpId, 3),
+		eq("global_virtual_group_family_id", e.GlobalVirtualGroupFamilyId, 0),
+		eq("global_virtual_group_ids", fmt.Sprint(e.GlobalVirtualGroupIds), "[10]"),
+	)
 }
 
 func verify41(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventCompleteSwapOut
-	if err := db.Table(bsdb.EventCompleteSwapOutTableName).Where("storage_provider_id = ?", 9).Find(&cmb).Error; err != nil {
+	var e bsdb.EventCompleteSwapOut
+	if err := getRow(db, bsdb.EventCompleteSwapOutTableName, &e, "src_storage_provider_id = ?", 9); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("storage_provider_id", e.StorageProviderId, 3),
+		eq("global_virtual_group_family_id", e.GlobalVirtualGroupFamilyId, 0),
+		eq("global_virtual_group_ids", fmt.Sprint(e.GlobalVirtualGroupIds), "[10]"),
+	)
 }
 
 func verify42(t *testing.T, db *gorm.DB) error {
-	var cmb bsdb.EventCompleteStorageProviderExit
-	if err := db.Table(bsdb.EventCompleteStorageProviderExitTableName).Where("storage_provider_id = ?", 10).Find(&cmb).Error; err != nil {
+	var e bsdb.EventCompleteStorageProviderExit
+	if err := getRow(db, bsdb.EventCompleteStorageProviderExitTableName, &e, "storage_provider_id = ?", 10); err != nil {
 		return err
 	}
-	return nil
+	return errors.Join(
+		eq("operator_address", e.OperatorAddress, common.HexToAddress("0xCcCFa75E5Ef1d5543Be088FDbD3dD0683b9d6f71")),
+		eqBig("total_deposit", e.TotalDeposit, "10000000000000000000000"),
+	)
 }
 
 func verify43(t *testing.T, db *gorm.DB) error {
@@ -577,25 +805,37 @@ func verify43(t *testing.T, db *gorm.DB) error {
 
 func verify44(t *testing.T, db *gorm.DB) error {
 	var sp models.StorageProvider
-	if err := db.Table((&models.StorageProvider{}).TableName()).Where("sp_id = ?", 14).Find(&sp).Error; err != nil {
+	if err := getRow(db, (&models.StorageProvider{}).TableName(), &sp, "sp_id = ?", 14); err != nil {
 		return err
 	}
-	if sp.ReadPrice.Raw().Cmp(big.NewInt(1000.0)) == 0 || sp.StorePrice.Raw().Cmp(big.NewInt(100000)) == 0 {
-		return errors.New("price error")
-	}
-	return nil
+	return errors.Join(
+		eq("update_time_sec", sp.UpdateTimeSec, 1694568473),
+		eq("free_read_quota", sp.FreeReadQuota, 10000),
+		eqBig("read_price", sp.ReadPrice, "1000000000000000000000"),
+		eqBig("store_price", sp.StorePrice, "100000000000000000000000"),
+	)
 }
 
 func verify45(t *testing.T, db *gorm.DB) error {
-	var g models.Group
-	if err := db.Table(bsdb.GroupTableName).Where("group_id = ?", common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000016")).Find(&g).Error; err != nil {
-		return err
-	}
-	return nil
+	return verifyGroup(db, 22, "n3susb02", "0x6a45dE47a2Cd53084b4793fca7C1e706B9f54ED1", "null")
 }
 
 func verify46(t *testing.T, db *gorm.DB) error {
-	return nil
+	owner := common.HexToAddress("0x6a45dE47a2Cd53084b4793fca7C1e706B9f54ED1")
+	var errs []error
+	for _, member := range []string{"0x97885F0E3711F74Bb1F97357bc9086Aed2a007B7", "0x5870Af236E63beaEbbFa364f78FC7c8e70F0811f"} {
+		var g models.Group
+		if err := getRow(db, bsdb.GroupTableName, &g, "group_id = ? and account_id = ?", idHash(22), common.HexToAddress(member)); err != nil {
+			return err
+		}
+		errs = append(errs,
+			eq(member+" owner", g.Owner, owner),
+			eq(member+" operator", g.Operator, owner),
+			eq(member+" group_name", g.GroupName, "n3susb02"),
+			eq(member+" expiration_time", g.ExpirationTime, maxGroupMemberExpirationUnix),
+		)
+	}
+	return errors.Join(errs...)
 }
 
 func verify47(t *testing.T, db *gorm.DB) error {
@@ -633,7 +873,7 @@ func verify49(t *testing.T, db *gorm.DB) error {
 
 func verify50(t *testing.T, db *gorm.DB) error {
 	var p models.PaymentAccount
-	if err := db.Table((&models.PaymentAccount{}).TableName()).Where("addr = ?", common.HexToAddress("0x68bd245Df652435321989b999F9F70Cd31281b66")).Find(&p).Error; err != nil {
+	if err := getRow(db, (&models.PaymentAccount{}).TableName(), &p, "addr = ?", common.HexToAddress("0x68bd245Df652435321989b999F9F70Cd31281b66")); err != nil {
 		return err
 	}
 	if p.Refundable {
@@ -643,91 +883,50 @@ func verify50(t *testing.T, db *gorm.DB) error {
 }
 
 func verify51(t *testing.T, db *gorm.DB) error {
-	var event bsdb.EventRejectMigrateBucket
-	if err := db.Table((&bsdb.EventCompleteMigrationBucket{}).TableName()).Where("bucket_name = ?", "onkz").Find(&event).Error; err != nil {
-		return errors.New("event not found")
+	var e bsdb.EventRejectMigrateBucket
+	if err := getRow(db, bsdb.EventRejectMigrateTableName, &e, "bucket_name = ?", "onkz"); err != nil {
+		return err
 	}
-	return nil
+	return errors.Join(
+		eq("bucket_id", e.BucketID, idHash(4)),
+		eq("operator", e.Operator, common.HexToAddress("0xD05E628eBB81A2516DCe142702e28E765d463BB5")),
+	)
 }
 
 func verify52(t *testing.T, db *gorm.DB) error {
-	var bucket models.Bucket
-	if err := db.Table(bsdb.BucketTableName).Where("bucket_name = ?", "b4tag02").Find(&bucket).Error; err != nil {
-		assert.NoError(t, err)
-	}
-	assert.Equal(t, "{\"tags\": [{\"key\": \"key1\", \"value\": \"value1\"}, {\"key\": \"key2\", \"value\": \"value2\"}]}", bucket.Tags.String())
-
-	return nil
+	return verifyTaggedBucket(db, "b4tag02", 2, tagsKey12)
 }
 
 func verify53(t *testing.T, db *gorm.DB) error {
-	// skip this test. Because block 53 created a bucket without setting tags and we set the tag in block 54. So, we will verify the result in verify54 method
-	return nil
+	return verifyTaggedBucket(db, "b4tag04", 5, "null")
 }
 
 func verify54(t *testing.T, db *gorm.DB) error {
-	var bucket models.Bucket
-	if err := db.Table(bsdb.BucketTableName).Where("bucket_name = ?", "b4tag04").Find(&bucket).Error; err != nil {
-		assert.NoError(t, err)
-	}
-	assert.Equal(t, "{\"tags\": [{\"key\": \"key1\", \"value\": \"value1\"}, {\"key\": \"key2\", \"value\": \"value2\"}, {\"key\": \"tag04\", \"value\": \"tag04_value\"}]}", bucket.Tags.String())
-
-	return nil
+	return verifyTaggedBucket(db, "b4tag04", 5, tagsKey12Tag04)
 }
 
 func verify55(t *testing.T, db *gorm.DB) error {
-	table := GetObjectsTableName("ot005test-bucket")
-	var o models.Object
-	if err := db.Table(table).Where("bucket_name=? and object_name = ?", "ot005test-bucket", "ot005obj002").Find(&o).Error; err != nil {
-		assert.NoError(t, err)
-	}
-
-	assert.Equal(t, "{\"tags\": [{\"key\": \"key1\", \"value\": \"value1\"}, {\"key\": \"key2\", \"value\": \"value2\"}]}", o.Tags.String())
-
-	return nil
+	return verifyTaggedObject(db, "ot005obj002", 2, 5, tagsKey12)
 }
 
 func verify56(t *testing.T, db *gorm.DB) error {
-	// skip this test. Because block 54 created an object  without setting tags and we set the tag in block 57. So, we will verify the result in verify57 method
-	return nil
+	return verifyTaggedObject(db, "ot005obj004", 12, 7, "null")
 }
 
 func verify57(t *testing.T, db *gorm.DB) error {
-	table := GetObjectsTableName("ot005test-bucket")
-	var o models.Object
-	if err := db.Table(table).Where("bucket_name=? and object_name = ?", "ot005test-bucket", "ot005obj004").Find(&o).Error; err != nil {
-		assert.NoError(t, err)
-	}
-
-	assert.Equal(t, "{\"tags\": [{\"key\": \"key1\", \"value\": \"value1\"}, {\"key\": \"key2\", \"value\": \"value2\"}, {\"key\": \"tag04\", \"value\": \"tag04_value\"}]}", o.Tags.String())
-
-	return nil
+	return verifyTaggedObject(db, "ot005obj004", 12, 7, tagsKey12Tag04)
 }
 
 func verify58(t *testing.T, db *gorm.DB) error {
-	var g models.Group
-	if err := db.Table(bsdb.GroupTableName).Where("group_name = ? and account_id = ?", "g001-02", common.HexToAddress("0")).Find(&g).Error; err != nil {
-		return err
-	}
-	assert.Equal(t, "{\"tags\": [{\"key\": \"key1\", \"value\": \"value1\"}, {\"key\": \"key2\", \"value\": \"value2\"}]}", g.Tags.String())
-
-	return nil
+	return verifyGroup(db, 2, "g001-02", tagsOwner, tagsKey12)
 }
 
 func verify59(t *testing.T, db *gorm.DB) error {
-	// skip this test. Because block 59 created an group  without setting tags and we set the tag in block 60. So, we will verify the result in verify60 method
-	return nil
+	return verifyGroup(db, 4, "g001-04", tagsOwner, "null")
 }
 
 func verify60(t *testing.T, db *gorm.DB) error {
-	var g models.Group
-	if err := db.Table(bsdb.GroupTableName).Where("group_name = ? and account_id = ?", "g001-04", common.HexToAddress("0")).Find(&g).Error; err != nil {
-		return err
-	}
-
-	assert.Equal(t, "{\"tags\": [{\"key\": \"tag04\", \"value\": \"tag04_value\"}]}", g.Tags.String())
-
-	return nil
+	return verifyGroup(db, 4, "g001-04", tagsOwner, `{"tags": [{"key": "tag04", "value": "tag04_value"}]}`)
 }
 
 func verify61(t *testing.T, db *gorm.DB) error {
@@ -736,9 +935,9 @@ func verify61(t *testing.T, db *gorm.DB) error {
 		return errors.New("event not found")
 	}
 
-	// if count == 2 which means there exist repeat folder in the root case
-	if count >= 2 {
-		return fmt.Errorf("failed to batch create slash prefix tree node")
+	// 0 means the folder was not created, 2 or more that it was created repeatedly
+	if count != 1 {
+		return fmt.Errorf("failed to batch create slash prefix tree node: %d folders, want 1", count)
 	}
 	return nil
 }
@@ -753,7 +952,7 @@ func verify62(t *testing.T, db *gorm.DB) error {
 	if count > 0 {
 		return fmt.Errorf("failed to batch delete slash prefix tree node")
 	}
-	return nil
+	return verifyObjectsRemoved(db, 1201, 1202)
 }
 
 func verify63(t *testing.T, db *gorm.DB) error {
@@ -765,7 +964,7 @@ func verify63(t *testing.T, db *gorm.DB) error {
 	if count != 0 {
 		return fmt.Errorf("delete and create same object in same block")
 	}
-	return nil
+	return verifyObjectsRemoved(db, 1301, 1302)
 }
 
 func verify64(t *testing.T, db *gorm.DB) error {
@@ -847,8 +1046,8 @@ func verify69(t *testing.T, db *gorm.DB) error {
 
 func verify70(t *testing.T, db *gorm.DB) error {
 	var bucket models.Bucket
-	if err := db.Table((&models.Bucket{}).TableName()).Where("bucket_name=?", "phugwly1grq").Find(&bucket).Error; err != nil {
-		assert.NoError(t, err)
+	if err := getRow(db, (&models.Bucket{}).TableName(), &bucket, "bucket_name=?", "phugwly1grq"); err != nil {
+		return err
 	}
 	if bucketmodules.IsStatusSet(bucket.OffChainStatus, int(bucketmodules.OffChainStatusSpAsDelegatedAgentDisabled)) {
 		return errors.New("update bucket ToggleSPAsDelegatedAgent status error")
