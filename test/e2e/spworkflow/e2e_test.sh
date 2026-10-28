@@ -449,17 +449,26 @@ function sp_status_is() {
   [ "${status}" = "$2" ]
 }
 
+# 0: the SP is not listed, 1: still listed, 2: the list query or its JSON is unusable
 function sp_left_chain() {
-  local json
-  if ! json=$(mocad_q sp storage-providers 2>/dev/null); then
-    echo "sp list query failed"
+  local json view
+  if ! json=$(mocad_q sp storage-providers 2>&1); then
+    echo "sp list query failed: $(head -n 1 <<<"${json}")"
+    return 2
+  fi
+  if ! view=$(jq -er --arg op "$1" '
+    .sps | if type == "array" then . else error("sps is not a list") end
+    | if any(.[]; (.operator_address | ascii_downcase) == ($op | ascii_downcase))
+      then "listed " + ([.[] | "\(.id):\(.status)"] | join(" "))
+      else "gone \(length)" end' <<<"${json}" 2>&1); then
+    echo "sp list is unreadable: ${view:0:200}"
+    return 2
+  fi
+  if [ "${view%% *}" = "listed" ]; then
+    echo "still listed (${view#listed })"
     return 1
   fi
-  if jq -e --arg op "$1" '.sps[] | select((.operator_address | ascii_downcase) == ($op | ascii_downcase))' >/dev/null <<<"${json}"; then
-    echo "still listed ($(jq -r '[.sps[] | "\(.id):\(.status)"] | join(" ")' <<<"${json}"))"
-    return 1
-  fi
-  echo "not in the SP list any more ($(jq '.sps | length' <<<"${json}") SPs remain)"
+  echo "not in the SP list any more (${view#gone } SPs remain)"
 }
 
 function bucket_family_id() {
@@ -470,20 +479,34 @@ function family_primary_sp_id() {
   mocad_q virtualgroup global-virtual-group-family "$1" 2>/dev/null | jq -r '.global_virtual_group_family.primary_sp_id // empty' || true
 }
 
-function object_id() {
-  mocad_q storage head-object "$1" "$2" | jq -r '.object_info.id // empty'
-}
-
 # succeeds once the chain holds no family or GVG membership against an SP (empty families count)
+# 0: drained, 1: memberships remain, 2: a chain answer is missing or unusable
 function sp_gvgs_drained() {
   local sp_id=$1
-  local families fam gvgs n primaries=0 secondaries=0
+  local families view primaries fam_ids fam gvgs n secondaries=0
 
-  families=$(mocad_q virtualgroup global-virtual-group-families 1000 | jq -c '.gvg_families[]?')
-  primaries=$(jq -s --argjson sp "${sp_id}" '[.[] | select((.primary_sp_id | tonumber) == $sp)] | length' <<<"${families}")
-  for fam in $(jq -r '.id' <<<"${families}"); do
-    gvgs=$(mocad_q virtualgroup global-virtual-group-by-family-id "${fam}")
-    n=$(jq --argjson sp "${sp_id}" '[.global_virtual_groups[]? | select(.secondary_sp_ids | map(tonumber) | index($sp) != null)] | length' <<<"${gvgs}")
+  if ! families=$(mocad_q virtualgroup global-virtual-group-families 1000 2>&1); then
+    echo "global virtual group families query failed: $(head -n 1 <<<"${families}")"
+    return 2
+  fi
+  if ! view=$(jq -er --argjson sp "${sp_id}" '
+    .gvg_families | if type == "array" then . else error("gvg_families is not a list") end
+    | "\(map(select((.primary_sp_id | tonumber) == $sp)) | length) \(map(.id | tonumber) | join(" "))"' <<<"${families}" 2>&1); then
+    echo "global virtual group families are unreadable: ${view:0:200}"
+    return 2
+  fi
+  read -r primaries fam_ids <<<"${view}"
+  for fam in ${fam_ids}; do
+    if ! gvgs=$(mocad_q virtualgroup global-virtual-group-by-family-id "${fam}" 2>&1); then
+      echo "global virtual groups query of family ${fam} failed: $(head -n 1 <<<"${gvgs}")"
+      return 2
+    fi
+    if ! n=$(jq -er --argjson sp "${sp_id}" '
+      .global_virtual_groups | if type == "array" then . else error("global_virtual_groups is not a list") end
+      | map(select(.secondary_sp_ids | map(tonumber) | index($sp) != null)) | length' <<<"${gvgs}" 2>&1); then
+      echo "global virtual groups of family ${fam} are unreadable: ${n:0:200}"
+      return 2
+    fi
     secondaries=$((secondaries + n))
   done
   echo "primary_families=${primaries} secondary_gvgs=${secondaries}"
@@ -516,17 +539,59 @@ function sp_exit_plan_ready() {
   [[ "${units}" == *"->"* ]]
 }
 
-# the SP in $1 checks a piece from its own store against the on-chain checksums (redundancy -1 = primary)
-function challenge_piece_ok() {
-  local sp_dir=$1 object=$2 redundancy_idx=$3 segment_idx=$4
-  local out
-  out=$(cd "${sp_dir}" && "./moca-$(basename "${sp_dir}")" challenge.piece -c ./config.toml --object.id "${object}" --redundancy.index="${redundancy_idx}" --segment.index "${segment_idx}" 2>&1) || true
-  if grep -q "succeed to check integrity hash" <<<"${out}"; then
-    echo "object ${object} redundancy ${redundancy_idx} segment ${segment_idx} served by $(basename "${sp_dir}")"
-    return 0
+function hex_of_b64() {
+  python3 -c 'import base64, sys; d = base64.b64decode(sys.argv[1], validate=True); print(d.hex()) if d else sys.exit(1)' "$1" 2>/dev/null
+}
+
+# the integrity hash challenge.piece printed (hex) must be the chain checksum (base64): Checksums[0] primary, Checksums[i+1] secondary i
+function integrity_hash_matches_chain() {
+  local out=$1 head_json=$2 redundancy_idx=$3
+  local printed b64 chain
+
+  printed=$(sed -n 's/^integrity hash\[\([0-9a-fA-F][0-9a-fA-F]*\)\]$/\1/p' <<<"${out}" | head -n 1 | tr 'A-F' 'a-f')
+  if [ -z "${printed}" ]; then
+    echo "challenge.piece printed no integrity hash"
+    return 1
   fi
-  echo "challenge object ${object} redundancy ${redundancy_idx} segment ${segment_idx} on $(basename "${sp_dir}") failed: ${out:0:300}"
-  return 1
+  if ! b64=$(jq -er --argjson i "$((redundancy_idx + 1))" '
+    .object_info.checksums | if type == "array" and $i >= 0 then .[$i] else null end
+    | select(type == "string" and length > 0)' <<<"${head_json}" 2>/dev/null) \
+    || ! chain=$(hex_of_b64 "${b64}"); then
+    echo "the chain has no readable checksum for redundancy index ${redundancy_idx}"
+    return 1
+  fi
+  if [ "${printed}" != "${chain}" ]; then
+    echo "integrity hash ${printed} is not the on-chain checksum ${chain} of redundancy index ${redundancy_idx}"
+    return 1
+  fi
+  echo "integrity hash ${printed} is the on-chain checksum of redundancy index ${redundancy_idx}"
+}
+
+# the SP in $1 serves a piece of the object from its own store, whose integrity hash is the on-chain checksum (redundancy -1 = primary)
+function challenge_piece_ok() {
+  local sp_dir=$1 bucket=$2 object=$3 redundancy_idx=$4 segment_idx=$5
+  local sp_name info id out verdict label
+  sp_name=$(basename "${sp_dir}")
+  label="${bucket}/${object} redundancy ${redundancy_idx} segment ${segment_idx} on ${sp_name}"
+
+  if ! info=$(mocad_q storage head-object "${bucket}" "${object}" 2>&1); then
+    echo "challenge ${label} failed: head-object query failed: $(head -n 1 <<<"${info}")"
+    return 1
+  fi
+  if ! id=$(jq -er '.object_info.id | tostring | select(test("^[0-9]+$"))' <<<"${info}" 2>/dev/null); then
+    echo "challenge ${label} failed: head-object has no object id: ${info:0:200}"
+    return 1
+  fi
+  out=$(cd "${sp_dir}" && "./moca-${sp_name}" challenge.piece -c ./config.toml --object.id "${id}" --redundancy.index="${redundancy_idx}" --segment.index "${segment_idx}" 2>&1) || true
+  if ! grep -q "succeed to check integrity hash" <<<"${out}"; then
+    echo "challenge ${label} failed: ${out:0:300}"
+    return 1
+  fi
+  if ! verdict=$(integrity_hash_matches_chain "${out}" "${info}" "${redundancy_idx}"); then
+    echo "challenge ${label} failed: ${verdict}"
+    return 1
+  fi
+  echo "${label}: ${verdict}"
 }
 
 function dump_sp_exit_diagnostics() {
@@ -559,10 +624,9 @@ function sp_exit_fail() {
 function test_sp_exit() {
   set -e
   local exit_sp_dir exit_sp_name exit_sp_bin operator_address exit_sp_id
-  local primary_operator example out status
+  local primary_operator example out status drained
   local family_id sec_family_id sec_gvg sec_redundancy_idx
   local successor_id successor_operator successor_dir successor_endpoint
-  local random_id example_id secondary_id
   local sec_holder_id sec_holder_operator sec_holder_dir
 
   exit_sp_dir=$(select_exit_sp_dir)
@@ -621,14 +685,12 @@ function test_sp_exit() {
     exit 1
   fi
   echo "family ${family_id}: primary sp ${exit_sp_id}; family ${sec_family_id}: gvg ${sec_gvg} has sp ${exit_sp_id} as secondary #${sec_redundancy_idx}"
-  if sp_gvgs_drained "${exit_sp_id}" >/dev/null; then
-    echo "the chain holds no virtual group membership against sp ${exit_sp_id} before its exit"
+  drained=0
+  sp_gvgs_drained "${exit_sp_id}" || drained=$?
+  if [ "${drained}" -ne 1 ]; then
+    echo "expected virtual group memberships against sp ${exit_sp_id} before its exit, the drain check returned ${drained}"
     exit 1
   fi
-  sp_gvgs_drained "${exit_sp_id}" || true
-  random_id=$(object_id spexit random_file)
-  example_id=$(object_id spexit example.json)
-  secondary_id=$(object_id spexit-sec secondary_object.txt)
 
   echo "--- sp.exit on ${exit_sp_name} ---"
   out=$(cd "${exit_sp_dir}" && "${exit_sp_bin}" -c ./config.toml sp.exit -operatorAddress "${operator_address}" 2>&1) || true
@@ -657,7 +719,7 @@ function test_sp_exit() {
 
   echo "--- the exiting SP drains out of every GVG and family ---"
   wait_until 900 5 "virtual group membership of sp ${exit_sp_id}" sp_gvgs_drained "${exit_sp_id}" \
-    || sp_exit_fail "sp ${exit_sp_id} still holds virtual group memberships on chain"
+    || sp_exit_fail "the chain never confirmed sp ${exit_sp_id} drained of its virtual group memberships"
 
   echo "--- complete exit ---"
   if ! wait_until 300 5 "${exit_sp_name} completing its exit on its own" sp_left_chain "${operator_address}"; then
@@ -665,7 +727,7 @@ function test_sp_exit() {
     out=$(cd "${exit_sp_dir}" && "${exit_sp_bin}" -c ./config.toml sp.complete.exit -operatorAddress "${operator_address}" 2>&1) || true
     echo "${out}"
     wait_until 300 5 "${exit_sp_name} after sp.complete.exit" sp_left_chain "${operator_address}" \
-      || sp_exit_fail "${exit_sp_name} is still in the chain SP list after sp.complete.exit"
+      || sp_exit_fail "the chain never confirmed ${exit_sp_name} out of the SP list after sp.complete.exit"
   fi
   retry_cmd 12 10 "list storage providers after the exit" \
     ./moca-cmd -c ./config.toml --home ./ sp ls
@@ -689,9 +751,9 @@ function test_sp_exit() {
   get_object_until_match moca://spexit-sec/secondary_object.txt ./new_secondary_object1.txt ./secondary_object.txt 40
 
   echo "--- the new primary and the new secondary hold the migrated pieces ---"
-  challenge_piece_ok "${successor_dir}" "${random_id}" -1 0 || sp_exit_fail "successor lacks segment 0 of random_file"
-  challenge_piece_ok "${successor_dir}" "${random_id}" -1 1 || sp_exit_fail "successor lacks segment 1 of random_file"
-  challenge_piece_ok "${successor_dir}" "${example_id}" -1 0 || sp_exit_fail "successor lacks segment 0 of example.json"
+  challenge_piece_ok "${successor_dir}" spexit random_file -1 0 || sp_exit_fail "successor failed the piece check of segment 0 of random_file"
+  challenge_piece_ok "${successor_dir}" spexit random_file -1 1 || sp_exit_fail "successor failed the piece check of segment 1 of random_file"
+  challenge_piece_ok "${successor_dir}" spexit example.json -1 0 || sp_exit_fail "successor failed the piece check of segment 0 of example.json"
   # a secondary slot is swapped out per GVG, to an SP chosen independently of the family successor
   sec_holder_id=$(mocad_q virtualgroup global-virtual-group "${sec_gvg}" \
     | jq -r --argjson idx "${sec_redundancy_idx}" '.global_virtual_group.secondary_sp_ids[$idx] // empty')
@@ -700,9 +762,9 @@ function test_sp_exit() {
   fi
   sec_holder_operator=$(sp_chain_field_by_id "${sec_holder_id}" operator_address)
   sec_holder_dir=$(sp_dir_by_operator "${sec_holder_operator}") || sp_exit_fail "no local SP directory for sp ${sec_holder_id}"
-  challenge_piece_ok "${sec_holder_dir}" "${secondary_id}" "${sec_redundancy_idx}" 0 \
-    || sp_exit_fail "sp ${sec_holder_id} lacks redundancy piece ${sec_redundancy_idx} of secondary_object.txt"
-  echo "SP exit completed: ${exit_sp_name} (sp ${exit_sp_id}) left, sp ${successor_id} took over its family, sp ${sec_holder_id} its slot in gvg ${sec_gvg}, all objects verified by sha256"
+  challenge_piece_ok "${sec_holder_dir}" spexit-sec secondary_object.txt "${sec_redundancy_idx}" 0 \
+    || sp_exit_fail "sp ${sec_holder_id} failed the piece check of redundancy piece ${sec_redundancy_idx} of secondary_object.txt"
+  echo "SP exit completed: ${exit_sp_name} (sp ${exit_sp_id}) left, sp ${successor_id} took over its family, sp ${sec_holder_id} its slot in gvg ${sec_gvg}, all objects verified by sha256 and the migrated pieces by their on-chain checksums"
 }
 
 #######################################################################
