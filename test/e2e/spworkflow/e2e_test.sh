@@ -84,20 +84,28 @@ function update_sp_quota() {
   return 1
 }
 
+# moca-cmd reports failures on stdout with exit 0, so the output decides
+CMD_FAILURE_PATTERN='run command error:|The operator account have no balance|no such bucket|no such object|no such group|no such virtual group family|the user does not exist in the group'
+RETRY_CMD_OUTPUT=""
+
 function retry_cmd() {
   local max_attempts=$1
   local sleep_seconds=$2
   local description=$3
   shift 3
-  local attempt
+  local attempt out rc
 
   for attempt in $(seq 1 "${max_attempts}"); do
-    if "$@"; then
+    rc=0
+    out=$("$@" 2>&1) || rc=$?
+    echo "${out}"
+    if [ "${rc}" -eq 0 ] && ! grep -qE "${CMD_FAILURE_PATTERN}" <<<"${out}"; then
+      RETRY_CMD_OUTPUT="${out}"
       echo "${description} succeeded"
       return 0
     fi
 
-    echo "${description} failed on attempt ${attempt}/${max_attempts}"
+    echo "${description} failed on attempt ${attempt}/${max_attempts} (exit code ${rc})"
     if [ "${attempt}" -lt "${max_attempts}" ]; then
       sleep "${sleep_seconds}"
     fi
@@ -106,6 +114,32 @@ function retry_cmd() {
   echo "${description} failed after ${max_attempts} attempts"
   dump_sp_logs
   return 1
+}
+
+# wait_until <timeout seconds> <interval seconds> <description> <predicate...>
+function wait_until() {
+  local timeout=$1
+  local interval=$2
+  local description=$3
+  shift 3
+  local start=${SECONDS}
+  local state last=""
+
+  while :; do
+    if state=$("$@" 2>&1); then
+      echo "${description}: ${state:-ok} (after $((SECONDS - start))s)"
+      return 0
+    fi
+    if [ "${state}" != "${last}" ]; then
+      echo "${description}: waiting, ${state:-no state yet} ($((SECONDS - start))s)"
+      last=${state}
+    fi
+    if [ $((SECONDS - start)) -ge "${timeout}" ]; then
+      echo "${description}: not satisfied within ${timeout}s, last state: ${state:-none}"
+      return 1
+    fi
+    sleep "${interval}"
+  done
 }
 
 function select_exit_sp_dir() {
@@ -352,8 +386,7 @@ function test_create_bucket() {
     ./moca-cmd -c ./config.toml --home ./ sp ls
   retry_cmd 6 10 "create bucket ${BUCKET_NAME}" \
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create moca://${BUCKET_NAME}
-  retry_cmd 12 10 "head bucket ${BUCKET_NAME}" \
-    ./moca-cmd -c ./config.toml --home ./ bucket head moca://${BUCKET_NAME}
+  assert_bucket_head "${BUCKET_NAME}"
 }
 
 ###########################################################
@@ -362,11 +395,11 @@ function test_create_bucket() {
 function test_file_size_less_than_16_mb() {
   set -e
   cd "${workspace}"/moca-cmd/build/
+  local example="${workspace}"/test/e2e/spworkflow/testdata/example.json
   retry_cmd 6 10 "put example.json" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://${BUCKET_NAME}
-  retry_cmd 12 10 "head example.json" \
-    ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/example.json
-  get_object_until_match moca://${BUCKET_NAME}/example.json ./test_data.json "${workspace}"/test/e2e/spworkflow/testdata/example.json
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${example}" moca://${BUCKET_NAME}
+  wait_object_sealed "${BUCKET_NAME}" example.json "$(wc -c <"${example}" | tr -d ' ')" "application/json"
+  get_object_until_match moca://${BUCKET_NAME}/example.json ./test_data.json "${example}"
   cat test_data.json
 }
 
@@ -379,57 +412,359 @@ function test_file_size_greater_than_16_mb() {
   dd if=/dev/urandom of=./random_file bs=17M count=1
   retry_cmd 6 10 "put random_file" \
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://${BUCKET_NAME}/random_file
-  retry_cmd 12 10 "head random_file" \
-    ./moca-cmd -c ./config.toml --home ./ object head moca://${BUCKET_NAME}/random_file
+  wait_object_sealed "${BUCKET_NAME}" random_file "$(wc -c <./random_file | tr -d ' ')" "application/octet-stream"
   get_object_until_match moca://${BUCKET_NAME}/random_file ./new_random_file ./random_file
+}
+
+# sp exit helpers: the exit is judged on chain state
+function sp_operator_address() {
+  grep "SpOperatorAddress" "$1/config.toml" | grep -o "0x[0-9a-zA-Z]*"
+}
+
+# the SP directory (local_env/spN) whose operator address is $1
+function sp_dir_by_operator() {
+  local sp_dir
+  for sp_dir in "${workspace}"/deployment/localup/local_env/sp*; do
+    if [ "$(sp_operator_address "${sp_dir}" | tr 'A-F' 'a-f')" = "$(echo "$1" | tr 'A-F' 'a-f')" ]; then
+      echo "${sp_dir}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# sp_chain_field <operator address> <field>: empty when the SP is not on chain (any more)
+function sp_chain_field() {
+  mocad_q sp storage-provider-by-operator-address "$1" 2>/dev/null | jq -r "(.storage_provider // .storageProvider).$2 // empty" || true
+}
+
+function sp_chain_field_by_id() {
+  mocad_q sp storage-provider "$1" 2>/dev/null | jq -r "(.storage_provider // .storageProvider).$2 // empty" || true
+}
+
+function sp_status_is() {
+  local status
+  status=$(sp_chain_field "$1" status)
+  echo "status=${status:-unknown}"
+  [ "${status}" = "$2" ]
+}
+
+# 0: the SP is not listed, 1: still listed, 2: the list query or its JSON is unusable
+function sp_left_chain() {
+  local json view
+  if ! json=$(mocad_q sp storage-providers 2>&1); then
+    echo "sp list query failed: $(head -n 1 <<<"${json}")"
+    return 2
+  fi
+  if ! view=$(jq -er --arg op "$1" '
+    .sps | if type == "array" then . else error("sps is not a list") end
+    | if any(.[]; (.operator_address | ascii_downcase) == ($op | ascii_downcase))
+      then "listed " + ([.[] | "\(.id):\(.status)"] | join(" "))
+      else "gone \(length)" end' <<<"${json}" 2>&1); then
+    echo "sp list is unreadable: ${view:0:200}"
+    return 2
+  fi
+  if [ "${view%% *}" = "listed" ]; then
+    echo "still listed (${view#listed })"
+    return 1
+  fi
+  echo "not in the SP list any more (${view#gone } SPs remain)"
+}
+
+function bucket_family_id() {
+  mocad_q storage head-bucket "$1" | jq -r '.bucket_info.global_virtual_group_family_id // empty'
+}
+
+function family_primary_sp_id() {
+  mocad_q virtualgroup global-virtual-group-family "$1" 2>/dev/null | jq -r '.global_virtual_group_family.primary_sp_id // empty' || true
+}
+
+# succeeds once the chain holds no family or GVG membership against an SP (empty families count)
+# 0: drained, 1: memberships remain, 2: a chain answer is missing or unusable
+function sp_gvgs_drained() {
+  local sp_id=$1
+  local families view primaries fam_ids fam gvgs n secondaries=0
+
+  if ! families=$(mocad_q virtualgroup global-virtual-group-families 1000 2>&1); then
+    echo "global virtual group families query failed: $(head -n 1 <<<"${families}")"
+    return 2
+  fi
+  if ! view=$(jq -er --argjson sp "${sp_id}" '
+    .gvg_families | if type == "array" then . else error("gvg_families is not a list") end
+    | "\(map(select((.primary_sp_id | tonumber) == $sp)) | length) \(map(.id | tonumber) | join(" "))"' <<<"${families}" 2>&1); then
+    echo "global virtual group families are unreadable: ${view:0:200}"
+    return 2
+  fi
+  read -r primaries fam_ids <<<"${view}"
+  for fam in ${fam_ids}; do
+    if ! gvgs=$(mocad_q virtualgroup global-virtual-group-by-family-id "${fam}" 2>&1); then
+      echo "global virtual groups query of family ${fam} failed: $(head -n 1 <<<"${gvgs}")"
+      return 2
+    fi
+    if ! n=$(jq -er --argjson sp "${sp_id}" '
+      .global_virtual_groups | if type == "array" then . else error("global_virtual_groups is not a list") end
+      | map(select(.secondary_sp_ids | map(tonumber) | index($sp) != null)) | length' <<<"${gvgs}" 2>&1); then
+      echo "global virtual groups of family ${fam} are unreadable: ${n:0:200}"
+      return 2
+    fi
+    secondaries=$((secondaries + n))
+  done
+  echo "primary_families=${primaries} secondary_gvgs=${secondaries}"
+  [ "${primaries}" = "0" ] && [ "${secondaries}" = "0" ]
+}
+
+function family_primary_left() {
+  local now
+  now=$(family_primary_sp_id "$1")
+  echo "family $1 primary_sp_id=${now:-unknown}"
+  [ -n "${now}" ] && [ "${now}" != "$2" ]
+}
+
+# the swap outs the exiting SP's manager planned, as "key->successor"
+function sp_exit_plan_units() {
+  local sp_dir=$1
+  local plan
+  plan=$(cd "${sp_dir}" && "./moca-$(basename "${sp_dir}")" query.sp.exit -c ./config.toml 2>&1) || true
+  jq -r '[.swap_out_src[]? | "\(.swap_out_key)->\(.successor_sp_id)"] | join(" ")' <<<"${plan}" 2>/dev/null || echo "unparsable plan: ${plan:0:200}"
+}
+
+function sp_process_stopped() {
+  ! pgrep -f "[m]oca-$1 --config" >/dev/null
+}
+
+function sp_exit_plan_ready() {
+  local units
+  units=$(sp_exit_plan_units "$1")
+  echo "swap out units: ${units:-none yet}"
+  [[ "${units}" == *"->"* ]]
+}
+
+function hex_of_b64() {
+  python3 -c 'import base64, sys; d = base64.b64decode(sys.argv[1], validate=True); print(d.hex()) if d else sys.exit(1)' "$1" 2>/dev/null
+}
+
+# the integrity hash challenge.piece printed (hex) must be the chain checksum (base64): Checksums[0] primary, Checksums[i+1] secondary i
+function integrity_hash_matches_chain() {
+  local out=$1 head_json=$2 redundancy_idx=$3
+  local printed b64 chain
+
+  printed=$(sed -n 's/^integrity hash\[\([0-9a-fA-F][0-9a-fA-F]*\)\]$/\1/p' <<<"${out}" | head -n 1 | tr 'A-F' 'a-f')
+  if [ -z "${printed}" ]; then
+    echo "challenge.piece printed no integrity hash"
+    return 1
+  fi
+  if ! b64=$(jq -er --argjson i "$((redundancy_idx + 1))" '
+    .object_info.checksums | if type == "array" and $i >= 0 then .[$i] else null end
+    | select(type == "string" and length > 0)' <<<"${head_json}" 2>/dev/null) \
+    || ! chain=$(hex_of_b64 "${b64}"); then
+    echo "the chain has no readable checksum for redundancy index ${redundancy_idx}"
+    return 1
+  fi
+  if [ "${printed}" != "${chain}" ]; then
+    echo "integrity hash ${printed} is not the on-chain checksum ${chain} of redundancy index ${redundancy_idx}"
+    return 1
+  fi
+  echo "integrity hash ${printed} is the on-chain checksum of redundancy index ${redundancy_idx}"
+}
+
+# the SP in $1 serves a piece of the object from its own store, whose integrity hash is the on-chain checksum (redundancy -1 = primary)
+function challenge_piece_ok() {
+  local sp_dir=$1 bucket=$2 object=$3 redundancy_idx=$4 segment_idx=$5
+  local sp_name info id out verdict label
+  sp_name=$(basename "${sp_dir}")
+  label="${bucket}/${object} redundancy ${redundancy_idx} segment ${segment_idx} on ${sp_name}"
+
+  if ! info=$(mocad_q storage head-object "${bucket}" "${object}" 2>&1); then
+    echo "challenge ${label} failed: head-object query failed: $(head -n 1 <<<"${info}")"
+    return 1
+  fi
+  if ! id=$(jq -er '.object_info.id | tostring | select(test("^[0-9]+$"))' <<<"${info}" 2>/dev/null); then
+    echo "challenge ${label} failed: head-object has no object id: ${info:0:200}"
+    return 1
+  fi
+  out=$(cd "${sp_dir}" && "./moca-${sp_name}" challenge.piece -c ./config.toml --object.id "${id}" --redundancy.index="${redundancy_idx}" --segment.index "${segment_idx}" 2>&1) || true
+  if ! grep -q "succeed to check integrity hash" <<<"${out}"; then
+    echo "challenge ${label} failed: ${out:0:300}"
+    return 1
+  fi
+  if ! verdict=$(integrity_hash_matches_chain "${out}" "${info}" "${redundancy_idx}"); then
+    echo "challenge ${label} failed: ${verdict}"
+    return 1
+  fi
+  echo "${label}: ${verdict}"
+}
+
+function dump_sp_exit_diagnostics() {
+  local sp_dir
+
+  echo "===== chain SP list ====="
+  mocad_q sp storage-providers 2>&1 | jq -c '.sps[] | {id, status, operator_address}' || true
+  echo "===== chain virtual group families ====="
+  mocad_q virtualgroup global-virtual-group-families 1000 2>&1 | jq -c '.gvg_families[]?' || true
+  for sp_dir in "${workspace}"/deployment/localup/local_env/sp*; do
+    echo "===== $(basename "${sp_dir}") query.sp.exit ====="
+    (cd "${sp_dir}" && "./moca-$(basename "${sp_dir}")" query.sp.exit -c ./config.toml 2>&1 | head -c 3000) || true
+    echo
+    echo "===== $(basename "${sp_dir}") swap out / exit log lines ====="
+    grep -iE 'swap.?out|sp exit|complete sp exit|migrate gvg|migrate piece' "${sp_dir}/log.txt" 2>/dev/null | tail -n 40 | cut -c1-400 || true
+  done
+  dump_sp_logs
+}
+
+function sp_exit_fail() {
+  echo "SP exit e2e failed: $1"
+  dump_sp_exit_diagnostics
+  exit 1
 }
 
 ################
 # test sp exit #
 ################
+# the family primary and a secondary slot both move to successors, then every object is re-read
 function test_sp_exit() {
-  set -xe
-  local exit_sp_dir
-  local exit_sp_name
-  local exit_sp_bin
+  set -e
+  local exit_sp_dir exit_sp_name exit_sp_bin operator_address exit_sp_id
+  local primary_operator example out status drained
+  local family_id sec_family_id sec_gvg sec_redundancy_idx
+  local successor_id successor_operator successor_dir successor_endpoint
+  local sec_holder_id sec_holder_operator sec_holder_dir
 
   exit_sp_dir=$(select_exit_sp_dir)
   exit_sp_name=$(basename "${exit_sp_dir}")
   exit_sp_bin="./moca-${exit_sp_name}"
+  operator_address=$(sp_operator_address "${exit_sp_dir}")
+  primary_operator=$(sp_operator_address "${workspace}"/deployment/localup/local_env/sp0)
+  exit_sp_id=$(sp_chain_field "${operator_address}" id)
+  status=$(sp_chain_field "${operator_address}" status)
+  echo "exiting ${exit_sp_name}: operator ${operator_address}, sp id ${exit_sp_id:-unknown}, status ${status:-unknown}"
+  if [ -z "${exit_sp_id}" ] || [ "${status}" != "STATUS_IN_SERVICE" ]; then
+    echo "${exit_sp_name} is not an in-service SP on chain"
+    exit 1
+  fi
 
-  cd "${exit_sp_dir}"
-  operator_address=$(echo "$(grep "SpOperatorAddress" ./config.toml)" | grep -o "0x[0-9a-zA-Z]*")
-  echo "${operator_address}"
   cd "${workspace}"/moca-cmd/build/
-  ls
+  example="${workspace}"/test/e2e/spworkflow/testdata/example.json
   dd if=/dev/urandom of=./random_file bs=17M count=1
+  echo "sp exit secondary object $(date) ${RANDOM}" >./secondary_object.txt
+
+  echo "--- bucket spexit has ${exit_sp_name} as its primary SP ---"
   retry_cmd 6 10 "create spexit bucket" \
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create --primarySP "${operator_address}" moca://spexit
-  retry_cmd 12 10 "head spexit bucket" \
-    ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
+  assert_bucket_head spexit
   retry_cmd 6 10 "put spexit random_file" \
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/octet-stream" ./random_file moca://spexit/random_file
+  wait_object_sealed spexit random_file "$(wc -c <./random_file | tr -d ' ')" "application/octet-stream"
   retry_cmd 6 10 "put spexit example.json" \
-    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${workspace}"/test/e2e/spworkflow/testdata/example.json moca://spexit/example.json
-  retry_cmd 12 10 "head spexit random_file" \
-    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/random_file
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "application/json" "${example}" moca://spexit/example.json
+  wait_object_sealed spexit example.json "$(wc -c <"${example}" | tr -d ' ')" "application/json"
   get_object_until_match moca://spexit/random_file ./new_random_file ./random_file
-  retry_cmd 12 10 "head spexit example.json" \
-    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  get_object_until_match moca://spexit/example.json ./new.json "${workspace}"/test/e2e/spworkflow/testdata/example.json
+  get_object_until_match moca://spexit/example.json ./new.json "${example}"
 
-  # start exiting the selected non-primary SP
-  cd "${exit_sp_dir}"
-  "${exit_sp_bin}" -c ./config.toml sp.exit -operatorAddress "${operator_address}"
-  cd "${workspace}"/moca-cmd/build/
-  retry_cmd 12 10 "list storage providers before exit settle" \
+  echo "--- bucket spexit-sec has ${exit_sp_name} as a secondary SP of its GVG ---"
+  retry_cmd 6 10 "create spexit-sec bucket" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt bucket create --primarySP "${primary_operator}" moca://spexit-sec
+  assert_bucket_head spexit-sec
+  retry_cmd 6 10 "put spexit-sec secondary_object.txt" \
+    ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object put --contentType "text/plain" ./secondary_object.txt moca://spexit-sec/secondary_object.txt
+  wait_object_sealed spexit-sec secondary_object.txt "$(wc -c <./secondary_object.txt | tr -d ' ')" "text/plain"
+  get_object_until_match moca://spexit-sec/secondary_object.txt ./new_secondary_object.txt ./secondary_object.txt
+
+  echo "--- chain state before the exit ---"
+  family_id=$(bucket_family_id spexit)
+  sec_family_id=$(bucket_family_id spexit-sec)
+  if [ "$(family_primary_sp_id "${family_id}")" != "${exit_sp_id}" ]; then
+    echo "family ${family_id} of spexit is not led by ${exit_sp_name} (sp id ${exit_sp_id})"
+    exit 1
+  fi
+  sec_gvg=$(mocad_q virtualgroup global-virtual-group-by-family-id "${sec_family_id}" \
+    | jq -r --argjson sp "${exit_sp_id}" '[.global_virtual_groups[] | select(.secondary_sp_ids | map(tonumber) | index($sp) != null)][0].id // empty')
+  sec_redundancy_idx=$(mocad_q virtualgroup global-virtual-group-by-family-id "${sec_family_id}" \
+    | jq -r --argjson sp "${exit_sp_id}" '[.global_virtual_groups[] | select(.secondary_sp_ids | map(tonumber) | index($sp) != null)][0].secondary_sp_ids | map(tonumber) | index($sp) // empty')
+  if [ -z "${sec_gvg}" ] || [ -z "${sec_redundancy_idx}" ]; then
+    echo "${exit_sp_name} (sp id ${exit_sp_id}) is not a secondary SP in a GVG of family ${sec_family_id}"
+    exit 1
+  fi
+  echo "family ${family_id}: primary sp ${exit_sp_id}; family ${sec_family_id}: gvg ${sec_gvg} has sp ${exit_sp_id} as secondary #${sec_redundancy_idx}"
+  drained=0
+  sp_gvgs_drained "${exit_sp_id}" || drained=$?
+  if [ "${drained}" -ne 1 ]; then
+    echo "expected virtual group memberships against sp ${exit_sp_id} before its exit, the drain check returned ${drained}"
+    exit 1
+  fi
+
+  echo "--- sp.exit on ${exit_sp_name} ---"
+  out=$(cd "${exit_sp_dir}" && "${exit_sp_bin}" -c ./config.toml sp.exit -operatorAddress "${operator_address}" 2>&1) || true
+  echo "${out}"
+  if ! grep -q "send sp exit txn successfully" <<<"${out}"; then
+    sp_exit_fail "sp.exit did not send the exit transaction"
+  fi
+  assert_tx_ok "${out}" "sp exit" || sp_exit_fail "the exit transaction is not confirmed on chain"
+  wait_until 120 3 "chain status of ${exit_sp_name}" sp_status_is "${operator_address}" STATUS_GRACEFUL_EXITING \
+    || sp_exit_fail "${exit_sp_name} never became STATUS_GRACEFUL_EXITING"
+  wait_until 900 5 "exit plan of ${exit_sp_name}" sp_exit_plan_ready "${exit_sp_dir}" \
+    || sp_exit_fail "the exit scheduler of ${exit_sp_name} produced no swap out plan"
+
+  echo "--- successor takes over the primary role of family ${family_id} ---"
+  wait_until 900 5 "family ${family_id}" family_primary_left "${family_id}" "${exit_sp_id}" \
+    || sp_exit_fail "family ${family_id} was never swapped out of sp ${exit_sp_id}"
+  successor_id=$(family_primary_sp_id "${family_id}")
+  successor_operator=$(sp_chain_field_by_id "${successor_id}" operator_address)
+  status=$(sp_chain_field_by_id "${successor_id}" status)
+  successor_endpoint=$(sp_chain_field_by_id "${successor_id}" endpoint)
+  successor_dir=$(sp_dir_by_operator "${successor_operator}") || sp_exit_fail "no local SP directory for successor ${successor_operator}"
+  echo "successor of family ${family_id}: sp ${successor_id} ($(basename "${successor_dir}"), ${successor_endpoint}), status ${status}"
+  if [ "${status}" != "STATUS_IN_SERVICE" ]; then
+    sp_exit_fail "successor sp ${successor_id} is ${status}, expected STATUS_IN_SERVICE"
+  fi
+
+  echo "--- the exiting SP drains out of every GVG and family ---"
+  wait_until 900 5 "virtual group membership of sp ${exit_sp_id}" sp_gvgs_drained "${exit_sp_id}" \
+    || sp_exit_fail "the chain never confirmed sp ${exit_sp_id} drained of its virtual group memberships"
+
+  echo "--- complete exit ---"
+  if ! wait_until 300 5 "${exit_sp_name} completing its exit on its own" sp_left_chain "${operator_address}"; then
+    echo "the exit was not completed automatically, sending sp.complete.exit"
+    out=$(cd "${exit_sp_dir}" && "${exit_sp_bin}" -c ./config.toml sp.complete.exit -operatorAddress "${operator_address}" 2>&1) || true
+    echo "${out}"
+    wait_until 300 5 "${exit_sp_name} after sp.complete.exit" sp_left_chain "${operator_address}" \
+      || sp_exit_fail "the chain never confirmed ${exit_sp_name} out of the SP list after sp.complete.exit"
+  fi
+  retry_cmd 12 10 "list storage providers after the exit" \
     ./moca-cmd -c ./config.toml --home ./ sp ls
-  retry_cmd 24 10 "head spexit bucket after exit" \
+  if grep -qi "${operator_address}" <<<"${RETRY_CMD_OUTPUT}" || grep -q "GRACEFUL_EXITING" <<<"${RETRY_CMD_OUTPUT}"; then
+    sp_exit_fail "sp ls still shows the exited ${exit_sp_name}"
+  fi
+
+  echo "--- the exited SP stops, the objects keep downloading from the successor ---"
+  pkill -f "[m]oca-${exit_sp_name} --config" || true
+  wait_until 30 1 "${exit_sp_name} process" sp_process_stopped "${exit_sp_name}" \
+    || sp_exit_fail "${exit_sp_name} is still running"
+  retry_cmd 24 10 "head spexit bucket after the exit" \
     ./moca-cmd -c ./config.toml --home ./ bucket head moca://spexit
-  retry_cmd 24 10 "head spexit example.json after exit" \
-    ./moca-cmd -c ./config.toml --home ./ object head moca://spexit/example.json
-  get_object_until_match moca://spexit/example.json ./new1.json "${workspace}"/test/e2e/spworkflow/testdata/example.json 40
+  if ! grep -q "primary SP ID: ${successor_id}" <<<"${RETRY_CMD_OUTPUT}"; then
+    sp_exit_fail "bucket head does not report the successor sp ${successor_id} as the primary SP of spexit"
+  fi
+  assert_object_sealed spexit random_file "$(wc -c <./random_file | tr -d ' ')" "application/octet-stream"
+  assert_object_sealed spexit example.json "$(wc -c <"${example}" | tr -d ' ')" "application/json"
+  get_object_until_match moca://spexit/example.json ./new1.json "${example}" 40
   get_object_until_match moca://spexit/random_file ./new_random_file1 ./random_file 40
+  get_object_until_match moca://spexit-sec/secondary_object.txt ./new_secondary_object1.txt ./secondary_object.txt 40
+
+  echo "--- the new primary and the new secondary hold the migrated pieces ---"
+  challenge_piece_ok "${successor_dir}" spexit random_file -1 0 || sp_exit_fail "successor failed the piece check of segment 0 of random_file"
+  challenge_piece_ok "${successor_dir}" spexit random_file -1 1 || sp_exit_fail "successor failed the piece check of segment 1 of random_file"
+  challenge_piece_ok "${successor_dir}" spexit example.json -1 0 || sp_exit_fail "successor failed the piece check of segment 0 of example.json"
+  # a secondary slot is swapped out per GVG, to an SP chosen independently of the family successor
+  sec_holder_id=$(mocad_q virtualgroup global-virtual-group "${sec_gvg}" \
+    | jq -r --argjson idx "${sec_redundancy_idx}" '.global_virtual_group.secondary_sp_ids[$idx] // empty')
+  if [ -z "${sec_holder_id}" ] || [ "${sec_holder_id}" = "${exit_sp_id}" ]; then
+    sp_exit_fail "slot ${sec_redundancy_idx} of gvg ${sec_gvg} is held by sp '${sec_holder_id}', not by a successor of sp ${exit_sp_id}"
+  fi
+  sec_holder_operator=$(sp_chain_field_by_id "${sec_holder_id}" operator_address)
+  sec_holder_dir=$(sp_dir_by_operator "${sec_holder_operator}") || sp_exit_fail "no local SP directory for sp ${sec_holder_id}"
+  challenge_piece_ok "${sec_holder_dir}" spexit-sec secondary_object.txt "${sec_redundancy_idx}" 0 \
+    || sp_exit_fail "sp ${sec_holder_id} failed the piece check of redundancy piece ${sec_redundancy_idx} of secondary_object.txt"
+  echo "SP exit completed: ${exit_sp_name} (sp ${exit_sp_id}) left, sp ${successor_id} took over its family, sp ${sec_holder_id} its slot in gvg ${sec_gvg}, all objects verified by sha256 and the migrated pieces by their on-chain checksums"
 }
 
 #######################################################################
@@ -438,18 +773,23 @@ function test_sp_exit() {
 # by a few blocks, and moca-cmd exits 0 on a failed get, so a plain   #
 # retry_cmd never retries it                                          #
 #######################################################################
+function sha256_of() {
+  sha256sum "$1" | cut -d ' ' -f 1
+}
+
 function get_object_until_match() {
   local url=$1
   local dest=$2
   local expected=$3
   local attempts=${4:-20}
-  local attempt
+  local attempt expected_sha
 
+  expected_sha=$(sha256_of "${expected}")
   for attempt in $(seq 1 "${attempts}"); do
     rm -f "${dest}" "$(dirname "${dest}")/.$(basename "${dest}").tmp"
     ./moca-cmd -c ./config.toml --home ./ --passwordfile password.txt object get "${url}" "${dest}" || true
-    if [ -f "${dest}" ] && [ "$(md5sum "${dest}" | cut -d ' ' -f 1)" = "$(md5sum "${expected}" | cut -d ' ' -f 1)" ]; then
-      echo "downloaded ${url} matches ${expected}"
+    if [ -f "${dest}" ] && [ "$(sha256_of "${dest}")" = "${expected_sha}" ]; then
+      echo "downloaded ${url} matches ${expected} (sha256 ${expected_sha})"
       return 0
     fi
     sleep 5
@@ -617,6 +957,45 @@ function assert_object_sealed() {
     return 1
   fi
   echo "object ${object} sealed on chain with payload_size=${size} content_type=${ctype}"
+}
+
+# poll until the object is sealed on chain with the expected size and type
+function wait_object_sealed() {
+  local bucket=$1
+  local object=$2
+  local want_size=$3
+  local want_type=$4
+  local timeout=${5:-180}
+
+  wait_until "${timeout}" 5 "object ${bucket}/${object}" assert_object_sealed_quiet "${bucket}" "${object}" "${want_size}" "${want_type}"
+  retry_cmd 12 10 "head object ${bucket}/${object}" \
+    ./moca-cmd -c ./config.toml --home ./ object head "moca://${bucket}/${object}"
+  if ! grep -q "object_status: OBJECT_STATUS_SEALED" <<<"${RETRY_CMD_OUTPUT}"; then
+    echo "object head does not show OBJECT_STATUS_SEALED for ${bucket}/${object}"
+    return 1
+  fi
+}
+
+function assert_object_sealed_quiet() {
+  assert_object_sealed "$@" 2>/dev/null
+}
+
+function bucket_head_shows_owner() {
+  local bucket=$1
+  local out
+
+  out=$(./moca-cmd -c ./config.toml --home ./ bucket head "moca://${bucket}" 2>&1) || true
+  if grep -q "bucket_name:\"${bucket}\"" <<<"${out}" && grep -qi "owner:\"${TEST_ACCOUNT_ADDRESS}\"" <<<"${out}"; then
+    echo "bucket_name=${bucket} owner=${TEST_ACCOUNT_ADDRESS}"
+    return 0
+  fi
+  echo "$(head -n 1 <<<"${out}" | cut -c1-160)"
+  return 1
+}
+
+# bucket create only broadcasts: poll bucket head until it shows the bucket under the test account
+function assert_bucket_head() {
+  wait_until "${2:-180}" "${3:-5}" "bucket ${1} head" bucket_head_shows_owner "$1"
 }
 
 #############################################################

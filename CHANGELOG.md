@@ -11,6 +11,7 @@ BUGFIXES
 
 IMPROVEMENTS
 
+* [#224](https://github.com/mocachain/moca-storage-provider/pull/224)  test(e2e): the SP exit e2e now proves the exit: it waits for the exiting SP's family and secondary GVGs to be swapped out to a successor, for the SP to drain out of every group and leave the SP set, then checks sha256 of every object served by the remaining SPs and the successor's migrated pieces; the e2e retry helper now treats a `run command error:` or no-balance message printed by moca-cmd as a failure, bucket create asserts the owner and name and every upload is checked sealed
 * [#223](https://github.com/mocachain/moca-storage-provider/pull/223)  test(blocksyncer): make every BlockSyncer e2e verify step assert the rows and fields its block writes, so none passes against an empty table, and run all blocksyncer test packages from bs_test.sh
 * [#221](https://github.com/mocachain/moca-storage-provider/pull/221)  chore(ci): start the runner's MySQL with systemd so the workflows run on the Ubuntu 26.04 runner image
 * [#218](https://github.com/mocachain/moca-storage-provider/pull/218)  chore(ci): run the SP e2e, Go-SDK e2e and SP exit e2e workflows on Node.js 24 instead of the end-of-life 14.x, which only installs ethers and generates the test private key
