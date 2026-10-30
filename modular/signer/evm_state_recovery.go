@@ -81,9 +81,9 @@ func (client *MocaChainSignClient) checkEvmStateOnStart(ctx context.Context) err
 }
 
 // recoverEvmState runs after each new lease epoch: audit what was loaded,
-// sync each scope to the epoch (syncEvmScopeEpoch), and resolve every
-// pending row in the background. Requests do not wait for it: each one
-// syncs its scope itself.
+// sync each scope to the epoch (syncEvmScopeEpoch), resolve every pending
+// row and settle every blocked outcome the chain decides, in the background.
+// Requests do not wait for it: each one syncs its scope itself.
 func (client *MocaChainSignClient) recoverEvmState(ctx context.Context, st *evmState, fence evmFence) {
 	rctx, cancel := evmStateCtx(ctx)
 	defer cancel()
@@ -133,6 +133,7 @@ func (client *MocaChainSignClient) recoverEvmState(ctx context.Context, st *evmS
 			st.spawn(func() { client.backgroundResolveEvm(ctx, scope) })
 		}
 	}
+	st.spawn(func() { client.backgroundSettleOutcomes(ctx, st, fence) })
 }
 
 // backgroundResolveEvm resolves a scope's pending row once: it re-sends the

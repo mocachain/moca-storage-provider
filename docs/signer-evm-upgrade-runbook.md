@@ -249,3 +249,11 @@ commands in [manual disposition](signer-evm-disposition.md).
 - On start, a pending row whose evidence fails verification (corrupted raw, wrong
   chain) stops the signer from starting. `list` marks such rows `INVALID`. They need
   manual handling.
+- `EVM pending transaction ended from chain evidence` / `EVM outcome settled from chain
+  evidence`: the signer ended a pending row or settled a `blocked_unknown` outcome by
+  itself ([automatic disposition](signer-evm-disposition.md#automatic-disposition-by-the-signer)).
+  The `event` field names the audit row. A `blocked_unknown` row left behind blocks only
+  its operation; other operations of the key keep being signed.
+- The automatic checks read Cosmos transactions through `[Chain] ChainAddress`. A node
+  there without a transaction index leaves failed transactions without a receipt to
+  the manual commands.

@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#TBD](https://github.com/mocachain/moca-storage-provider/pull/TBD)  fix(signer): end EVM pending rows and blocked outcomes the chain decides, so one unconfirmed transaction no longer stops every other transaction of the key. A transaction included with a failure code and no receipt is deleted (the operation may be signed again); a used nonce with nothing found, or a transaction dropped from the mempool and refused, becomes `blocked_unknown` for that operation only and the key signs from the chain nonce; a `blocked_unknown` outcome is settled when its receipt appears or another transaction of the signer uses its nonce. `signer-evm resolve` also recognises a failed original without a receipt. The receipt read of a pending row is bounded
 * [#220](https://github.com/mocachain/moca-storage-provider/pull/220)  fix(executor): log task info instead of the whole task after sealing
 * [#219](https://github.com/mocachain/moca-storage-provider/pull/219)  fix(executor): record a secondary signature parse failure on the task
 * [#217](https://github.com/mocachain/moca-storage-provider/pull/217)  fix(downloader): report the piece store read error on object download

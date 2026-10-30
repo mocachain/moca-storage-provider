@@ -29,20 +29,31 @@ const (
 
 // Audit events written by the signer.
 const (
-	evmAuditRecorded              = "recorded"
-	evmAuditMarkedAmbiguous       = "marked_ambiguous"
-	evmAuditResolvedSuccess       = "resolved_success"
-	evmAuditResolvedFailed        = "resolved_failed"
-	evmAuditNotAdmittedNonceLow   = "not_admitted_nonce_low"
-	evmAuditNotAdmittedNonceHigh  = "not_admitted_nonce_high"
-	evmAuditNotAdmittedRejected   = "not_admitted_rejected"
-	evmAuditOutcomeCreated        = "outcome_created"
-	evmAuditOutcomeConsumed       = "outcome_consumed"
-	evmAuditLoadedOnStart         = "loaded_on_start"
-	evmAuditLeaseAcquired         = "lease_acquired"
-	evmAuditLeaseLost             = "lease_lost"
-	evmAuditPendingVanished       = "pending_vanished"
-	evmAuditEvidenceInvalid       = "evidence_invalid"
+	evmAuditRecorded             = "recorded"
+	evmAuditMarkedAmbiguous      = "marked_ambiguous"
+	evmAuditResolvedSuccess      = "resolved_success"
+	evmAuditResolvedFailed       = "resolved_failed"
+	evmAuditNotAdmittedNonceLow  = "not_admitted_nonce_low"
+	evmAuditNotAdmittedNonceHigh = "not_admitted_nonce_high"
+	evmAuditNotAdmittedRejected  = "not_admitted_rejected"
+	evmAuditOutcomeCreated       = "outcome_created"
+	evmAuditOutcomeConsumed      = "outcome_consumed"
+	evmAuditLoadedOnStart        = "loaded_on_start"
+	evmAuditLeaseAcquired        = "lease_acquired"
+	evmAuditLeaseLost            = "lease_lost"
+	evmAuditPendingVanished      = "pending_vanished"
+	evmAuditEvidenceInvalid      = "evidence_invalid"
+	// Automatic dispositions (evm_state_auto.go). Each one rests on what the
+	// chain shows and never lets an operation that may still execute be
+	// signed again.
+	evmAuditAutoResolvedFailed    = "auto_resolved_failed"
+	evmAuditAutoBlockedMissing    = "auto_blocked_receipt_missing"
+	evmAuditAutoBlockedDropped    = "auto_blocked_dropped"
+	evmAuditAutoBlockedNonceGap   = "auto_blocked_nonce_gap"
+	evmAuditAutoOutcomeSucceeded  = "auto_outcome_succeeded"
+	evmAuditAutoOutcomeFailed     = "auto_outcome_failed"
+	evmAuditAutoOutcomeSuperseded = "auto_outcome_superseded"
+	evmOutcomeSourceAuto          = "auto"
 	evmOutcomeSourceSubmit        = "submit"
 	evmOutcomeSourceResolve       = "resolve"
 	evmOutcomeSourceStartup       = "startup"
@@ -289,6 +300,15 @@ type evmStateStore interface {
 	// to the state and result of to, provided the row still belongs to the
 	// same operation and evidence and is in one of the states from.
 	ManualSettleOutcome(ctx context.Context, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord, event evmAuditEvent) error
+
+	// The automatic transitions of the signer: ManualResolvePending and
+	// ManualSettleOutcome under the lease fence.
+	AutoResolvePending(ctx context.Context, fence evmFence, pending pendingRecord, result *outcomeRecord, event evmAuditEvent) error
+	AutoSettleOutcome(ctx context.Context, fence evmFence, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord,
+		event evmAuditEvent) error
+	// ListSignedTxAtNonce lists the evidence rows of chainID signed by from at
+	// nonce with an id in (afterID, afterID+window], oldest first.
+	ListSignedTxAtNonce(ctx context.Context, chainID string, from ethcmn.Address, nonce, afterID, window uint64) ([]signedTxEvidence, error)
 }
 
 // evidenceRef is the set of columns a referencing row (pending or outcome)

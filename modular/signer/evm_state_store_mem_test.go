@@ -42,10 +42,11 @@ type memAudit struct {
 // semantics the SQL store has: fencing, 0-row and conflict errors, unique
 // keys, the append-only evidence table with RESTRICT references, and
 // injectable failures per call ("record", "mark", "resolve", "consume",
-// "manual_resolve", "manual_settle",
+// "manual_resolve", "manual_settle", "auto_resolve", "auto_settle",
 // "audit" for any audit insert inside a transition, "append_audit",
 // "acquire", "renew", and reads "get_pending", "get_outcome",
-// "get_signed_tx", "list_pending", "list_outcomes", "has_audit").
+// "get_signed_tx", "list_pending", "list_outcomes", "has_audit",
+// "list_signed_at_nonce").
 type memEvmStateStore struct {
 	mu       sync.Mutex
 	now      func() time.Time
@@ -531,9 +532,28 @@ func (m *memEvmStateStore) GetOutcomeByID(_ context.Context, chainID string, id 
 }
 
 func (m *memEvmStateStore) ManualResolvePending(_ context.Context, pending pendingRecord, result *outcomeRecord, event evmAuditEvent) error {
+	return m.resolvePendingTo("manual_resolve", nil, pending, result, event)
+}
+
+func (m *memEvmStateStore) AutoResolvePending(_ context.Context, fence evmFence, pending pendingRecord, result *outcomeRecord,
+	event evmAuditEvent,
+) error {
+	return m.resolvePendingTo("auto_resolve", &fence, pending, result, event)
+}
+
+func (m *memEvmStateStore) resolvePendingTo(op string, fence *evmFence, pending pendingRecord, result *outcomeRecord,
+	event evmAuditEvent,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.commit("manual_resolve", func() error {
+	epoch := uint64(0)
+	return m.commit(op, func() error {
+		if fence != nil {
+			if err := m.fence(*fence); err != nil {
+				return err
+			}
+			epoch = fence.Epoch
+		}
 		if err := m.lockPending(pending); err != nil {
 			return err
 		}
@@ -556,16 +576,35 @@ func (m *memEvmStateStore) ManualResolvePending(_ context.Context, pending pendi
 			o.Operation, o.From, o.Nonce, o.TxHash = pending.Operation, pending.From, pending.Nonce, pending.TxHash
 			m.outcomes[o.ID] = o
 		}
-		m.addAudit(pending.ChainID, 0, event)
+		m.addAudit(pending.ChainID, epoch, event)
 	})
 }
 
 func (m *memEvmStateStore) ManualSettleOutcome(_ context.Context, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord,
 	event evmAuditEvent,
 ) error {
+	return m.settleOutcome("manual_settle", nil, outcome, from, to, event)
+}
+
+func (m *memEvmStateStore) AutoSettleOutcome(_ context.Context, fence evmFence, outcome outcomeRecord, from []evmOutcomeState,
+	to *outcomeRecord, event evmAuditEvent,
+) error {
+	return m.settleOutcome("auto_settle", &fence, outcome, from, to, event)
+}
+
+func (m *memEvmStateStore) settleOutcome(op string, fence *evmFence, outcome outcomeRecord, from []evmOutcomeState,
+	to *outcomeRecord, event evmAuditEvent,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.commit("manual_settle", func() error {
+	epoch := uint64(0)
+	return m.commit(op, func() error {
+		if fence != nil {
+			if err := m.fence(*fence); err != nil {
+				return err
+			}
+			epoch = fence.Epoch
+		}
 		current, ok := m.outcomes[outcome.ID]
 		if !ok || current.ChainID != outcome.ChainID {
 			return errEvmRowGone
@@ -583,8 +622,27 @@ func (m *memEvmStateStore) ManualSettleOutcome(_ context.Context, outcome outcom
 			o.Reason, o.ReceiptBlock, o.Source = to.Reason, to.ReceiptBlock, to.Source
 			m.outcomes[outcome.ID] = o
 		}
-		m.addAudit(outcome.ChainID, 0, event)
+		m.addAudit(outcome.ChainID, epoch, event)
 	})
+}
+
+func (m *memEvmStateStore) ListSignedTxAtNonce(_ context.Context, chainID string, from ethcmn.Address, nonce, afterID,
+	window uint64,
+) ([]signedTxEvidence, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.read("list_signed_at_nonce"); err != nil {
+		return nil, err
+	}
+	var out []signedTxEvidence
+	for id, e := range m.signed {
+		if id > afterID && id <= afterID+window && e.ChainID == chainID && e.From == from && e.Nonce == nonce {
+			e.Raw = append([]byte(nil), e.Raw...)
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // Test helpers that act on the tables directly, as the CLI or an operator would.

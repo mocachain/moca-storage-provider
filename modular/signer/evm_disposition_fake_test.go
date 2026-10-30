@@ -42,6 +42,9 @@ type fakeDisposeChain struct {
 	sendOverride func(tx *ethtypes.Transaction) error
 	// failNonceAt makes eth_getTransactionCount fail.
 	failNonceAt error
+	// mempool is how many transactions of the account the node holds in its
+	// mempool; the pending nonce counts them.
+	mempool uint64
 	// onBlockNumber runs before the n-th eth_blockNumber call (1-based).
 	onBlockNumber map[int]func()
 	blockCalls    int
@@ -144,6 +147,28 @@ func (c *fakeDisposeChain) addCosmosTx(hash string, code uint32, msgs []sdk.Msg,
 	return view
 }
 
+// addFailedNoReceipt includes tx in a block as a failed Cosmos transaction
+// with no EVM receipt, as a node does when the transaction's execution
+// aborts: the nonce is used and only the Cosmos result records the hash.
+func (c *fakeDisposeChain) addFailedNoReceipt(tx *ethtypes.Transaction, code uint32) *CosmosTxView {
+	c.t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sync()
+	c.node.mu.Lock()
+	if tx.Nonce() != c.node.accountNonce {
+		c.node.mu.Unlock()
+		c.t.Fatalf("addFailedNoReceipt: tx nonce %d, account nonce %d", tx.Nonce(), c.node.accountNonce)
+	}
+	c.node.accountNonce++
+	c.node.mu.Unlock()
+	view := &CosmosTxView{Hash: strings.ToUpper(strings.TrimPrefix(crypto.Keccak256Hash(tx.Hash().Bytes()).Hex(), "0x")),
+		Height: c.height, Code: code, EthTxHashes: []string{tx.Hash().Hex()}}
+	c.entries = append(c.entries, &fakeChainEntry{height: c.height, nonce: tx.Nonce(), cosmos: view})
+	c.height++
+	return view
+}
+
 func (c *fakeDisposeChain) hide(hash string, hidden bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -227,7 +252,7 @@ func (c *fakeDisposeChain) PendingNonceAt(context.Context, ethcmn.Address) (uint
 	defer c.mu.Unlock()
 	c.sync()
 	_, _, nonce := c.node.snapshot()
-	return nonce, nil
+	return nonce + c.mempool, nil
 }
 
 func (c *fakeDisposeChain) CodeAt(_ context.Context, addr ethcmn.Address, height *big.Int) ([]byte, error) {
@@ -325,6 +350,34 @@ func (f fakeCosmosChain) SearchAccSeq(_ context.Context, accSeq string, maxHeigh
 		}
 	}
 	return views, nil
+}
+
+func (f fakeCosmosChain) SearchEthereumTx(_ context.Context, hash ethcmn.Hash, maxHeight uint64) (*CosmosTxView, error) {
+	f.c.mu.Lock()
+	defer f.c.mu.Unlock()
+	if !f.c.index {
+		return nil, fmt.Errorf("%w: transaction indexing is disabled", errCosmosIndexDisabled)
+	}
+	f.c.sync()
+	for _, e := range f.c.entries {
+		if e.height > maxHeight || !f.c.visible(e) {
+			continue
+		}
+		if e.evm != nil && e.evm.Hash() == hash {
+			// A committed EVM transaction is a Cosmos transaction with code 0,
+			// whether its execution succeeded or reverted.
+			return &CosmosTxView{Hash: "EVM" + strings.TrimPrefix(hash.Hex(), "0x"), Height: e.height,
+				EthTxHashes: []string{hash.Hex()}}, nil
+		}
+		if e.cosmos != nil {
+			for _, h := range e.cosmos.EthTxHashes {
+				if strings.EqualFold(h, hash.Hex()) {
+					return e.cosmos, nil
+				}
+			}
+		}
+	}
+	return nil, nil
 }
 
 // disposeEnv runs signer-evm commands against a client's store and chain.
