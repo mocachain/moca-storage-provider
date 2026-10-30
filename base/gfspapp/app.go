@@ -226,10 +226,11 @@ func (g *GfSpBaseApp) Start(ctx context.Context) error {
 		log.Errorw("stopping did not finish in time, exiting", "deadline", shutdownDeadline())
 		exit(1)
 	})
-	defer watchdog.Stop()
 	lifecycle.Wait(ctx)
 	_ = g.close(ctx)
+	watchdog.Stop()
 	log.Infow("stopped")
+	log.Stop() // flush the buffered log lines before the process exits
 	return nil
 }
 

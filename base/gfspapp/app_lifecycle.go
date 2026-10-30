@@ -21,7 +21,10 @@ const (
 var (
 	// stopTimeout and exit are variables so tests can shorten and observe them.
 	stopTimeout = DefaultStopTime
-	exit        = os.Exit
+	exit        = func(code int) {
+		log.Stop() // flush the buffered log lines before leaving
+		os.Exit(code)
+	}
 )
 
 // shutdownDeadline is the longest a stop may take from the first signal until the
