@@ -3,6 +3,7 @@ package gfspapp
 import (
 	"context"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -66,7 +67,29 @@ func (g *GfSpBaseApp) StartRPCServer(ctx context.Context) error {
 	return nil
 }
 
+// grpcGracefulStopTimeout bounds how long StopRPCServer waits for in-flight RPCs
+// and open streams before it closes every connection.
+var grpcGracefulStopTimeout = 10 * time.Second
+
+// StopRPCServer stops the gRPC server gracefully, and closes every connection if
+// in-flight RPCs or open streams (peers and clients keep some open) have not
+// finished within grpcGracefulStopTimeout or ctx is done.
 func (g *GfSpBaseApp) StopRPCServer(ctx context.Context) error {
-	g.server.GracefulStop()
+	done := make(chan struct{})
+	go func() {
+		g.server.GracefulStop()
+		close(done)
+	}()
+	timer := time.NewTimer(grpcGracefulStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return nil
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	log.Warnw("grpc server did not stop gracefully in time, closing all connections", "timeout", grpcGracefulStopTimeout)
+	g.server.Stop()
+	<-done
 	return nil
 }

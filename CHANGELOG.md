@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#230](https://github.com/mocachain/moca-storage-provider/pull/230)  fix(gfspapp): stop within a bounded time on SIGTERM, SIGINT or SIGHUP. The gRPC server waited forever for open streams, so a stopped storage provider kept running until its supervisor sent SIGKILL (after 10s with Docker, 30s on Kubernetes, 90s with systemd). The gRPC stop now closes the remaining connections after 10s, the module stop is bounded at 30s (its timeout was 30 nanoseconds and never applied), the whole stop exits after 45s at the latest, and a second signal exits at once. the last log lines are flushed before exit. docs/stopping.md lists the supervisor settings
 * [#220](https://github.com/mocachain/moca-storage-provider/pull/220)  fix(executor): log task info instead of the whole task after sealing
 * [#219](https://github.com/mocachain/moca-storage-provider/pull/219)  fix(executor): record a secondary signature parse failure on the task
 * [#217](https://github.com/mocachain/moca-storage-provider/pull/217)  fix(downloader): report the piece store read error on object download
