@@ -62,6 +62,24 @@ Signer interface inherits [Modular interface](./common/lifecycle_modular.md#modu
 
 In terms of the functions provided by Signer module, there are ten methods. You can rewrite these methods to meet your own requirements.
 
+## Gas of EVM transactions
+
+Every EVM transaction the signer sends carries an estimated gas limit, not a fixed one.
+Before signing, the signer asks the node to estimate the exact call
+(`eth_estimateGas`) and adds `[Chain] EvmGasMarginPercent` (default 25, at most 100).
+
+- The per-type `[Chain] *GasLimit` settings (`SealGasLimit`, `CreateGlobalVirtualGroupGasLimit`
+  and so on) are upper bounds. A transaction whose estimate is above its bound is not sent,
+  and the error names both numbers; the margin never raises a limit above its bound. An unset
+  bound takes the default, about twice the largest gas measured on a moca v2 network
+  (a seal uses 432k to 473k gas).
+- A call the node cannot estimate, for example because it would revert, is not signed or
+  sent, and the request fails with the node's reason. The fee for a reverted transaction is
+  not spent, and no pending transaction is recorded for it.
+- The margin is cheap: the fee market charges the larger of the gas used and half the gas
+  limit, so a margin up to 100% is not charged.
+
+
 ## SignReplicatePieceApproval
 
 The second params of SignReplicatePieceApproval is a task interface, the corresponding interface definition is shown below:

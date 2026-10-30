@@ -32,15 +32,16 @@ func TestCreateTxOpts_UsesConfiguredChainID(t *testing.T) {
 	t.Cleanup(client.Close)
 
 	chainID := big.NewInt(5151)
-	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), chainID, 700_000, 9, big.NewInt(42))
+	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), chainID, 700_000, 0, 9, big.NewInt(42))
 	require.NoError(t, err)
-	require.Equal(t, uint64(700_000), txOpts.GasLimit)
 	require.Equal(t, big.NewInt(42), txOpts.GasPrice)
 	require.Equal(t, big.NewInt(9), txOpts.Nonce)
 
+	// The test server answers every call, eth_estimateGas included, with 0x2a.
 	signedTx, err := txOpts.Signer(txOpts.From, types.NewTx(&types.LegacyTx{Nonce: 9}))
 	require.NoError(t, err)
 	require.Equal(t, chainID, signedTx.ChainId())
+	require.Equal(t, uint64(42), signedTx.Gas())
 }
 
 func TestCreateTxOpts_ReturnsGasPriceError(t *testing.T) {
@@ -49,7 +50,7 @@ func TestCreateTxOpts_ReturnsGasPriceError(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
 
-	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), big.NewInt(5151), 700_000, 9, big.NewInt(42))
+	txOpts, err := CreateTxOpts(context.Background(), client, testPrivateKey(t), big.NewInt(5151), 700_000, 0, 9, big.NewInt(42))
 	require.Error(t, err)
 	require.Nil(t, txOpts)
 }
@@ -62,7 +63,7 @@ func TestCreateTxOpts_RejectsGasPriceAboveConfiguredLimit(t *testing.T) {
 
 	txOpts, err := CreateTxOpts(
 		context.Background(), client, testPrivateKey(t), big.NewInt(5151),
-		12_000, 9, big.NewInt(4_999_999_999),
+		12_000, 0, 9, big.NewInt(4_999_999_999),
 	)
 	require.ErrorContains(t, err, "exceeds configured maximum")
 	require.Nil(t, txOpts)
@@ -86,7 +87,7 @@ func TestCreateTxOpts_RejectsUnconfiguredGasPriceLimit(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			txOpts, err := CreateTxOpts(
 				context.Background(), client, testPrivateKey(t), big.NewInt(5151),
-				12_000, 9, test.maxGasPrice,
+				12_000, 0, 9, test.maxGasPrice,
 			)
 			require.ErrorContains(t, err, "max evm gas price is not configured")
 			require.NotContains(t, err.Error(), "exceeds")
@@ -103,7 +104,7 @@ func TestCreateTxOpts_AcceptsDefaultChainGasPrice(t *testing.T) {
 
 	txOpts, err := CreateTxOpts(
 		context.Background(), client, testPrivateKey(t), big.NewInt(5151),
-		5_000_000, 9, new(big.Int).SetUint64(gfspconfig.DefaultMaxEvmGasPriceWei),
+		5_000_000, 0, 9, new(big.Int).SetUint64(gfspconfig.DefaultMaxEvmGasPriceWei),
 	)
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(20_000_000_000), txOpts.GasPrice)

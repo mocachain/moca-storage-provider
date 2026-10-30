@@ -65,6 +65,7 @@ func TestDefaultConfigIncludesExplicitEvmGasPriceWei(t *testing.T) {
 	cfg := DefaultConfig()
 
 	assert.Equal(t, uint64(20_000_000_000), cfg.Chain.MaxEvmGasPriceWei)
+	assert.Equal(t, DefaultEvmGasMarginPercent, cfg.Chain.EvmGasMarginPercent)
 	assert.Equal(t, "required", cfg.Gateway.PeerApprovalAuthMode)
 }
 
