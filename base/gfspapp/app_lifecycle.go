@@ -2,18 +2,35 @@ package gfspapp
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/signal"
+	"time"
 
 	corelifecycle "github.com/mocachain/moca-storage-provider/core/lifecycle"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 const (
-	// DefaultStopTime defines the default timeout for stopping services.
-	DefaultStopTime = 30
+	// DefaultStopTime bounds how long stopping the registered services may take.
+	DefaultStopTime = 30 * time.Second
+	// shutdownGrace is the margin on top of the service and gRPC stop budgets
+	// before the process exits on its own.
+	shutdownGrace = 5 * time.Second
 )
+
+var (
+	// stopTimeout and exit are variables so tests can shorten and observe them.
+	stopTimeout = DefaultStopTime
+	exit        = os.Exit
+)
+
+// shutdownDeadline is the longest a stop may take from the first signal until the
+// process exits: the service stop budget, the gRPC stop budget and a margin. It
+// stays below systemd's default TimeoutStopSec (90s), so a supervisor never has
+// to escalate to SIGKILL, which cannot be handled.
+func shutdownDeadline() time.Duration {
+	return stopTimeout + grpcGracefulStopTimeout + shutdownGrace
+}
 
 var _ corelifecycle.Lifecycle = &GfSpBaseApp{}
 
@@ -51,21 +68,19 @@ func (g *GfSpBaseApp) Signals(sigs ...os.Signal) corelifecycle.Lifecycle {
 }
 
 func (g *GfSpBaseApp) signals(sigs ...os.Signal) {
-	sigCh := make(chan os.Signal, 1)
+	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, sigs...)
-	for {
-		select {
-		case <-g.appCtx.Done():
-			return
-		case sig := <-sigCh:
-			for _, j := range sigs {
-				if j == sig {
-					g.appCancel()
-					return
-				}
-			}
-		}
+	select {
+	case <-g.appCtx.Done():
+	case sig := <-sigCh:
+		log.Infow("received signal, stopping", "signal", sig.String())
+		g.appCancel()
 	}
+	// Any signal received while stopping ends the process at once, so an
+	// operator (or a supervisor that resends SIGTERM) is never ignored.
+	sig := <-sigCh
+	log.Errorw("received signal while stopping, exiting now", "signal", sig.String())
+	exit(1)
 }
 
 // Wait blocks until context is done.
@@ -74,16 +89,26 @@ func (g *GfSpBaseApp) Wait(ctx context.Context) {
 	g.StopServices(ctx)
 }
 
-// StopServices stop services when context is done or timeout.
+// StopServices stops the registered services and returns once they have all
+// stopped or stopTimeout has passed, whichever comes first.
 func (g *GfSpBaseApp) StopServices(ctx context.Context) {
-	gCtx, cancel := context.WithTimeout(context.Background(), DefaultStopTime)
-	g.stopServices(ctx, cancel)
-
-	<-gCtx.Done()
-	if errors.Is(gCtx.Err(), context.Canceled) {
-		log.Infow("service still work, and stop timout", "timeout", DefaultStopTime)
-	} else if errors.Is(gCtx.Err(), context.DeadlineExceeded) {
-		log.Error("service while stopping service, killing instance manually")
+	stopCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		g.stopServices(stopCtx, cancel)
+		close(done)
+	}()
+	select {
+	case <-done:
+		log.Infow("all services stopped")
+	case <-stopCtx.Done():
+		select {
+		case <-done:
+			log.Infow("all services stopped")
+		default:
+			log.Errorw("services did not stop in time, continuing shutdown", "timeout", stopTimeout)
+		}
 	}
 }
 

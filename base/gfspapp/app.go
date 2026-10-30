@@ -3,6 +3,7 @@ package gfspapp
 import (
 	"context"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -217,8 +218,18 @@ func (g *GfSpBaseApp) Start(ctx context.Context) error {
 		g.httpProbe.Unhealthy(err)
 		return err
 	}
-	g.Signals(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP).StartServices(ctx).Wait(ctx)
+	lifecycle := g.Signals(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP).StartServices(ctx)
+	<-g.Done()
+	// Stopping the services and the gRPC server is bounded; the watchdog makes
+	// sure the process exits even if something ignores those bounds.
+	watchdog := time.AfterFunc(shutdownDeadline(), func() {
+		log.Errorw("stopping did not finish in time, exiting", "deadline", shutdownDeadline())
+		exit(1)
+	})
+	defer watchdog.Stop()
+	lifecycle.Wait(ctx)
 	_ = g.close(ctx)
+	log.Infow("stopped")
 	return nil
 }
 
