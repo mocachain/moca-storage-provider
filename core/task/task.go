@@ -556,6 +556,8 @@ type GCMetaTask interface {
 // TODO consider recovery secondary SP task
 type RecoveryPieceTask interface {
 	ObjectTask
+	GetRecoveryFence() []byte
+	SetRecoveryFence([]byte)
 	// InitRecoverPieceTask inits the RecoveryPieceTask by ObjectInfo, params,
 	// task priority, pieceIndex, timeout and max retry.
 	InitRecoverPieceTask(object *storagetypes.ObjectInfo, params *storagetypes.Params,

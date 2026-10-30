@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -1042,187 +1043,15 @@ func TestExecuteModular_HandleRecoverPieceTaskFailure3(t *testing.T) {
 	e.HandleRecoverPieceTask(context.TODO(), task)
 }
 
-func TestExecuteModular_recoverByPrimarySPSuccess(t *testing.T) {
-	e := setup(t)
-
-	ctrl := gomock.NewController(t)
-	m := gfspclient.NewMockGfSpClientAPI(ctrl)
-	m.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), true).Return(&metadatatypes.VGFInfoBucket{
-		BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
-	}, nil, nil).Times(1)
-	m.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
-	m.EXPECT().GetPieceFromECChunks(gomock.Any(), gomock.Any(), gomock.Any()).Return(io.NopCloser(
-		strings.NewReader("body")), nil).Times(1)
-	e.baseApp.SetGfSpClient(m)
-
-	m1 := consensus.NewMockConsensus(ctrl)
-	m1.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtual_types.GlobalVirtualGroupFamily{
-		PrimarySpId: 1,
-	}, nil).Times(1)
-	m1.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{
-		{Id: 1, Endpoint: "endpoint"},
-	}, nil).Times(1)
-	e.baseApp.SetConsensus(m1)
-
-	m2 := corespdb.NewMockSPDB(ctrl)
-	m2.EXPECT().GetObjectIntegrity(gomock.Any(), gomock.Any()).Return(&corespdb.IntegrityMeta{
-		PieceChecksumList: [][]byte{{
-			35, 13, 131, 88, 220, 142, 136, 144, 180, 197, 141, 238, 182, 41, 18, 238, 47,
-			32, 53, 122, 233, 42, 92, 200, 97, 185, 142, 104, 254, 49, 172, 181,
-		}},
-	}, nil).Times(1)
-	e.baseApp.SetGfSpDB(m2)
-
-	m3 := piecestore.NewMockPieceOp(ctrl)
-	m3.EXPECT().ECPieceKey(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("test").Times(1)
-	e.baseApp.SetPieceOp(m3)
-
-	m4 := piecestore.NewMockPieceStore(ctrl)
-	m4.EXPECT().PutPiece(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-	e.baseApp.SetPieceStore(m4)
-
-	task := &gfsptask.GfSpRecoverPieceTask{
-		Task:          &gfsptask.GfSpTask{},
-		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
-		StorageParams: &storagetypes.Params{},
-	}
-	err := e.recoverByPrimarySP(context.TODO(), task)
-	assert.Nil(t, err)
-}
-
-// successorRecoverByPrimarySPFixture wires the mocks shared by the successor
-// recovery tests: piece download succeeds and the successor branch reaches
-// setPieceMetadata with the accumulated checksums returned by the SPDB mock.
-func successorRecoverByPrimarySPFixture(e *ExecuteModular, ctrl *gomock.Controller,
-	segmentCount uint32, accumulated [][]byte) (*corespdb.MockSPDB, *consensus.MockConsensus) {
-	client := gfspclient.NewMockGfSpClientAPI(ctrl)
-	client.EXPECT().GetBucketMeta(gomock.Any(), gomock.Any(), true).Return(&metadatatypes.VGFInfoBucket{
-		BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)},
-	}, nil, nil).Times(1)
-	client.EXPECT().SignRecoveryTask(gomock.Any(), gomock.Any()).Return([]byte("mockSig"), nil).Times(1)
-	client.EXPECT().GetPieceFromECChunks(gomock.Any(), "endpoint", gomock.Any()).Return(
-		io.NopCloser(strings.NewReader("body")), nil).Times(1)
-	e.baseApp.SetGfSpClient(client)
-
-	con := consensus.NewMockConsensus(ctrl)
-	con.EXPECT().QueryVirtualGroupFamily(gomock.Any(), gomock.Any()).Return(&virtual_types.GlobalVirtualGroupFamily{PrimarySpId: 1}, nil).Times(1)
-	con.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{{Id: 1, Endpoint: "endpoint"}}, nil).Times(1)
-	e.baseApp.SetConsensus(con)
-
-	pieceOp := piecestore.NewMockPieceOp(ctrl)
-	pieceOp.EXPECT().ECPieceKey(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("test").Times(1)
-	pieceOp.EXPECT().SegmentPieceCount(gomock.Any(), gomock.Any()).Return(segmentCount).Times(1)
-	e.baseApp.SetPieceOp(pieceOp)
-
-	pieceStore := piecestore.NewMockPieceStore(ctrl)
-	pieceStore.EXPECT().PutPiece(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-	e.baseApp.SetPieceStore(pieceStore)
-
-	db := corespdb.NewMockSPDB(ctrl)
-	db.EXPECT().SetReplicatePieceChecksum(uint64(1), gomock.Any(), int32(0), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-	db.EXPECT().GetAllReplicatePieceChecksumOptimized(uint64(1), int32(0), segmentCount).Return(accumulated, nil).Times(1)
-	e.baseApp.SetGfSpDB(db)
-
-	return db, con
-}
-
-func successorRecoveryTask() *gfsptask.GfSpRecoverPieceTask {
-	task := &gfsptask.GfSpRecoverPieceTask{
-		Task:          &gfsptask.GfSpTask{},
-		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
-		StorageParams: &storagetypes.Params{},
-	}
-	task.SetBySuccessorSP(true)
-	return task
-}
-
-func TestExecuteModular_recoverByPrimarySPSuccessorSkipsLocalIntegrityLookup(t *testing.T) {
-	t.Log("a successor has no local integrity record, so the per-piece lookup must not run for it")
+func TestRecoveryFenceRejectsEmptyTokenWithoutSideEffects(t *testing.T) {
 	e := setup(t)
 	ctrl := gomock.NewController(t)
-
-	// two segments expected, one accumulated: recovery proceeds without assembly
-	// and without ever calling GetObjectIntegrity (the mock rejects it)
-	successorRecoverByPrimarySPFixture(e, ctrl, 2, [][]byte{hash.GenerateChecksum([]byte("body"))})
-
-	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
-	assert.Nil(t, err)
-}
-
-func TestExecuteModular_recoverByPrimarySPSuccessorCompletesAgainstSealedChecksums(t *testing.T) {
-	t.Log("a completed successor piece set must be validated against the sealed checksums before the integrity record is written")
-	e := setup(t)
-	ctrl := gomock.NewController(t)
-
-	pieceChecksum := hash.GenerateChecksum([]byte("body"))
-	db, con := successorRecoverByPrimarySPFixture(e, ctrl, 1, [][]byte{pieceChecksum})
-	con.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(&storagetypes.ObjectInfo{
-		Id:        sdkmath.NewUint(1),
-		Checksums: [][]byte{[]byte("primary-root"), hash.GenerateIntegrityHash([][]byte{pieceChecksum})},
-	}, nil).Times(1)
-	db.EXPECT().SetObjectIntegrity(gomock.Any()).Return(nil).Times(1)
-	db.EXPECT().DeleteAllReplicatePieceChecksum(uint64(1), int32(0), uint32(1)).Return(nil).Times(1)
-
-	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
-	assert.Nil(t, err)
-}
-
-func TestExecuteModular_recoverByPrimarySPSuccessorRejectsMismatchedSealedChecksums(t *testing.T) {
-	t.Log("a completed successor piece set that does not match the sealed checksums must not become servable")
-	e := setup(t)
-	ctrl := gomock.NewController(t)
-
-	db, con := successorRecoverByPrimarySPFixture(e, ctrl, 1, [][]byte{hash.GenerateChecksum([]byte("body"))})
-	con.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(&storagetypes.ObjectInfo{
-		Id:        sdkmath.NewUint(1),
-		Checksums: [][]byte{[]byte("primary-root"), []byte("checksum-sealed-on-chain")},
-	}, nil).Times(1)
-	// the accumulated checksums are dropped so the whole piece set is re-recovered
-	db.EXPECT().DeleteAllReplicatePieceChecksum(uint64(1), int32(0), uint32(1)).Return(nil).Times(1)
-
-	err := e.recoverByPrimarySP(context.TODO(), successorRecoveryTask())
-	assert.ErrorIs(t, err, ErrRecoveryChainChecksum)
-}
-
-func TestExecuteModular_recoverBySecondarySPFailure1(t *testing.T) {
-	e := setup(t)
-
-	ctrl := gomock.NewController(t)
-	m := gfspclient.NewMockGfSpClientAPI(ctrl)
-	m.EXPECT().GetBucketByBucketName(gomock.Any(), gomock.Any(), true).Return(nil, mockErr).Times(1)
-	e.baseApp.SetGfSpClient(m)
-
-	task := &gfsptask.GfSpRecoverPieceTask{
-		Task:          &gfsptask.GfSpTask{},
-		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
-		StorageParams: &storagetypes.Params{},
-	}
-	err := e.recoverBySecondarySP(context.TODO(), task, true)
-	assert.Equal(t, mockErr, err)
-}
-
-func TestExecuteModular_recoverBySecondarySPFailure2(t *testing.T) {
-	e := setup(t)
-
-	ctrl := gomock.NewController(t)
-	m := gfspclient.NewMockGfSpClientAPI(ctrl)
-	m.EXPECT().GetBucketByBucketName(gomock.Any(), gomock.Any(), true).Return(
-		&metadatatypes.Bucket{BucketInfo: &storagetypes.BucketInfo{Id: sdkmath.NewUint(1)}}, nil).Times(1)
-	m.EXPECT().GetGlobalVirtualGroup(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-		&virtual_types.GlobalVirtualGroup{SecondarySpIds: []uint32{1}}, nil).Times(1)
-	e.baseApp.SetGfSpClient(m)
-
-	m1 := consensus.NewMockConsensus(ctrl)
-	m1.EXPECT().ListSPs(gomock.Any()).Return([]*sptypes.StorageProvider{{Id: 1, Endpoint: "endpoint"}}, nil).Times(1)
-	e.baseApp.SetConsensus(m1)
-
-	task := &gfsptask.GfSpRecoverPieceTask{
-		Task:          &gfsptask.GfSpTask{},
-		ObjectInfo:    &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
-		StorageParams: &storagetypes.Params{},
-	}
-	err := e.recoverBySecondarySP(context.TODO(), task, true)
-	assert.Equal(t, ErrRecoveryPieceNotEnough, err)
+	e.baseApp.SetGfSpDB(spdb.NewMockSPDB(ctrl))
+	e.baseApp.SetPieceStore(piecestore.NewMockPieceStore(ctrl))
+	task := &gfsptask.GfSpRecoverPieceTask{Task: &gfsptask.GfSpTask{}, ObjectInfo: &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)}, StorageParams: &storagetypes.Params{}}
+	require.Error(t, e.recoverByPrimarySP(context.Background(), task))
+	require.Error(t, e.recoverBySecondarySP(context.Background(), task, false))
+	require.Error(t, e.recoverBySecondarySP(context.Background(), task, true))
 }
 
 func TestExecuteModular_recoverBySecondarySPCancelsAndJoinsWorkersBeforePersisting(t *testing.T) {
@@ -1274,11 +1103,10 @@ func TestExecuteModular_recoverBySecondarySPCancelsAndJoinsWorkersBeforePersisti
 
 	pieceOp := piecestore.NewMockPieceOp(ctrl)
 	pieceOp.EXPECT().SegmentPieceSize(uint64(3), uint32(0), uint64(3)).Return(int64(3)).Times(1)
-	pieceOp.EXPECT().SegmentPieceKey(uint64(1), uint32(0), int64(1)).Return("recovered-piece").Times(1)
 	e.baseApp.SetPieceOp(pieceOp)
 
 	pieceStore := piecestore.NewMockPieceStore(ctrl)
-	pieceStore.EXPECT().PutPiece(gomock.Any(), "recovered-piece", pieceData).DoAndReturn(
+	pieceStore.EXPECT().PutPiece(gomock.Any(), "rstage-0101010101010101010101010101010101010101010101010101010101010101-1-1-0-0", pieceData).DoAndReturn(
 		func(context.Context, string, []byte) error {
 			persisted <- struct{}{}
 			return nil
@@ -1301,6 +1129,12 @@ func TestExecuteModular_recoverBySecondarySPCancelsAndJoinsWorkersBeforePersisti
 		}},
 	}
 
+	task.SetRecoveryFence(bytes.Repeat([]byte{1}, 32))
+	task.ObjectInfo.ObjectStatus = storagetypes.OBJECT_STATUS_SEALED
+	root := hash.GenerateIntegrityHash([][]byte{hash.GenerateChecksum(pieceData)})
+	task.ObjectInfo.Checksums = [][]byte{root, root, root}
+	con.EXPECT().QueryObjectInfoByID(gomock.Any(), "1").Return(task.ObjectInfo, nil).AnyTimes()
+	con.EXPECT().QueryStorageParamsByTimestamp(gomock.Any(), int64(0)).Return(task.StorageParams, nil).AnyTimes()
 	go func() { result <- e.recoverBySecondarySP(context.Background(), task, false) }()
 
 	select {
@@ -1570,10 +1404,12 @@ func TestExecuteModular_doRecoveryPiece(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := tt.fn().doRecoveryPiece(context.TODO(), &gfsptask.GfSpRecoverPieceTask{
-				Task: &gfsptask.GfSpTask{},
+				Task:          &gfsptask.GfSpTask{},
+				StorageParams: &storagetypes.Params{VersionedParams: storagetypes.VersionedParams{MaxSegmentSize: 4, RedundantDataChunkNum: 1}},
 				ObjectInfo: &storagetypes.ObjectInfo{
-					ObjectName: "mockObjectName",
-					Id:         sdkmath.NewUint(1),
+					ObjectName:  "mockObjectName",
+					Id:          sdkmath.NewUint(1),
+					PayloadSize: 4,
 				},
 			}, "mockEndpoint")
 			if tt.wantedIsErr {

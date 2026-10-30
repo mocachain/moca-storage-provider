@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -62,6 +61,14 @@ func (m *ManageModular) DispatchTask(ctx context.Context, limit rcmgr.Limit) (ta
 					atomic.AddInt64(&m.backupTaskNum, 1)
 				}()
 				continue
+			}
+			if recovery, ok := dispatchTask.(task.RecoveryPieceTask); ok {
+				dispatched, err := m.dispatchRecovery(ctx, recovery)
+				if err != nil {
+					m.repushRecovery(recovery)
+					continue
+				}
+				return dispatched, nil
 			}
 			dispatchTask.IncRetry()
 			dispatchTask.SetError(nil)
@@ -851,85 +858,14 @@ func (m *ManageModular) HandleChallengePieceTask(ctx context.Context, task task.
 	return nil
 }
 
-func (m *ManageModular) HandleRecoverPieceTask(ctx context.Context, task task.RecoveryPieceTask) error {
-	if task == nil || task.GetObjectInfo() == nil || task.GetStorageParams() == nil {
-		log.CtxErrorw(ctx, "failed to handle recovery piece due to pointer dangling")
+func (m *ManageModular) HandleRecoverPieceTask(ctx context.Context, t task.RecoveryPieceTask) error {
+	if t == nil || t.GetObjectInfo() == nil || t.GetObjectInfo().Id.IsNil() || t.GetStorageParams() == nil {
 		return ErrDanglingTask
 	}
-
-	if task.GetRecovered() {
-		m.recoveryQueue.PopByKey(task.Key())
-		m.recoverMtx.Lock()
-		delete(m.recoveryTaskMap, task.Key().String())
-		m.recoverMtx.Unlock()
-		log.CtxInfow(ctx, "finished recovery", "task_info", task.Info())
-
-		if task.BySuccessorSP() {
-			objectID := task.GetObjectInfo().Id.Uint64()
-			m.recoverObjectStats.addSegmentRecord(objectID, task.GetObjectInfo().Version, true, task.GetSegmentIdx())
-			return nil
-		}
+	if t.GetRecovered() || t.Error() != nil || len(t.GetRecoveryFence()) != 0 {
+		return m.reportRecovery(ctx, t)
 	}
-
-	if task.Error() != nil {
-		log.CtxErrorw(ctx, "handler error recovery piece task", "task_info", task.Info(), "error", task.Error())
-		return m.handleFailedRecoverPieceTask(ctx, task)
-	}
-
-	if m.TaskRecovering(ctx, task) {
-		log.CtxErrorw(ctx, "recovering object repeated", "task_info", task.Info())
-		return ErrRepeatedTask
-	}
-
-	task.SetUpdateTime(time.Now().Unix())
-	if err := m.recoveryQueue.Push(task); err != nil {
-		log.CtxErrorw(ctx, "failed to push recovery object task to queue", "task_info", task.Info(), "error", err)
-		return err
-	}
-	m.recoverMtx.Lock()
-	m.recoveryTaskMap[task.Key().String()] = task.Key().String()
-	m.recoverMtx.Unlock()
-	return nil
-}
-
-func (m *ManageModular) handleFailedRecoverPieceTask(ctx context.Context, handleTask task.RecoveryPieceTask) error {
-	oldTask := m.recoveryQueue.PopByKey(handleTask.Key())
-	if oldTask == nil {
-		log.CtxErrorw(ctx, "task has been canceled", "task_info", handleTask.Info())
-		return ErrCanceledTask
-	}
-	handleTask = oldTask.(task.RecoveryPieceTask)
-	if !handleTask.ExceedRetry() {
-		handleTask.SetUpdateTime(time.Now().Unix())
-		err := m.recoveryQueue.Push(handleTask)
-		log.CtxDebugw(ctx, "push task again to retry", "task_info", handleTask.Info(), "error", err)
-	} else {
-		if !slices.Contains(m.recoveryFailedList, handleTask.GetObjectInfo().ObjectName) {
-			m.recoveryFailedList = append(m.recoveryFailedList, handleTask.GetObjectInfo().ObjectName)
-		}
-		m.recoverMtx.Lock()
-		delete(m.recoveryTaskMap, handleTask.Key().String())
-		m.recoverMtx.Unlock()
-
-		if handleTask.BySuccessorSP() {
-			objectID := handleTask.GetObjectInfo().Id.Uint64()
-			m.recoverObjectStats.addSegmentRecord(objectID, handleTask.GetObjectInfo().Version, false, handleTask.GetSegmentIdx())
-			if m.recoverObjectStats.isRecoverFailed(objectID, handleTask.GetObjectInfo().Version) {
-				object := &spdb.RecoverFailedObject{
-					ObjectID:        handleTask.GetObjectInfo().Id.Uint64(),
-					VirtualGroupID:  handleTask.GetGVGID(),
-					RedundancyIndex: handleTask.GetEcIdx(),
-				}
-				err := m.baseApp.GfSpDB().InsertRecoverFailedObject(object)
-				if err != nil {
-					log.CtxErrorw(ctx, "failed to insert recover failed object entry", "task_info", handleTask.Info(), "error", err)
-					return ErrGfSpDBWithDetail("failed to insert recover failed object entry, task_info: " + handleTask.Info() + ", error: " + err.Error())
-				}
-			}
-			return nil
-		}
-	}
-	return nil
+	return m.registerRecovery(ctx, t)
 }
 
 func (m *ManageModular) HandleMigrateGVGTask(ctx context.Context, task task.MigrateGVGTask) error {

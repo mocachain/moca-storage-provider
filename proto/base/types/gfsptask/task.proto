@@ -102,6 +102,7 @@ message GfSpRecoverPieceTask {
   bool recovered = 8;
   bool by_successor_sp = 9;
   uint32 gvg_id = 10;
+  bytes recovery_fence = 11;
 }
 
 message GfSpReceivePieceTask {
