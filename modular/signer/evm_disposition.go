@@ -144,6 +144,11 @@ type CosmosTxView struct {
 	// per signer, emitted by the ante handler.
 	AccSeqs []string
 	Msgs    []sdk.Msg
+	// EthTxHashes are the ethereum_tx.ethereumTxHash attributes: the
+	// Ethereum transactions the Cosmos transaction carries. The node emits
+	// them in the ante handler, so a transaction that failed later still
+	// has them.
+	EthTxHashes []string
 	// DecodeError is set when the transaction bytes did not decode.
 	DecodeError string
 }
@@ -157,6 +162,10 @@ type CosmosDisposeChain interface {
 	// SearchAccSeq finds transactions by tx.acc_seq up to maxHeight;
 	// errCosmosIndexDisabled when the node does not index transactions.
 	SearchAccSeq(ctx context.Context, accSeq string, maxHeight uint64) ([]*CosmosTxView, error)
+	// SearchEthereumTx finds the Cosmos transaction that carried the
+	// Ethereum transaction hash, at or below maxHeight; nil, nil when there
+	// is none, errCosmosIndexDisabled when the node does not index.
+	SearchEthereumTx(ctx context.Context, hash ethcmn.Hash, maxHeight uint64) (*CosmosTxView, error)
 }
 
 var (
@@ -869,6 +878,27 @@ func (d *evmDisposer) assess(ctx context.Context, target evmDisposeTarget, heigh
 			return sample, nil
 		}
 		return sample, d.assessGap(ctx, target, sample)
+	}
+
+	// The original itself may have used N without a receipt: a node that
+	// aborts a transaction's execution records it as a failed Cosmos
+	// transaction only.
+	if d.cosmos != nil {
+		if err := d.checkCosmos(ctx, evidence, sample); err != nil {
+			return sample, err
+		}
+		view, err := d.cosmos.SearchEthereumTx(ctx, evidence.TxHash, height)
+		switch {
+		case stderrors.Is(err, errCosmosIndexDisabled):
+			sample.note("search for the original's cosmos transaction unavailable: %v", err)
+		case err != nil:
+			return sample, fmt.Errorf("search for the cosmos transaction of %s: %w", evidence.TxHash.Hex(), err)
+		case view != nil && view.Code != 0 && evmFailedTxRollsBack:
+			sample.Branch = EvmBranchOriginalFailed
+			sample.ReceiptBlock = view.Height
+			sample.note("the original was included in cosmos tx %s at height %d with code %d and has no receipt", view.Hash, view.Height, view.Code)
+			return sample, nil
+		}
 	}
 
 	occupier, err := d.findOccupier(ctx, evidence, sample)

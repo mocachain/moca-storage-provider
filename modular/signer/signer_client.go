@@ -162,6 +162,9 @@ type MocaChainSignClient struct {
 	// transaction.
 	evm       *evmState
 	evmCloser func() error
+	// autoChain is what the automatic disposition of EVM state reads
+	// (evm_state_auto.go); nil turns it off.
+	autoChain *evmAutoChain
 }
 
 // NewMocaChainSignClient return the MocaChainSignClient instance
@@ -266,6 +269,15 @@ func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[Gas
 		SignGc:       gcClient,
 	}
 
+	// The automatic disposition reads Cosmos transactions through the same
+	// CometBFT RPC; without it, it only reads the EVM side.
+	autoChain := &evmAutoChain{evm: NewEvmDisposeChain(evmClient)}
+	if cosmosChain, err := NewCosmosDisposeChain(rpcAddr); err != nil {
+		log.Warnw("failed to create the CometBFT client for EVM state checks", "address", rpcAddr, "error", err)
+	} else {
+		autoChain.cosmos = cosmosChain
+	}
+
 	return &MocaChainSignClient{
 		gasInfo:          gasInfo,
 		maxEvmGasPrice:   new(big.Int).SetUint64(maxEvmGasPrice),
@@ -276,6 +288,7 @@ func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[Gas
 		operatorAccNonce: operatorAccNonce,
 		blsKm:            blsKM,
 		evmClient:        evmClient,
+		autoChain:        autoChain,
 	}, nil
 }
 

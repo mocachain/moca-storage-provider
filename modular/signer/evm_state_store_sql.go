@@ -527,7 +527,28 @@ func outcomeColumns(o *outcomeRecord) map[string]interface{} {
 }
 
 func (s *sqlEvmStateStore) ManualResolvePending(ctx context.Context, pending pendingRecord, result *outcomeRecord, event evmAuditEvent) error {
+	return s.resolvePendingTo(ctx, nil, pending, result, event)
+}
+
+func (s *sqlEvmStateStore) AutoResolvePending(ctx context.Context, fence evmFence, pending pendingRecord, result *outcomeRecord,
+	event evmAuditEvent,
+) error {
+	return s.resolvePendingTo(ctx, &fence, pending, result, event)
+}
+
+// resolvePendingTo deletes the pending row, or turns it into the outcome
+// result, under the lease fence when one is given.
+func (s *sqlEvmStateStore) resolvePendingTo(ctx context.Context, fence *evmFence, pending pendingRecord, result *outcomeRecord,
+	event evmAuditEvent,
+) error {
 	return s.txn(ctx, func(tx *gorm.DB) error {
+		epoch := uint64(0)
+		if fence != nil {
+			if err := fenceCheck(tx, *fence); err != nil {
+				return err
+			}
+			epoch = fence.Epoch
+		}
 		if err := lockPending(tx, pending); err != nil {
 			return err
 		}
@@ -552,14 +573,35 @@ func (s *sqlEvmStateStore) ManualResolvePending(ctx context.Context, pending pen
 		if res.RowsAffected != 1 {
 			return fmt.Errorf("%w: resolving pending %d affected %d rows", errEvmStateConflict, pending.ID, res.RowsAffected)
 		}
-		return insertAudit(tx, pending.ChainID, 0, event)
+		return insertAudit(tx, pending.ChainID, epoch, event)
 	})
 }
 
 func (s *sqlEvmStateStore) ManualSettleOutcome(ctx context.Context, outcome outcomeRecord, from []evmOutcomeState, to *outcomeRecord,
 	event evmAuditEvent,
 ) error {
+	return s.settleOutcome(ctx, nil, outcome, from, to, event)
+}
+
+func (s *sqlEvmStateStore) AutoSettleOutcome(ctx context.Context, fence evmFence, outcome outcomeRecord, from []evmOutcomeState,
+	to *outcomeRecord, event evmAuditEvent,
+) error {
+	return s.settleOutcome(ctx, &fence, outcome, from, to, event)
+}
+
+// settleOutcome deletes or updates an outcome row, under the lease fence
+// when one is given.
+func (s *sqlEvmStateStore) settleOutcome(ctx context.Context, fence *evmFence, outcome outcomeRecord, from []evmOutcomeState,
+	to *outcomeRecord, event evmAuditEvent,
+) error {
 	return s.txn(ctx, func(tx *gorm.DB) error {
+		epoch := uint64(0)
+		if fence != nil {
+			if err := fenceCheck(tx, *fence); err != nil {
+				return err
+			}
+			epoch = fence.Epoch
+		}
 		var rows []sqldb.SignerEvmStateTable
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("state <> 'pending' AND chain_id = ? AND id = ?", outcome.ChainID, outcome.ID).Find(&rows).Error; err != nil {
@@ -588,6 +630,23 @@ func (s *sqlEvmStateStore) ManualSettleOutcome(ctx context.Context, outcome outc
 		if res.RowsAffected != 1 {
 			return fmt.Errorf("%w: settling outcome %d affected %d rows", errEvmStateConflict, outcome.ID, res.RowsAffected)
 		}
-		return insertAudit(tx, outcome.ChainID, 0, event)
+		return insertAudit(tx, outcome.ChainID, epoch, event)
 	})
+}
+
+func (s *sqlEvmStateStore) ListSignedTxAtNonce(ctx context.Context, chainID string, from ethcmn.Address, nonce, afterID,
+	window uint64,
+) ([]signedTxEvidence, error) {
+	// The id range keeps this a primary key range scan: the rows that matter
+	// were signed right after afterID.
+	var rows []sqldb.SignerEvmSignedTxTable
+	if err := s.db.WithContext(ctx).Where("id > ? AND id <= ? AND chain_id = ? AND from_address = ? AND nonce = ?",
+		afterID, afterID+window, chainID, from.Hex(), nonce).Order("id").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]signedTxEvidence, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, evidenceFromRow(row))
+	}
+	return out, nil
 }
