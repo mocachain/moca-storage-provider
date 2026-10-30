@@ -482,7 +482,7 @@ func TestEvmSubmitCancelledBeforeSendRecordsNothing(t *testing.T) {
 	node, signClient := newScenario(t)
 	ctx := scenarioCtx(t)
 	txOpts, err := CreateTxOpts(ctx, signClient.evmClient, signClient.evmPrivateKeys[SignOperator], big.NewInt(5151),
-		300000, scenarioNonce, signClient.maxEvmGasPrice)
+		300000, 0, scenarioNonce, signClient.maxEvmGasPrice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,9 +937,9 @@ func TestEvmSubmitRetryMethodUnrecordedRefusalIsNotResigned(t *testing.T) {
 	}
 }
 
-// A local signing failure (here abigen's gas estimation hitting a node that
-// does not serve eth_getCode) must surface as the returned reason instead of
-// being lost behind the retry loop.
+// A local signing failure (here the node refusing to estimate the call, as it
+// does for a call that would revert) must surface as the returned reason instead
+// of being lost behind the retry loop, and nothing may be sent.
 func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 	deposit := sdk.NewCoin("amoca", sdkmath.NewInt(1))
 	for _, tc := range []struct {
@@ -976,10 +976,11 @@ func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			node, signClient := newScenario(t)
-			signClient.gasInfo[tc.gasType] = GasInfo{GasLimit: 0}
+			node.setGasEstimate(0, "execution reverted: "+tc.name)
 
 			txHash, err := tc.call(scenarioCtx(t), signClient)
-			if txHash != "" || err == nil || !strings.Contains(err.Error(), "eth_getCode") {
+			if txHash != "" || err == nil || !strings.Contains(err.Error(), "failed to estimate gas") ||
+				!strings.Contains(err.Error(), tc.name) {
 				t.Fatalf("expected the local signing error to be returned, got hash=%q err=%v", txHash, err)
 			}
 			if _, sends, _ := node.snapshot(); len(sends) != 0 {

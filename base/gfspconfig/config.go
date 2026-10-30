@@ -22,6 +22,13 @@ type Option = func(cfg *GfSpConfig) error
 
 const DefaultMaxEvmGasPriceWei uint64 = 20_000_000_000
 
+// DefaultEvmGasMarginPercent is the share added to an EVM transaction's gas estimate.
+const DefaultEvmGasMarginPercent uint64 = 25
+
+// MaxEvmGasMarginPercent bounds EvmGasMarginPercent. Above 100% the fee market's
+// minimum charge (half the gas limit) exceeds the gas the transaction uses.
+const MaxEvmGasMarginPercent uint64 = 100
+
 // Customize defines the interface for developer to customize own implement, the GfSp base
 // app will call the customized implement.
 type Customize struct {
@@ -152,41 +159,42 @@ type ChainConfig struct {
 	ChainAddress                         []string `comment:"required"`
 	RpcAddress                           []string `comment:"required"`
 	MaxEvmGasPriceWei                    uint64   `comment:"optional; maximum EVM gas price in wei"`
-	SealGasLimit                         uint64   `comment:"optional"`
+	EvmGasMarginPercent                  uint64   `comment:"optional; percent added to each EVM transaction's gas estimate, at most 100, default 25"`
+	SealGasLimit                         uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	SealFeeAmount                        uint64   `comment:"optional"`
-	RejectSealGasLimit                   uint64   `comment:"optional"`
+	RejectSealGasLimit                   uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	RejectSealFeeAmount                  uint64   `comment:"optional"`
-	DiscontinueBucketGasLimit            uint64   `comment:"optional"`
+	DiscontinueBucketGasLimit            uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	DiscontinueBucketFeeAmount           uint64   `comment:"optional"`
-	CreateGlobalVirtualGroupGasLimit     uint64   `comment:"optional"`
+	CreateGlobalVirtualGroupGasLimit     uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CreateGlobalVirtualGroupFeeAmount    uint64   `comment:"optional"`
-	CompleteMigrateBucketGasLimit        uint64   `comment:"optional"`
+	CompleteMigrateBucketGasLimit        uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CompleteMigrateBucketFeeAmount       uint64   `comment:"optional"`
-	UpdateSPPriceGasLimit                uint64   `comment:"optional"`
+	UpdateSPPriceGasLimit                uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	UpdateSPPriceFeeAmount               uint64   `comment:"optional"`
-	SwapOutGasLimit                      uint64   `comment:"optional"`
+	SwapOutGasLimit                      uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	SwapOutFeeAmount                     uint64   `comment:"optional"`
-	CompleteSwapOutGasLimit              uint64   `comment:"optional"`
+	CompleteSwapOutGasLimit              uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CompleteSwapOutFeeAmount             uint64   `comment:"optional"`
-	SPExitGasLimit                       uint64   `comment:"optional"`
+	SPExitGasLimit                       uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	SPExitFeeAmount                      uint64   `comment:"optional"`
-	CompleteSPExitGasLimit               uint64   `comment:"optional"`
+	CompleteSPExitGasLimit               uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CompleteSPExitFeeAmount              uint64   `comment:"optional"`
-	RejectMigrateBucketGasLimit          uint64   `comment:"optional"`
+	RejectMigrateBucketGasLimit          uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	RejectMigrateBucketFeeAmount         uint64   `comment:"optional"`
-	DepositGasLimit                      uint64   `comment:"optional"`
+	DepositGasLimit                      uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	DepositFeeAmount                     uint64   `comment:"optional"`
-	DeleteGlobalVirtualGroupGasLimit     uint64   `comment:"optional"`
+	DeleteGlobalVirtualGroupGasLimit     uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	DeleteGlobalVirtualGroupFeeAmount    uint64   `comment:"optional"`
-	DelegateCreateObjectGasLimit         uint64   `comment:"optional"`
+	DelegateCreateObjectGasLimit         uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	DelegateCreateObjectFeeAmount        uint64   `comment:"optional"`
-	DelegateUpdateObjectContentGasLimit  uint64   `comment:"optional"`
+	DelegateUpdateObjectContentGasLimit  uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	DelegateUpdateObjectContentFeeAmount uint64   `comment:"optional"`
-	ReserveSwapInGasLimit                uint64   `comment:"optional"`
+	ReserveSwapInGasLimit                uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	ReserveSwapInFeeAmount               uint64   `comment:"optional"`
-	CompleteSwapInGasLimit               uint64   `comment:"optional"`
+	CompleteSwapInGasLimit               uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CompleteSwapInFeeAmount              uint64   `comment:"optional"`
-	CancelSwapInGasLimit                 uint64   `comment:"optional"`
+	CancelSwapInGasLimit                 uint64   `comment:"optional; upper bound for the estimated gas limit"`
 	CancelSwapInFeeAmount                uint64   `comment:"optional"`
 }
 
@@ -368,7 +376,8 @@ func DefaultConfig() *GfSpConfig {
 			PeerApprovalAuthMode: "required",
 		},
 		Chain: ChainConfig{
-			MaxEvmGasPriceWei: DefaultMaxEvmGasPriceWei,
+			MaxEvmGasPriceWei:   DefaultMaxEvmGasPriceWei,
+			EvmGasMarginPercent: DefaultEvmGasMarginPercent,
 		},
 		Log: LogConfig{
 			Path: "./logs",
