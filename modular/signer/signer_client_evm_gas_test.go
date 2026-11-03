@@ -33,7 +33,7 @@ func TestDepositEvm_UnestimableCallIsNotSent(t *testing.T) {
 	signClient := newFakeEvmSignClient(t, node, nonce)
 
 	_, err := signClient.DepositEvm(scenarioCtx(t), SignOperator, fakeDepositMsg(1000))
-	require.Error(t, err)
+	require.ErrorContains(t, err, "insufficient deposit", "the node's reason reaches the caller")
 	_, sends, _ := node.snapshot()
 	require.Empty(t, sends, node.describe())
 	pending, err := memStoreOf(t, signClient).GetPending(context.Background(), fakeEvmChainID, SignOperator)
