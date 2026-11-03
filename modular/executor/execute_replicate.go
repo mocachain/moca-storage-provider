@@ -69,11 +69,13 @@ func (e *ExecuteModular) HandleReplicatePieceTask(ctx context.Context, task core
 	log.CtxDebugw(ctx, "succeed to replicate all pieces", "task_info", task.Info())
 
 	blsSigBts := task.GetSecondarySignatures()
-	for _, sigBts := range blsSigBts {
-		signature, err := bls.UnmarshalSignature(sigBts)
-		if err != nil {
+	for signatureIndex, sigBts := range blsSigBts {
+		signature, parseErr := bls.UnmarshalSignature(sigBts)
+		if parseErr != nil {
 			log.CtxErrorw(ctx, "failed to generate multiple signatures",
-				"origin_signature", blsSigBts, "error", err)
+				"signature_index", signatureIndex, "signature_length", len(sigBts),
+				"object_id", task.GetObjectInfo().Id, "gvg_id", task.GetGlobalVirtualGroupId(), "error", parseErr)
+			err = ErrInvalidSecondaryBlsSignature
 			return
 		}
 		blsSig = append(blsSig, signature)
@@ -119,7 +121,7 @@ func (e *ExecuteModular) HandleReplicatePieceTask(ctx context.Context, task core
 	if sealErr == nil {
 		task.SetSealed(true)
 	}
-	log.CtxDebugw(ctx, "finish combine seal object", "task", task, "error", sealErr)
+	log.CtxDebugw(ctx, "finish combine seal object", "task_info", task.Info(), "error", sealErr)
 }
 
 func (e *ExecuteModular) handleReplicatePiece(ctx context.Context, rTask coretask.ReplicatePieceTask) (err error) {

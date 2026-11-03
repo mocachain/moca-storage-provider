@@ -68,11 +68,6 @@ spec:
               secretKeyRef:
                 key: SIGNER_OPERATOR_PRIV_KEY
                 name: default
-          - name: SIGNER_FUNDING_PRIV_KEY
-            valueFrom:
-              secretKeyRef:
-                key: SIGNER_FUNDING_PRIV_KEY
-                name: default
           - name: SIGNER_APPROVAL_PRIV_KEY
             valueFrom:
               secretKeyRef:

@@ -2,6 +2,7 @@ package gfspconfig
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -76,6 +77,9 @@ type GfSpConfig struct {
 func (cfg *GfSpConfig) Validate() error {
 	if cfg.SpAccount.FundingPrivateKey != "" {
 		return fmt.Errorf("FundingPrivateKey is not supported; the signer uses OperatorPrivateKey for funding operations")
+	}
+	if _, present := os.LookupEnv("SIGNER_FUNDING_PRIV_KEY"); present {
+		return fmt.Errorf("SIGNER_FUNDING_PRIV_KEY is not supported; remove it from the environment; the signer uses OperatorPrivateKey for funding operations")
 	}
 	if mode := cfg.Gateway.PeerApprovalAuthMode; mode != "" && mode != "disabled" && mode != "permissive" && mode != "required" {
 		return fmt.Errorf("Gateway.PeerApprovalAuthMode must be disabled, permissive, or required")

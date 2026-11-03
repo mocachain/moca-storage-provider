@@ -13,6 +13,7 @@ import (
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/mocachain/moca/v2/sdk/client"
 	sptypes "github.com/mocachain/moca/v2/x/sp/types"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
@@ -634,43 +635,303 @@ func TestEvmSubmitRepeatAfterMinedReturnsOriginalHash(t *testing.T) {
 // Scenario 7, the known limit of A (pending lost on restart), is closed by the
 // persisted state: see TestEvmStateUnconfirmedSurvivesRestart.
 
+// retryLoopMethod drives one of the two methods that gained a retry loop in
+// MOCA-1286, with the nonce cache of its signing scope.
+type retryLoopMethod struct {
+	name  string
+	scope SignType
+	call  func(context.Context, *MocaChainSignClient) (string, error)
+	nonce func(*MocaChainSignClient) *uint64
+}
+
+var retryLoopMethods = []retryLoopMethod{
+	{"DiscontinueBucketEvm", SignGc, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+		return c.DiscontinueBucketEvm(ctx, SignGc, &storagetypes.MsgDiscontinueBucket{BucketName: "bucket", Reason: "test"})
+	}, func(c *MocaChainSignClient) *uint64 { return &c.gcAccNonce }},
+	{"UpdateSPPriceEvm", SignOperator, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+		return c.UpdateSPPriceEvm(ctx, SignOperator, &sptypes.MsgUpdateSpStoragePrice{
+			ReadPrice: sdkmath.LegacyNewDec(1), FreeReadQuota: 1, StorePrice: sdkmath.LegacyNewDec(1),
+		})
+	}, func(c *MocaChainSignClient) *uint64 { return &c.operatorAccNonce }},
+}
+
+// newStaleNonceScenario builds a client whose nonce cache for m's scope is set
+// to cached while the chain stays at scenarioNonce.
+func newStaleNonceScenario(t *testing.T, m retryLoopMethod, cached uint64) (*fakeEvmNode, *MocaChainSignClient) {
+	t.Helper()
+	node, signClient := newScenario(t)
+	// Lease recovery refreshes the cache from the chain; make it stale again
+	// to drive the refusal.
+	*m.nonce(signClient) = cached
+	return node, signClient
+}
+
+// assertNoEvmState checks that no pending row and no outcome is left.
+func assertNoEvmState(t *testing.T, signClient *MocaChainSignClient, scope SignType) {
+	t.Helper()
+	if _, ok := pendingForScope(t, signClient, scope); ok {
+		t.Fatal("pending entry left behind")
+	}
+	if outcomes := memStoreOf(t, signClient).outcomeRows(); len(outcomes) != 0 {
+		t.Fatalf("unexpected outcomes: %+v", outcomes)
+	}
+}
+
 // Scenario 8 (all 19 methods use the helper) is enforced by
-// TestAllEvmSubmissionMethodsTrackPendingTransactions; this drives both
-// methods without a retry loop through the same ambiguous path.
-func TestEvmSubmitNoLoopMethodKeepsAmbiguousPending(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		scope SignType
-		call  func(context.Context, *MocaChainSignClient) (string, error)
-	}{
-		{"DiscontinueBucketEvm", SignGc, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
-			return c.DiscontinueBucketEvm(ctx, SignGc, &storagetypes.MsgDiscontinueBucket{BucketName: "bucket", Reason: "test"})
-		}},
-		{"UpdateSPPriceEvm", SignOperator, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
-			return c.UpdateSPPriceEvm(ctx, SignOperator, &sptypes.MsgUpdateSpStoragePrice{
-				ReadPrice: sdkmath.LegacyNewDec(1), FreeReadQuota: 1, StorePrice: sdkmath.LegacyNewDec(1),
+// TestAllEvmSubmissionMethodsTrackPendingTransactions. MOCA-1286: the two
+// methods that had no retry loop re-sign after a recorded nonce refusal, like
+// the other 17.
+func TestEvmSubmitRetryMethodNonceRefusalResigns(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		for _, tc := range []struct {
+			name   string
+			cached uint64
+		}{
+			{"nonce low", scenarioNonce - 1},
+			{"nonce high", scenarioNonce + 1},
+		} {
+			t.Run(m.name+"/"+tc.name, func(t *testing.T) {
+				node, signClient := newStaleNonceScenario(t, m, tc.cached)
+
+				txHash, err := m.call(scenarioCtx(t), signClient)
+				if err != nil {
+					t.Fatalf("unexpected error: %v; %s", err, node.describe())
+				}
+				accepted, sends, _ := node.snapshot()
+				if len(sends) != 2 || sends[0].nonce != tc.cached || sends[1].nonce != scenarioNonce || len(accepted) != 1 ||
+					accepted[0].Nonce() != scenarioNonce || accepted[0].Hash().String() != txHash {
+					t.Fatalf("expected one refused send then one accepted at %d; %s", scenarioNonce, node.describe())
+				}
+				if got := *m.nonce(signClient); got != scenarioNonce+1 {
+					t.Fatalf("nonce cache = %d, want %d", got, scenarioNonce+1)
+				}
+				assertNoEvmState(t, signClient, m.scope)
 			})
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+		}
+	}
+}
+
+func TestEvmSubmitRetryMethodFirstSendSucceeds(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
 			node, signClient := newScenario(t)
-			node.script = scriptFirst(fakeEvmAction{kind: fakeEvmAdmitThenDrop})
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			accepted, sends, _ := node.snapshot()
+			if err != nil || len(sends) != 1 || len(accepted) != 1 || accepted[0].Hash().String() != txHash {
+				t.Fatalf("expected one accepted send, got hash=%q err=%v; %s", txHash, err, node.describe())
+			}
+			if got := *m.nonce(signClient); got != scenarioNonce+1 {
+				t.Fatalf("nonce cache = %d, want %d", got, scenarioNonce+1)
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+// Once a hash may be on chain the methods return it and never re-sign, even
+// when the error text mentions a nonce.
+func TestEvmSubmitRetryMethodKeepsAmbiguousPending(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		for _, tc := range []struct {
+			name   string
+			action fakeEvmAction
+		}{
+			{"admit then drop", fakeEvmAction{kind: fakeEvmAdmitThenDrop}},
+			{"-32002 timeout", fakeEvmAction{kind: fakeEvmRPCError, code: -32002, message: "request timed out"}},
+			{"-32603 with nonce text", fakeEvmAction{kind: fakeEvmRPCError, code: -32603,
+				message: "failed to broadcast transaction: invalid nonce; got 7, expected 8"}},
+			{"http 503 with nonce body", fakeEvmAction{kind: fakeEvmHTTPStatus, status: 503,
+				body: `{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"invalid nonce; got 7, expected 8"}}`}},
+		} {
+			t.Run(m.name+"/"+tc.name, func(t *testing.T) {
+				node, signClient := newScenario(t)
+				node.script = scriptAll(tc.action)
+				node.hideReceipts = true
+
+				txHash, err := m.call(scenarioCtx(t), signClient)
+				first := assertSignedOnce(t, node)
+				if err == nil || txHash != first.hash.String() {
+					t.Fatalf("expected original hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
+				}
+				pending, ok := pendingForScope(t, signClient, m.scope)
+				if !ok || !pending.ambiguous || pending.hash != first.hash || string(pending.raw) != string(first.raw) {
+					t.Fatalf("expected ambiguous pending entry for the sent bytes, got hash=%s ambiguous=%t ok=%t",
+						pending.hash.Hex(), pending.ambiguous, ok)
+				}
+			})
+		}
+	}
+}
+
+// An admitted send whose receipt is not found returns its hash; the operation
+// stays pending and is not re-signed.
+func TestEvmSubmitRetryMethodReceiptMissingIsNotResigned(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
 			node.hideReceipts = true
 
-			txHash, err := tc.call(scenarioCtx(t), signClient)
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			first := assertSignedOnce(t, node)
+			if _, sends, _ := node.snapshot(); len(sends) != 1 || err == nil || txHash != first.hash.String() {
+				t.Fatalf("expected one send returning its hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
+			}
+			if pending, ok := pendingForScope(t, signClient, m.scope); !ok || pending.hash != first.hash {
+				t.Fatal("pending entry was cleared without a receipt")
+			}
+			if got := *m.nonce(signClient); got != scenarioNonce+1 {
+				t.Fatalf("nonce cache = %d, want %d", got, scenarioNonce+1)
+			}
+		})
+	}
+}
+
+func TestEvmSubmitRetryMethodNonceRefusalsExhaustRetries(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			node.script = scriptAll(fakeEvmAction{kind: fakeEvmRPCError, code: -32000,
+				message: "failed to broadcast transaction: invalid nonce; got 7, expected 8: tx nonce is lower than account nonce"})
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			if err == nil || txHash != "" {
+				t.Fatalf("expected an error without hash, got hash=%q err=%v", txHash, err)
+			}
+			if !strings.Contains(err.Error(), "invalid nonce") {
+				t.Fatalf("error does not carry the last refusal: %v", err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != BroadcastTxRetry {
+				t.Fatalf("expected %d sends, got %d; %s", BroadcastTxRetry, len(sends), node.describe())
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+func TestEvmSubmitRetryMethodNonceRefreshFailureIsReturned(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newStaleNonceScenario(t, m, scenarioNonce-1)
+			refreshErr := errors.New("nonce query unavailable")
+			getNonceOnChainFn = func(context.Context, *MocaChainSignClient, *client.MocaClient) (uint64, error) {
+				return 0, refreshErr
+			}
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			if err == nil || txHash != "" || !strings.Contains(err.Error(), refreshErr.Error()) {
+				t.Fatalf("expected the refresh failure to be returned, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 1 {
+				t.Fatalf("expected one send; %s", node.describe())
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+func TestEvmSubmitRetryMethodCancellationStopsRetry(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name+"/during refresh", func(t *testing.T) {
+			node, signClient := newStaleNonceScenario(t, m, scenarioNonce-1)
+			ctx, cancel := context.WithCancel(scenarioCtx(t))
+			getNonceOnChainFn = func(ctx context.Context, _ *MocaChainSignClient, _ *client.MocaClient) (uint64, error) {
+				cancel()
+				return 0, ctx.Err()
+			}
+
+			txHash, err := m.call(ctx, signClient)
+			if err == nil || txHash != "" || !strings.Contains(err.Error(), context.Canceled.Error()) {
+				t.Fatalf("expected cancellation, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 1 {
+				t.Fatalf("expected one send; %s", node.describe())
+			}
+		})
+		t.Run(m.name+"/before send", func(t *testing.T) {
+			node, signClient := newScenario(t)
+			ctx, cancel := context.WithCancel(scenarioCtx(t))
+			cancel()
+
+			if txHash, err := m.call(ctx, signClient); err == nil || txHash != "" {
+				t.Fatalf("expected cancellation, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 0 {
+				t.Fatalf("a transaction was sent; %s", node.describe())
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+func TestEvmSubmitRetryMethodVerifiedRefusalIsNotResigned(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			node.script = scriptFirst(fakeEvmAction{kind: fakeEvmRPCError, code: -32000,
+				message: "failed to broadcast transaction: insufficient funds"})
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			if err == nil || txHash != "" || !strings.Contains(err.Error(), "insufficient funds") {
+				t.Fatalf("expected the refusal without hash, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 1 {
+				t.Fatalf("refused transaction was re-signed or re-sent; %s", node.describe())
+			}
+			if got := *m.nonce(signClient); got != scenarioNonce {
+				t.Fatalf("nonce cache = %d, want unchanged %d", got, scenarioNonce)
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+func TestEvmSubmitRetryMethodLeaseLostStopsRetry(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newStaleNonceScenario(t, m, scenarioNonce-1)
+			getNonceOnChainFn = func(context.Context, *MocaChainSignClient, *client.MocaClient) (uint64, error) {
+				fence, _ := signClient.evm.lease.fence()
+				signClient.evm.lease.lose(context.Background(), fence, "test lease handoff")
+				_, _, nonce := node.snapshot()
+				return nonce, nil
+			}
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			if err == nil || txHash != "" || !strings.Contains(err.Error(), errEvmLeaseNotHeld.Error()) {
+				t.Fatalf("expected the lease error, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 1 {
+				t.Fatalf("sent after the lease was lost; %s", node.describe())
+			}
+			assertNoEvmState(t, signClient, m.scope)
+		})
+	}
+}
+
+// A nonce refusal that cannot be recorded leaves the refused bytes pending;
+// the method must not refresh the nonce and re-sign.
+func TestEvmSubmitRetryMethodUnrecordedRefusalIsNotResigned(t *testing.T) {
+	for _, m := range retryLoopMethods {
+		t.Run(m.name, func(t *testing.T) {
+			node, signClient := newStaleNonceScenario(t, m, scenarioNonce-1)
+			memStoreOf(t, signClient).inject("resolve", memFaultFail)
+			refreshed := false
+			getNonceOnChainFn = func(context.Context, *MocaChainSignClient, *client.MocaClient) (uint64, error) {
+				refreshed = true
+				return scenarioNonce, nil
+			}
+
+			txHash, err := m.call(scenarioCtx(t), signClient)
+			if err == nil || txHash != "" || !strings.Contains(err.Error(), "could not be recorded") {
+				t.Fatalf("expected the record failure, got hash=%q err=%v", txHash, err)
+			}
 			_, sends, _ := node.snapshot()
-			if err == nil || len(sends) == 0 || txHash != sends[0].hash.String() {
-				t.Fatalf("expected original hash with an error, got hash=%q err=%v; %s", txHash, err, node.describe())
+			if len(sends) != 1 || refreshed {
+				t.Fatalf("re-signed after an unrecorded refusal (refreshed=%t); %s", refreshed, node.describe())
 			}
-			pending, ok := pendingForScope(t, signClient, tc.scope)
-			if !ok || !pending.ambiguous || pending.hash != sends[0].hash || string(pending.raw) != string(sends[0].raw) {
-				t.Fatalf("expected ambiguous pending entry for the sent bytes, got hash=%s ambiguous=%t ok=%t",
-					pending.hash.Hex(), pending.ambiguous, ok)
-			}
-			for _, send := range sends {
-				if string(send.raw) != string(sends[0].raw) {
-					t.Fatalf("no-loop method re-signed; %s", node.describe())
-				}
+			if pending, ok := pendingForScope(t, signClient, m.scope); !ok || pending.hash != sends[0].hash {
+				t.Fatal("refused bytes are no longer pending")
 			}
 		})
 	}
@@ -703,6 +964,14 @@ func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 		}},
 		{"CompleteSwapOutEvm", CompleteSwapOut, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.CompleteSwapOutEvm(ctx, SignOperator, &virtualgrouptypes.MsgCompleteSwapOut{GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"DiscontinueBucketEvm", DiscontinueBucket, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DiscontinueBucketEvm(ctx, SignGc, &storagetypes.MsgDiscontinueBucket{BucketName: "bucket", Reason: "test"})
+		}},
+		{"UpdateSPPriceEvm", UpdateSPPrice, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.UpdateSPPriceEvm(ctx, SignOperator, &sptypes.MsgUpdateSpStoragePrice{
+				ReadPrice: sdkmath.LegacyNewDec(1), FreeReadQuota: 1, StorePrice: sdkmath.LegacyNewDec(1),
+			})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -37,7 +37,7 @@ jobs:
       # Run MySQL
       - name: Run MySQL
         run: |
-          sudo /etc/init.d/mysql start
+          sudo systemctl start mysql.service
       # Build SP and Make Config.toml
       - name: Build and Make Config
         run: |

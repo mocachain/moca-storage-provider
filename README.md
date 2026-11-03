@@ -79,6 +79,15 @@ a database of its own (`block_syncer_<random>`) and drops it when done. Set
 `BLOCKSYNCER_TEST_DB_ADDRESS` (and `BLOCKSYNCER_TEST_DB_USER`, `_PASSWORD`, or `_NAME` for
 the name prefix) to use another server.
 
+`make test` also runs the e2e Go packages that need no running stack (`E2E_UNIT_PKGS` in the
+`Makefile`: `test/e2e/piecestore` and `test/e2e/spworkflow`). The disk, memory and sharded
+piece store cases always run; the S3, OSS, MinIO and B2 cases skip themselves unless their
+credentials are in the environment (`AWS_ACCESS_KEY` and `AWS_SECRET_KEY`;
+`ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN` and `ALIBABA_CLOUD_OIDC_TOKEN_FILE`;
+`MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` and `PIECESTORE_E2E_MINIO_BUCKET_URL`; `B2_ACCESS_KEY` and
+`B2_SECRET_KEY`). `PIECESTORE_E2E_S3_BUCKET_URL`, `PIECESTORE_E2E_OSS_BUCKET_URL` and
+`PIECESTORE_E2E_B2_BUCKET_URL` point those cases at a bucket of your own.
+
 ### Note
 
 If you've already executed `make install-tools` command in your shell, but you failed to make build and encountered one of the following error messages:

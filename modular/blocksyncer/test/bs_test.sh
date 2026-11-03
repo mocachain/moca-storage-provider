@@ -107,7 +107,8 @@ function test_bs() {
   export BLOCKSYNCER_TEST_DB_NAME="${BLOCKSYNCER_TEST_DB_NAME}"
   export BLOCKSYNCER_TEST_VERIFY_TIMEOUT_SECONDS
   export BLOCKSYNCER_TEST_VERIFY_INTERVAL_MS
-  if go test -count=1 -timeout "${BLOCKSYNCER_GO_TEST_TIMEOUT}" -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/...; then
+  # every test package under modular/blocksyncer; -p 1 keeps go test streaming the e2e log
+  if go test -count=1 -p 1 -timeout "${BLOCKSYNCER_GO_TEST_TIMEOUT}" -v -coverprofile=coverage.txt -covermode=atomic -coverpkg=github.com/mocachain/moca-storage-provider/modular/blocksyncer/... ./...; then
     echo "bs_e2e_test runs successful."
   else
     echo "blocksyncer go test failed, dumping recent logs if available..."

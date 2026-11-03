@@ -189,12 +189,13 @@ func (d *DownloadModular) HandleDownloadObjectTask(ctx context.Context, download
 			int64(pInfo.Offset), int64(pInfo.Length))
 		if getPieceErr != nil {
 			log.CtxErrorw(ctx, "failed to get piece data from piece store", "task_info", downloadObjectTask.Info(), "piece_info", pInfo, "error", getPieceErr)
-			pieceStoreErrDetail := "failed to get piece data from piece store, task_info: " + downloadObjectTask.Info() + ", error: " + err.Error()
-			if isErrNoSuchKey(err) {
-				return nil, ErrPieceStoreNoSuchKeyWithDetail(pieceStoreErrDetail)
+			pieceStoreErrDetail := "failed to get piece data from piece store, task_info: " + downloadObjectTask.Info() + ", error: " + getPieceErr.Error()
+			if isErrNoSuchKey(getPieceErr) {
+				err = ErrPieceStoreNoSuchKeyWithDetail(pieceStoreErrDetail)
 			} else {
-				return nil, ErrPieceStoreWithDetail(pieceStoreErrDetail)
+				err = ErrPieceStoreWithDetail(pieceStoreErrDetail)
 			}
+			return nil, err
 		}
 		d.pieceCache.Add(key, piece)
 		data = append(data, piece...)

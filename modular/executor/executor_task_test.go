@@ -1800,3 +1800,106 @@ func TestExecuteModular_getBucketPrimarySPEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckRecoveryPieceLength(t *testing.T) {
+	cases := []struct {
+		name        string
+		pieceSize   int
+		dataShards  uint32
+		segmentSize int64
+		wantErr     error
+	}{
+		{
+			// 1,077,936,128 * 4 = 2^32 + 16 MiB, which wraps to exactly 16 MiB in uint32.
+			name:        "uint32 overflow wraps onto full segment size",
+			pieceSize:   1_077_936_128,
+			dataShards:  4,
+			segmentSize: 16_777_216,
+			wantErr:     ErrRecoveryPieceLength,
+		},
+		{
+			// (2^32 + 4) wraps to 4, the lower bound of the window.
+			name:        "uint32 overflow wraps onto window lower bound",
+			pieceSize:   1_073_741_825,
+			dataShards:  4,
+			segmentSize: 4,
+			wantErr:     ErrRecoveryPieceLength,
+		},
+		{
+			// (2^32 + 8) wraps to 8, the upper bound of the window.
+			name:        "uint32 overflow wraps onto window upper bound",
+			pieceSize:   1_073_741_826,
+			dataShards:  4,
+			segmentSize: 4,
+			wantErr:     ErrRecoveryPieceLength,
+		},
+		{
+			name:        "full segment",
+			pieceSize:   4_194_304,
+			dataShards:  4,
+			segmentSize: 16_777_216,
+		},
+		{
+			// ceil(1,000,001 / 4) * 4 = 1,000,004, within the padding tolerance.
+			name:        "tail segment with padding",
+			pieceSize:   250_001,
+			dataShards:  4,
+			segmentSize: 1_000_001,
+		},
+		{
+			// 4,194,305 * 4 = segmentSize + dataShards, the largest accepted product.
+			name:        "padding at window upper bound",
+			pieceSize:   4_194_305,
+			dataShards:  4,
+			segmentSize: 16_777_216,
+		},
+		{
+			name:        "piece too short",
+			pieceSize:   4_194_303,
+			dataShards:  4,
+			segmentSize: 16_777_216,
+			wantErr:     ErrRecoveryPieceLength,
+		},
+		{
+			name:        "piece beyond padding tolerance",
+			pieceSize:   4_194_306,
+			dataShards:  4,
+			segmentSize: 16_777_216,
+			wantErr:     ErrRecoveryPieceLength,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkRecoveryPieceLength(tt.pieceSize, tt.dataShards, tt.segmentSize)
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestExecuteModular_HandleSealObjectTask_RecordsSignatureParseFailure(t *testing.T) {
+	valid := mustMarshalBLSSignatures(t, 1)[0]
+	invalidPoint := make([]byte, len(valid))
+	for i := range invalidPoint {
+		invalidPoint[i] = 0xff
+	}
+	for name, signatures := range map[string][][]byte{
+		"short":         {[]byte("test")},
+		"empty later":   {valid, {}},
+		"invalid point": {valid, invalidPoint},
+	} {
+		t.Run(name, func(t *testing.T) {
+			task := &gfsptask.GfSpSealObjectTask{
+				Task:                &gfsptask.GfSpTask{MaxRetry: 1},
+				ObjectInfo:          &storagetypes.ObjectInfo{Id: sdkmath.NewUint(1)},
+				StorageParams:       &storagetypes.Params{},
+				SecondarySignatures: signatures,
+			}
+			setup(t).HandleSealObjectTask(context.TODO(), task)
+			assert.Equal(t, ErrInvalidSecondaryBlsSignature, task.Error())
+		})
+	}
+}

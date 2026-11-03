@@ -28,6 +28,20 @@ func TestLoadConfigRejectsLegacyFundingPrivateKey(t *testing.T) {
 	require.ErrorContains(t, err, "FundingPrivateKey is not supported")
 }
 
+func TestLoadConfigRejectsLegacyFundingEnvironment(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[SpAccount]\nFundingPrivateKey = ''\n"), 0o600))
+	for _, value := range []string{"", "legacy-environment-sentinel"} {
+		t.Setenv("SIGNER_FUNDING_PRIV_KEY", value)
+		err := LoadConfig(configPath, &gfspconfig.GfSpConfig{})
+		require.ErrorContains(t, err, "SIGNER_FUNDING_PRIV_KEY is not supported")
+		require.NotContains(t, err.Error(), "legacy-environment-sentinel")
+	}
+	t.Setenv("SIGNER_FUNDING_PRIV_KEY", "")
+	require.NoError(t, os.Unsetenv("SIGNER_FUNDING_PRIV_KEY"))
+	require.NoError(t, LoadConfig(configPath, &gfspconfig.GfSpConfig{}))
+}
+
 // newTestContext builds a cli context with no flag explicitly set, which is what a
 // production run that only supplies a config file looks like.
 func newTestContext(t *testing.T, args ...string) *cli.Context {
