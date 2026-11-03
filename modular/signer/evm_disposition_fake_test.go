@@ -42,6 +42,8 @@ type fakeDisposeChain struct {
 	sendOverride func(tx *ethtypes.Transaction) error
 	// failNonceAt makes eth_getTransactionCount fail.
 	failNonceAt error
+	// failSearch makes the search by Ethereum transaction hash fail.
+	failSearch error
 	// mempool is how many transactions of the account the node holds in its
 	// mempool; the pending nonce counts them.
 	mempool uint64
@@ -357,6 +359,9 @@ func (f fakeCosmosChain) SearchEthereumTx(_ context.Context, hash ethcmn.Hash, m
 	defer f.c.mu.Unlock()
 	if !f.c.index {
 		return nil, fmt.Errorf("%w: transaction indexing is disabled", errCosmosIndexDisabled)
+	}
+	if f.c.failSearch != nil {
+		return nil, f.c.failSearch
 	}
 	f.c.sync()
 	for _, e := range f.c.entries {

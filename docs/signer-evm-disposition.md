@@ -22,7 +22,7 @@ CometBFT RPC (`[Chain] ChainAddress`), the Cosmos transaction that carried the h
 | C > N, and no transaction carries the hash | turns the row into `blocked_unknown(receipt_missing)` | `auto_blocked_receipt_missing` |
 | C = N, P = C (nothing of this sender in the mempool), and the node refuses the re-sent bytes for a reason other than the nonce (insufficient funds or fee, failed validation) | turns the row into `blocked_unknown(dropped)` | `auto_blocked_dropped` |
 | C < N, P = C, and the node refuses the re-sent bytes as nonce too high | turns the row into `blocked_unknown(nonce_gap)`, as `--accept-gap` does | `auto_blocked_nonce_gap` |
-| anything else: our transaction waits in the mempool, the original was included without a failure code, an RPC fails, the index is disabled | keeps re-sending the identical bytes; the scope stays blocked | none |
+| anything else: our transaction waits in the mempool, the original was included without a failure code, an RPC fails or serves another chain, the index is disabled | keeps re-sending the identical bytes; the scope stays blocked | none |
 
 A `blocked_unknown` outcome blocks only its operation, never re-signs it, and frees the
 scope: the next transaction of the key takes the chain nonce C. For `dropped` and
@@ -39,6 +39,19 @@ The signer settles a `blocked_unknown` outcome when its operation is requested a
 | the original's success receipt | outcome `succeeded`: the next request for the operation gets the original hash | `auto_outcome_succeeded` |
 | the original's failure receipt, or the original in a block with a non-zero code | deletes the outcome; the operation may be signed again | `auto_outcome_failed` |
 | a receipt, or a carrying Cosmos transaction, of another transaction this signer signed from the same address at nonce N (its evidence row passes V(e)) | deletes the outcome: that transaction used N, so the original never ran (branch b) | `auto_outcome_superseded` |
+
+Receipts are read first, the original's and then those of the other transactions at N,
+and the Cosmos index last. An index that fails or is disabled therefore never keeps an
+outcome that a receipt settles; its error is reported only when nothing settles it.
+
+Like the commands below, every check first verifies that the EVM RPC
+(`[Chain] RpcAddress`) serves the signer's EVM chain id and, before it uses Cosmos
+transactions, that the CometBFT RPC serves the signer's chain id. Another network can
+share the EVM chain id, and a replay of the signer's transaction can fail there while it
+runs here. When the EVM RPC fails this check (another chain id, or no answer), the
+check changes nothing. When the CometBFT RPC fails it, its transactions are not used:
+a pending row that needs them stays, and only receipts can settle an outcome. Either
+way the request reports the error.
 
 If the original lands after it was turned into `dropped` (another node still held it),
 the next transaction at N is refused for its nonce and signed again at N+1, and the
@@ -274,6 +287,6 @@ end-to-end exactly-once: if the signer returns a hash and the response is lost o
 way to the caller, the caller's retry is signed again. Callers that need exactly-once
 must deduplicate on their side.
 
-Automatic settlement reads the original EVM receipt before querying the optional Cosmos transaction index. A valid receipt can settle the operation even when that index is disabled or unavailable.
+Automatic settlement reads the EVM receipts, the original's and those of the signer's other transactions at the same nonce, before querying the optional Cosmos transaction index. A valid receipt can settle the operation even when that index is disabled or unavailable, or the CometBFT RPC serves another chain.
 
 The same-nonce evidence lookup limits matching results to 1000 rather than limiting the distance between evidence IDs. It can scan more history on the existing schema; the existing 10-second chain-check context bounds the query, and a timeout leaves the outcome blocked for a later retry.

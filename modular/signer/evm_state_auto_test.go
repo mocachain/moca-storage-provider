@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -281,6 +282,181 @@ func TestEvmAutoRestartSettlesOutcomes(t *testing.T) {
 		t.Fatalf("restart left outcomes: %+v", env.store.outcomeRows())
 	}
 	env.requireAudit(evmAuditAutoOutcomeSuperseded, 1)
+}
+
+// recheckOutcomes lets the next request check every outcome on chain again
+// instead of waiting evmOutcomeCheckInterval.
+func (env *disposeEnv) recheckOutcomes() {
+	env.client.evm.mu.Lock()
+	clear(env.client.evm.outcomeChecked)
+	env.client.evm.mu.Unlock()
+}
+
+func (env *disposeEnv) fence() evmFence {
+	env.t.Helper()
+	fence, ok := env.client.evm.lease.fence()
+	if !ok {
+		env.t.Fatal("the signer holds no lease")
+	}
+	return fence
+}
+
+// dropOutcome leaves A as blocked_unknown(dropped) without signing anything
+// at A's nonce: the requests are for A's own operation.
+func (env *disposeEnv) dropOutcome() (pendingRecord, *ethtypes.Transaction) {
+	env.t.Helper()
+	pendingA, txA := env.stuckDeposit(1000)
+	env.refuseBytes(txA, "insufficient funds for gas * price + value")
+	env.depositBlocked(1000, "unconfirmed") // first sighting
+	env.depositBlocked(1000, "is blocked")  // second sighting: dropped
+	outcomes := env.store.outcomeRows()
+	if len(outcomes) != 1 || outcomes[0].Reason != evmReasonDropped || outcomes[0].TxHash != pendingA.TxHash {
+		env.t.Fatalf("want A blocked_unknown(dropped), got %+v", outcomes)
+	}
+	// Signed again at the same nonce, A has the same bytes; the node refuses
+	// them for their nonce, as it does every transaction, once N is used.
+	env.node.script = nil
+	return pendingA, txA
+}
+
+// The CometBFT RPC serves another network that shares the EVM chain id, and
+// a replay of A failed there. That must not end A's pending row here.
+func TestEvmAutoForeignCometBFTKeepsPending(t *testing.T) {
+	env := newAutoEnv(t)
+	pendingA, txA := env.stuckDeposit(1000)
+	env.chain.addFailedNoReceipt(txA, 111222)
+	env.chain.network = "foreign_5151-1"
+
+	moved, _, err := env.client.autoDisposePending(scenarioCtx(t), env.client.evm, env.fence(), SignOperator, pendingA, txA)
+	if moved || err == nil || !strings.Contains(err.Error(), "the CometBFT RPC serves chain foreign_5151-1") {
+		t.Fatalf("want the row kept and the mismatch returned, got moved=%t err=%v", moved, err)
+	}
+	env.depositBlocked(2000, "unconfirmed")
+	if pending, ok := env.store.pendingOf(SignOperator); !ok || pending.ID != pendingA.ID {
+		t.Fatalf("A's pending row is gone: %+v", env.store.pendingRows())
+	}
+	env.requireAudit(evmAuditAutoResolvedFailed, 0)
+
+	// Served by the signer's chain, the same evidence ends the row.
+	env.chain.network = fakeEvmChainID
+	hashB := env.depositOK(2000)
+	if got := env.committedNonce(hashB); got != pendingA.Nonce+1 {
+		t.Fatalf("B took nonce %d, want %d", got, pendingA.Nonce+1)
+	}
+	env.requireAudit(evmAuditAutoResolvedFailed, 1)
+}
+
+// A is blocked_unknown and a failed Cosmos transaction carries its hash on
+// another network the CometBFT RPC serves. The outcome stays until the
+// signer's own chain shows it.
+func TestEvmAutoForeignCometBFTKeepsOutcome(t *testing.T) {
+	env := newAutoEnv(t)
+	pendingA, txA := env.dropOutcome()
+	env.chain.addFailedNoReceipt(txA, 111222)
+	env.chain.network = "foreign_5151-1"
+
+	env.recheckOutcomes()
+	env.depositBlocked(1000, "is blocked")
+	env.requireAudit(evmAuditAutoOutcomeFailed, 0)
+
+	env.chain.network = fakeEvmChainID
+	env.recheckOutcomes()
+	hashA := env.depositOK(1000)
+	if got := env.committedNonce(hashA); got != pendingA.Nonce+1 {
+		t.Fatalf("A was signed again at nonce %d, want %d", got, pendingA.Nonce+1)
+	}
+	env.requireAudit(evmAuditAutoOutcomeFailed, 1)
+	if n := env.node.executionsOf(txA); n != 1 {
+		t.Fatalf("A executed %d times; %s", n, env.node.describe())
+	}
+}
+
+// An EVM RPC serving another chain id decides nothing: neither A's pending
+// row nor, later, its outcome changes until the chain id matches.
+func TestEvmAutoForeignEvmChainIDChangesNothing(t *testing.T) {
+	env := newAutoEnv(t)
+	pendingA, txA := env.stuckDeposit(1000)
+	env.refuseBytes(txA, "insufficient funds for gas * price + value")
+	env.chain.chainID = 1
+
+	moved, sent, err := env.client.autoDisposePending(scenarioCtx(t), env.client.evm, env.fence(), SignOperator, pendingA, txA)
+	if moved || sent || err == nil || !strings.Contains(err.Error(), "the EVM RPC serves chain id 1") {
+		t.Fatalf("want nothing done and the mismatch returned, got moved=%t sent=%t err=%v", moved, sent, err)
+	}
+	env.depositBlocked(2000, "unconfirmed")
+	env.depositBlocked(2000, "unconfirmed")
+	env.requireAudit(evmAuditAutoBlockedDropped, 0)
+
+	env.chain.chainID = 5151
+	env.depositBlocked(2000, "unconfirmed") // first sighting
+	hashB := env.depositOK(2000)            // dropped; B takes A's nonce
+	if got := env.committedNonce(hashB); got != pendingA.Nonce {
+		t.Fatalf("B took nonce %d, want A's nonce %d", got, pendingA.Nonce)
+	}
+
+	env.chain.chainID = 1
+	env.depositBlocked(1000, "is blocked")
+	env.requireAudit(evmAuditAutoOutcomeSuperseded, 0)
+
+	env.chain.chainID = 5151
+	env.recheckOutcomes()
+	env.depositOK(1000)
+	env.requireAudit(evmAuditAutoOutcomeSuperseded, 1)
+	if n := env.node.executionsOf(txA); n != 1 {
+		t.Fatalf("A executed %d times; %s", n, env.node.describe())
+	}
+}
+
+// B took A's nonce and has a receipt, which proves A never ran. A failing
+// Cosmos index must not keep A blocked.
+func TestEvmAutoSupersededWhileCosmosSearchFails(t *testing.T) {
+	env := newAutoEnv(t)
+	pendingA, txA := env.stuckDeposit(1000)
+	env.refuseBytes(txA, "insufficient funds for gas * price + value")
+	env.depositBlocked(2000, "unconfirmed") // first sighting
+	hashB := env.depositOK(2000)            // dropped; B takes A's nonce
+	if got := env.committedNonce(hashB); got != pendingA.Nonce {
+		t.Fatalf("B took nonce %d, want A's nonce %d", got, pendingA.Nonce)
+	}
+	outcomes := env.store.outcomeRows()
+	if len(outcomes) != 1 || outcomes[0].Reason != evmReasonDropped {
+		t.Fatalf("want A blocked_unknown(dropped), got %+v", outcomes)
+	}
+
+	env.chain.failSearch = errors.New("upstream: 503 Service Unavailable")
+	settled, err := env.client.autoSettleOutcome(scenarioCtx(t), env.client.evm, env.fence(), outcomes[0])
+	if !settled || err != nil {
+		t.Fatalf("want A settled from B's receipt, got settled=%t err=%v", settled, err)
+	}
+	env.requireAudit(evmAuditAutoOutcomeSuperseded, 1)
+
+	hashA := env.depositOK(1000)
+	if got := env.committedNonce(hashA); got != pendingA.Nonce+1 {
+		t.Fatalf("A was signed again at nonce %d, want %d", got, pendingA.Nonce+1)
+	}
+	if n := env.node.executionsOf(txA); n != 1 {
+		t.Fatalf("A executed %d times; %s", n, env.node.describe())
+	}
+}
+
+// Receipts come from the EVM RPC, so they settle an outcome while the
+// CometBFT RPC serves another network; only its transactions are ignored.
+func TestEvmAutoSupersededWhileCometBFTIsForeign(t *testing.T) {
+	env := newAutoEnv(t)
+	pendingA, txA := env.stuckDeposit(1000)
+	env.refuseBytes(txA, "insufficient funds for gas * price + value")
+	env.depositBlocked(2000, "unconfirmed") // first sighting
+	env.depositOK(2000)                     // dropped; B takes A's nonce
+	env.chain.network = "foreign_5151-1"
+
+	hashA := env.depositOK(1000)
+	if got := env.committedNonce(hashA); got != pendingA.Nonce+1 {
+		t.Fatalf("A was signed again at nonce %d, want %d", got, pendingA.Nonce+1)
+	}
+	env.requireAudit(evmAuditAutoOutcomeSuperseded, 1)
+	if n := env.node.executionsOf(txA); n != 1 {
+		t.Fatalf("A executed %d times; %s", n, env.node.describe())
+	}
 }
 
 // The manual resolve recognises an original included as a failed Cosmos

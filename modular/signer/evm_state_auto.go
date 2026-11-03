@@ -48,9 +48,19 @@ import (
 //
 // A blocked_unknown outcome is settled when its operation is requested again
 // and on each new lease: its own receipt (succeeded, or failed and deleted),
-// its inclusion as a failed Cosmos transaction (deleted), or a receipt of
+// its inclusion as a failed Cosmos transaction (deleted), or the inclusion of
 // another transaction this signer signed at the same nonce (deleted: that one
-// used the nonce, so the original never ran).
+// used the nonce, so the original never ran). Receipts are read before the
+// optional Cosmos index is searched, so an index that fails does not keep an
+// outcome a receipt decides.
+//
+// Like manual resolve, every check first verifies that the EVM RPC serves the
+// signer's EVM chain id and, before it searches Cosmos transactions, that the
+// CometBFT RPC serves the signer's chain. Another network can share the EVM
+// chain id, and a replay of the signer's transaction can fail there while it
+// runs here. When the EVM RPC fails this, the check changes nothing; when the
+// CometBFT RPC does, its transactions are not used, so only receipts can
+// settle an outcome. Either way the error is returned.
 
 const (
 	evmReasonDropped = "dropped"
@@ -71,6 +81,30 @@ const (
 type evmAutoChain struct {
 	evm    EvmDisposeChain
 	cosmos CosmosDisposeChain
+}
+
+// checkEvm verifies that the EVM RPC serves evmChainID.
+func (c *evmAutoChain) checkEvm(ctx context.Context, evmChainID uint64) error {
+	chainID, err := c.evm.ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("eth_chainId: %w", err)
+	}
+	if !chainID.IsUint64() || chainID.Uint64() != evmChainID {
+		return fmt.Errorf("the EVM RPC serves chain id %s, the signer signs for %d", chainID, evmChainID)
+	}
+	return nil
+}
+
+// checkCosmos verifies that the CometBFT RPC serves chainID.
+func (c *evmAutoChain) checkCosmos(ctx context.Context, chainID string) error {
+	network, err := c.cosmos.Network(ctx)
+	if err != nil {
+		return fmt.Errorf("CometBFT status: %w", err)
+	}
+	if network != chainID {
+		return fmt.Errorf("the CometBFT RPC serves chain %s, the signer signs for %s", network, chainID)
+	}
+	return nil
 }
 
 // evmAutoObservation is the first sighting of a conclusion that waits for a
@@ -127,6 +161,9 @@ func (client *MocaChainSignClient) autoDisposePending(ctx context.Context, st *e
 	}
 	qctx, cancel := context.WithTimeout(ctx, evmChainQueryTimeout)
 	defer cancel()
+	if err := chain.checkEvm(qctx, st.evmChainID); err != nil {
+		return false, false, err
+	}
 	height, err := chain.evm.BlockNumber(qctx)
 	if err != nil {
 		return false, false, fmt.Errorf("eth_blockNumber: %w", err)
@@ -142,6 +179,9 @@ func (client *MocaChainSignClient) autoDisposePending(ctx context.Context, st *e
 		// The nonce is used: the recorded bytes can never be included again.
 		if chain.cosmos == nil {
 			return false, false, nil
+		}
+		if err := chain.checkCosmos(qctx, st.chainID); err != nil {
+			return false, false, err
 		}
 		// A transaction found by its ethereum_tx event got through the ante
 		// handler, which emits that event: its nonce increment persists even
@@ -268,6 +308,12 @@ func (client *MocaChainSignClient) applyAutoPending(ctx context.Context, st *evm
 // autoSettleOutcome settles a blocked_unknown outcome the chain decides.
 // settled means the outcome was deleted or became succeeded; the caller reads
 // the state again.
+//
+// Receipts decide independently of the optional Cosmos index, so all of them
+// are read first: the original's, then those of the other transactions this
+// signer signed at the same nonce. The index is searched last. A failed read
+// does not stop the evidence after it; its error is returned only when
+// nothing settles the outcome.
 func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *evmState, fence evmFence,
 	outcome outcomeRecord,
 ) (bool, error) {
@@ -280,19 +326,28 @@ func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *ev
 	}
 	qctx, cancel := context.WithTimeout(ctx, evmChainQueryTimeout)
 	defer cancel()
+	if err := chain.checkEvm(qctx, st.evmChainID); err != nil {
+		return false, err
+	}
 	height, err := chain.evm.BlockNumber(qctx)
 	if err != nil {
 		return false, fmt.Errorf("eth_blockNumber: %w", err)
 	}
 	base := outcome.audit("")
 	base.ChainHeight = uint64Ptr(height)
+	var readErr error // the first failed read
+	keep := func(err error) {
+		if readErr == nil {
+			readErr = err
+		}
+	}
 
-	// A receipt settles the original independently of the optional Cosmos index.
-	receipt, receiptErr := chain.evm.TransactionReceipt(qctx, outcome.TxHash)
+	// The original's receipt.
+	receipt, err := chain.evm.TransactionReceipt(qctx, outcome.TxHash)
 	switch {
-	case stderrors.Is(receiptErr, ethereum.NotFound) || (receiptErr == nil && receipt == nil):
-	case receiptErr != nil:
-		// Cosmos failure evidence can still settle the outcome below.
+	case stderrors.Is(err, ethereum.NotFound) || (err == nil && receipt == nil):
+	case err != nil:
+		keep(fmt.Errorf("receipt of %s: %w", outcome.TxHash.Hex(), err))
 	case receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() > height:
 	default:
 		event := base
@@ -307,33 +362,12 @@ func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *ev
 		return client.applyAutoOutcome(ctx, st, fence, outcome, to, event)
 	}
 
-	// The original itself.
-	var view *CosmosTxView
-	if chain.cosmos != nil {
-		view, err = chain.cosmos.SearchEthereumTx(qctx, outcome.TxHash, height)
-		switch {
-		case stderrors.Is(err, errCosmosIndexDisabled):
-			view = nil
-		case err != nil:
-			return false, fmt.Errorf("search for the cosmos transaction of %s: %w", outcome.TxHash.Hex(), err)
-		}
-		if view != nil && view.Code != 0 && evmFailedTxRollsBack {
-			event := withCosmosEvidence(base, view)
-			event.Event = evmAuditAutoOutcomeFailed
-			event.Detail = fmt.Sprintf("included in cosmos tx %s at height %d with code %d; it left no state", view.Hash, view.Height, view.Code)
-			return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
-		}
-	}
-
-	if receiptErr != nil && !stderrors.Is(receiptErr, ethereum.NotFound) {
-		return false, fmt.Errorf("receipt of %s: %w", outcome.TxHash.Hex(), receiptErr)
-	}
-
-	// Another transaction of this signer at the same nonce.
+	// The receipt of another transaction of this signer at the same nonce.
 	rows, err := st.store.ListSignedTxAtNonce(qctx, st.chainID, outcome.From, outcome.Nonce, outcome.SignedTxID, evmSupersedeWindow)
 	if err != nil {
 		return false, fmt.Errorf("failed to read the evidence at nonce %d: %w", outcome.Nonce, err)
 	}
+	others := make([]signedTxEvidence, 0, len(rows))
 	for _, row := range rows {
 		if row.TxHash == outcome.TxHash {
 			continue
@@ -343,45 +377,71 @@ func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *ev
 		if _, err := st.verify(&row, ref); err != nil {
 			continue
 		}
-		used, evidence, err := client.usedNonce(qctx, chain, row.TxHash, height)
+		included, err := receiptAtOrBelow(qctx, chain.evm, row.TxHash, height)
 		if err != nil {
-			return false, err
+			keep(err)
+		} else if included {
+			return client.applyAutoOutcome(ctx, st, fence, outcome, nil, supersededBy(base, outcome, row))
 		}
-		if !used {
-			continue
-		}
-		event := base
-		event.Event = evmAuditAutoOutcomeSuperseded
-		event.EvidenceTxHash, event.EvidenceKind = evidence, evmEvidenceKindEVM
-		event.Detail = fmt.Sprintf("nonce %d was used by %s, signed by this signer for operation %s", outcome.Nonce,
-			row.TxHash.Hex(), row.Operation.Hex())
-		return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
+		others = append(others, row)
 	}
-	return false, nil
-}
 
-// usedNonce reports whether the transaction hash was included at or below
-// height: with a receipt, or as a Cosmos transaction.
-func (client *MocaChainSignClient) usedNonce(ctx context.Context, chain *evmAutoChain, hash ethcmn.Hash, height uint64) (bool, string, error) {
-	receipt, err := chain.evm.TransactionReceipt(ctx, hash)
-	switch {
-	case stderrors.Is(err, ethereum.NotFound) || (err == nil && receipt == nil):
-	case err != nil:
-		return false, "", fmt.Errorf("receipt of %s: %w", hash.Hex(), err)
-	case receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() <= height:
-		return true, hash.Hex(), nil
-	}
+	// The Cosmos index: the original included with a failure code, or one of
+	// the others included without a receipt.
 	if chain.cosmos == nil {
-		return false, "", nil
+		return false, readErr
 	}
-	view, err := chain.cosmos.SearchEthereumTx(ctx, hash, height)
+	if err := chain.checkCosmos(qctx, st.chainID); err != nil {
+		keep(err)
+		return false, readErr
+	}
+	view, err := chain.cosmos.SearchEthereumTx(qctx, outcome.TxHash, height)
 	switch {
 	case stderrors.Is(err, errCosmosIndexDisabled):
-		return false, "", nil
+		return false, readErr
 	case err != nil:
-		return false, "", fmt.Errorf("search for the cosmos transaction of %s: %w", hash.Hex(), err)
+		keep(fmt.Errorf("search for the cosmos transaction of %s: %w", outcome.TxHash.Hex(), err))
+	case view != nil && view.Code != 0 && evmFailedTxRollsBack:
+		event := withCosmosEvidence(base, view)
+		event.Event = evmAuditAutoOutcomeFailed
+		event.Detail = fmt.Sprintf("included in cosmos tx %s at height %d with code %d; it left no state", view.Hash, view.Height, view.Code)
+		return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
 	}
-	return view != nil, hash.Hex(), nil
+	for _, row := range others {
+		view, err := chain.cosmos.SearchEthereumTx(qctx, row.TxHash, height)
+		switch {
+		case stderrors.Is(err, errCosmosIndexDisabled):
+			return false, readErr
+		case err != nil:
+			keep(fmt.Errorf("search for the cosmos transaction of %s: %w", row.TxHash.Hex(), err))
+		case view != nil:
+			return client.applyAutoOutcome(ctx, st, fence, outcome, nil, supersededBy(base, outcome, row))
+		}
+	}
+	return false, readErr
+}
+
+// receiptAtOrBelow reports whether hash has a receipt in a block at or below
+// height.
+func receiptAtOrBelow(ctx context.Context, evm EvmDisposeChain, hash ethcmn.Hash, height uint64) (bool, error) {
+	receipt, err := evm.TransactionReceipt(ctx, hash)
+	switch {
+	case stderrors.Is(err, ethereum.NotFound) || (err == nil && receipt == nil):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("receipt of %s: %w", hash.Hex(), err)
+	}
+	return receipt.BlockNumber != nil && receipt.BlockNumber.Uint64() <= height, nil
+}
+
+// supersededBy is the audit event of an outcome whose nonce row used.
+func supersededBy(base evmAuditEvent, outcome outcomeRecord, row signedTxEvidence) evmAuditEvent {
+	event := base
+	event.Event = evmAuditAutoOutcomeSuperseded
+	event.EvidenceTxHash, event.EvidenceKind = row.TxHash.Hex(), evmEvidenceKindEVM
+	event.Detail = fmt.Sprintf("nonce %d was used by %s, signed by this signer for operation %s", outcome.Nonce,
+		row.TxHash.Hex(), row.Operation.Hex())
+	return event
 }
 
 // applyAutoOutcome deletes the outcome (to nil) or updates it to to.
