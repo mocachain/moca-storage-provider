@@ -87,6 +87,8 @@ to free staging space. Stop new admission when an alert fires; retain failed row
 An uninterruptible disk operation may hold its object gate past the 120-second
 context budget; the code does not abandon that writer and start a second publisher.
 
+The localup test harness supplies a separate `recovery-staging` directory under each SP deployment directory, mode `0700`, and a 1 GiB budget per SP. The directory survives stop/start and manager restarts; resetting the disposable local environment removes it. CI workflows using localup inherit these settings. This provisions test recovery capacity; it does not prove successor recovery or CompleteSwapIn acceptance, and production deployments still require their own persistent paths and measured budgets.
+
 ## Reclaiming staging and capacity
 
 Only the operator with deployment authority performs these steps. This document

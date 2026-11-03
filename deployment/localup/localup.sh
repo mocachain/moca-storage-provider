@@ -305,8 +305,16 @@ function start_sp() {
       continue
     fi
 
-    # Start process
-    nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
+    # Give each local piece store a persistent, private recovery ledger and 1 GiB budget.
+    if ! install -d -m 700 "${sp_dir}/recovery-staging"; then
+      echo "ERROR: Failed to prepare recovery staging for ${sp_dir}"
+      ((failed_count++))
+      cd - >/dev/null || exit
+      continue
+    fi
+    RECOVERY_STAGING_LEDGER_DIR="${sp_dir}/recovery-staging" \
+      RECOVERY_STAGING_CAPACITY_BYTES=1073741824 \
+      nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
     local start_pid=$!
     local grpc_port=$((SP_START_PORT + 1000 * index))
 
