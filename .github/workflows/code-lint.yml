@@ -54,7 +54,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v9.2.1
         with:
-          # golangci-lint v2.x is required for the go 1.25 directive in go.mod.
+          # the pinned golangci-lint must support the go 1.26 directive in go.mod.
           version: v2.12.2
           skip-cache: true
           args: --timeout 30m -v
