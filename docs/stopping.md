@@ -7,7 +7,7 @@
 3. The last log lines are written and flushed, for at most 2 seconds.
 4. The process exits with status 0.
 
-The whole stop is bounded: if it has not finished 45 seconds after the signal, the process exits with status 1. A second SIGTERM, SIGINT or SIGHUP during the stop exits at once with status 1. Both of these exits also flush the logs for at most 2 seconds, so a stalled log writer (a full stdout pipe, a stalled disk) delays them by 2 seconds at most and never keeps the process alive.
+Logging the first signal does not delay cancellation or handling a second signal. The whole stop is bounded: if it has not finished 45 seconds after the signal, the process exits with status 1. A second SIGTERM, SIGINT or SIGHUP during the stop exits at once with status 1. Both of these exits also flush the logs for at most 2 seconds, so a stalled log writer (a full stdout pipe, a stalled disk) delays them by 2 seconds at most and never keeps the process alive.
 
 SIGKILL cannot be handled by any process. Give the supervisor more time than the 47-second worst case, so it never has to send it:
 

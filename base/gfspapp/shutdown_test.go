@@ -215,6 +215,7 @@ func TestShutdown_DoesNotWaitForStalledLogWriter(t *testing.T) {
 		{"exit-stop", 1},  // exit(1), flushing the buffered lines blocks
 		{"finish-write", 0},
 		{"finish-stop", 0},
+		{"signals-write", 1}, // the first signal's log must not prevent either signal from being handled
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestShutdownHelperProcess$")
@@ -252,7 +253,7 @@ func TestShutdownHelperProcess(t *testing.T) {
 	logFlushTimeout = 100 * time.Millisecond
 	block := make(chan struct{})
 	switch mode {
-	case "exit-write", "finish-write":
+	case "exit-write", "finish-write", "signals-write":
 		log.SetWriter(&stalledWriter{write: block, stop: block})
 	default:
 		log.SetWriter(&stalledWriter{stop: block})
@@ -260,6 +261,23 @@ func TestShutdownHelperProcess(t *testing.T) {
 	switch mode {
 	case "exit-write", "exit-stop":
 		exit(1, "exiting")
+	case "signals-write":
+		ctx, cancel := context.WithCancel(context.Background())
+		g := &GfSpBaseApp{appCtx: ctx, appCancel: cancel}
+		g.Signals(syscall.SIGUSR1)
+		time.Sleep(100 * time.Millisecond) // let signal.Notify register
+		if err := syscall.Kill(os.Getpid(), syscall.SIGUSR1); err != nil {
+			os.Exit(5)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+			os.Exit(4) // logging prevented the first signal from starting shutdown
+		}
+		if err := syscall.Kill(os.Getpid(), syscall.SIGUSR1); err != nil {
+			os.Exit(6)
+		}
+		select {} // the real second-signal exit must end the process
 	default:
 		if finishLogs(func() { log.Infow("stopped") }) {
 			os.Exit(3) // the stalled writer cannot have finished

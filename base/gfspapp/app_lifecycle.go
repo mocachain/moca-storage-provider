@@ -107,8 +107,9 @@ func (g *GfSpBaseApp) signals(sigs ...os.Signal) {
 	select {
 	case <-g.appCtx.Done():
 	case sig := <-sigCh:
-		log.Infow("received signal, stopping", "signal", sig.String())
 		g.appCancel()
+		// A stalled log writer must not delay cancellation or the next signal.
+		go log.Infow("received signal, stopping", "signal", sig.String())
 	}
 	// Any signal received while stopping ends the process at once, so an
 	// operator (or a supervisor that resends SIGTERM) is never ignored.
