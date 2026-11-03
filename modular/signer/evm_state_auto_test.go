@@ -201,6 +201,36 @@ func TestEvmAutoSupersededOriginalLandsLate(t *testing.T) {
 	}
 }
 
+// A late original receipt must settle the outcome even when the CometBFT
+// node has transaction indexing disabled: the receipt itself is proof.
+func TestEvmAutoLateOriginalReceiptWithoutCosmosIndex(t *testing.T) {
+	env := newAutoEnv(t)
+	env.chain.index = false
+	pendingA, txA := env.stuckDeposit(1000)
+	env.refuseBytes(txA, "insufficient funds for gas * price + value")
+	env.depositBlocked(2000, "unconfirmed")
+
+	env.store.hookOnce("auto_resolve", func(*memEvmStateStore) {
+		if err := env.node.admit(txA); err != nil {
+			t.Errorf("admit A: %v", err)
+		}
+	})
+	env.depositOK(2000)
+	receipt, err := env.chain.TransactionReceipt(context.Background(), txA.Hash())
+	if err != nil || receipt == nil || receipt.Status != ethtypes.ReceiptStatusSuccessful {
+		t.Fatalf("the original must have a successful receipt: receipt=%+v err=%v", receipt, err)
+	}
+
+	hashA := env.depositOK(1000)
+	if hashA != pendingA.TxHash.String() {
+		t.Fatalf("A returned %s, want the original %s", hashA, pendingA.TxHash.Hex())
+	}
+	env.requireAudit(evmAuditAutoOutcomeSucceeded, 1)
+	if n := env.node.executionsOf(txA); n != 1 {
+		t.Fatalf("A executed %d times; %s", n, env.node.describe())
+	}
+}
+
 // A was recorded at a nonce above the account's (the refusal of its first
 // send was lost). With the mempool empty and the bytes refused as nonce too
 // high, A becomes blocked_unknown(nonce_gap) and the scope signs from the

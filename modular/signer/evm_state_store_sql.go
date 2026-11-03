@@ -637,11 +637,11 @@ func (s *sqlEvmStateStore) settleOutcome(ctx context.Context, fence *evmFence, o
 func (s *sqlEvmStateStore) ListSignedTxAtNonce(ctx context.Context, chainID string, from ethcmn.Address, nonce, afterID,
 	window uint64,
 ) ([]signedTxEvidence, error) {
-	// The id range keeps this a primary key range scan: the rows that matter
-	// were signed right after afterID.
+	// Limit matching evidence rather than its distance from afterID: filling
+	// a nonce gap or activity in another scope can consume unrelated IDs.
 	var rows []sqldb.SignerEvmSignedTxTable
-	if err := s.db.WithContext(ctx).Where("id > ? AND id <= ? AND chain_id = ? AND from_address = ? AND nonce = ?",
-		afterID, afterID+window, chainID, from.Hex(), nonce).Order("id").Find(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id > ? AND chain_id = ? AND from_address = ? AND nonce = ?",
+		afterID, chainID, from.Hex(), nonce).Order("id").Limit(int(window)).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]signedTxEvidence, 0, len(rows))

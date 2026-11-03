@@ -273,3 +273,7 @@ restarts, background resolution and these manual steps. It does not guarantee
 end-to-end exactly-once: if the signer returns a hash and the response is lost on the
 way to the caller, the caller's retry is signed again. Callers that need exactly-once
 must deduplicate on their side.
+
+Automatic settlement reads the original EVM receipt before querying the optional Cosmos transaction index. A valid receipt can settle the operation even when that index is disabled or unavailable.
+
+The same-nonce evidence lookup limits matching results to 1000 rather than limiting the distance between evidence IDs. It can scan more history on the existing schema; the existing 10-second chain-check context bounds the query, and a timeout leaves the outcome blocked for a later retry.

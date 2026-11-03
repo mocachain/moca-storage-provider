@@ -3,14 +3,17 @@ package signer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
+
+	"github.com/mocachain/moca-storage-provider/store/sqldb"
 )
 
 // The automatic transitions on MySQL: fenced by the lease, audited under its
-// epoch, and the evidence lookup by nonce stays within its id window.
+// epoch, and the evidence lookup by nonce finds a later successor.
 func TestSignerEvmMySQLAutoTransitions(t *testing.T) {
 	ctx := context.Background()
 	env := newMySQLEvmEnv(t, true)
@@ -34,6 +37,21 @@ func TestSignerEvmMySQLAutoTransitions(t *testing.T) {
 	env.verifyOutcomeEvidence(t, pending.ID, evmOutcomeBlockedUnknown, evmReasonDropped)
 	if env.count(t, "signer_evm_audit", "event = ? AND lease_epoch = ?", evmAuditAutoBlockedDropped, fence.Epoch) != 1 {
 		t.Fatal("the transition must be audited under the lease epoch")
+	}
+
+	// Other transactions may fill a nonce gap, or belong to other scopes,
+	// before a transaction takes the original nonce. Their evidence IDs must
+	// not hide the successor from the lookup.
+	unrelated := make([]sqldb.SignerEvmSignedTxTable, evmSupersedeWindow+1)
+	for i := range unrelated {
+		unrelated[i] = sqldb.SignerEvmSignedTxTable{
+			ChainID: fakeEvmChainID, EvmChainID: 1, Scope: string(SignOperator),
+			Operation: pending.Operation.Hex(), FromAddress: pending.From.Hex(),
+			Nonce: 8, TxHash: fmt.Sprintf("0x%064x", i+1), Raw: []byte{1},
+		}
+	}
+	if err := env.store.DB().CreateInBatches(unrelated, 100).Error; err != nil {
+		t.Fatal(err)
 	}
 
 	// The next transaction of the key takes the same nonce.

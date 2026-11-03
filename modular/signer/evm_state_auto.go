@@ -57,9 +57,8 @@ const (
 
 	// evmChainQueryTimeout bounds the chain reads of one check.
 	evmChainQueryTimeout = 10 * time.Second
-	// evmSupersedeWindow bounds how many evidence ids after an outcome's own
-	// row are searched for the transaction that took its nonce. That
-	// transaction is signed right after the outcome is kept.
+	// evmSupersedeWindow limits matching transactions returned for a nonce.
+	// Unrelated evidence IDs must not hide a later transaction using that nonce.
 	evmSupersedeWindow = 1000
 	// evmOutcomeCheckInterval spaces the chain checks of one outcome, so a
 	// request retried in a loop does not query the chain each time.
@@ -288,6 +287,26 @@ func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *ev
 	base := outcome.audit("")
 	base.ChainHeight = uint64Ptr(height)
 
+	// A receipt settles the original independently of the optional Cosmos index.
+	receipt, receiptErr := chain.evm.TransactionReceipt(qctx, outcome.TxHash)
+	switch {
+	case stderrors.Is(receiptErr, ethereum.NotFound) || (receiptErr == nil && receipt == nil):
+	case receiptErr != nil:
+		// Cosmos failure evidence can still settle the outcome below.
+	case receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() > height:
+	default:
+		event := base
+		event.ReceiptStatus, event.ReceiptBlock = uint64Ptr(receipt.Status), uint64Ptr(receipt.BlockNumber.Uint64())
+		if receipt.Status != types.ReceiptStatusSuccessful {
+			event.Event = evmAuditAutoOutcomeFailed
+			return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
+		}
+		event.Event = evmAuditAutoOutcomeSucceeded
+		to := &outcomeRecord{State: evmOutcomeSucceeded, ResultTxHash: outcome.TxHash, ReceiptBlock: receipt.BlockNumber.Uint64(),
+			Source: evmOutcomeSourceAuto}
+		return client.applyAutoOutcome(ctx, st, fence, outcome, to, event)
+	}
+
 	// The original itself.
 	var view *CosmosTxView
 	if chain.cosmos != nil {
@@ -305,25 +324,9 @@ func (client *MocaChainSignClient) autoSettleOutcome(ctx context.Context, st *ev
 			return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
 		}
 	}
-	if chain.cosmos == nil || view != nil {
-		receipt, err := chain.evm.TransactionReceipt(qctx, outcome.TxHash)
-		switch {
-		case stderrors.Is(err, ethereum.NotFound) || (err == nil && receipt == nil):
-		case err != nil:
-			return false, fmt.Errorf("receipt of %s: %w", outcome.TxHash.Hex(), err)
-		case receipt.BlockNumber == nil || receipt.BlockNumber.Uint64() > height:
-		default:
-			event := base
-			event.ReceiptStatus, event.ReceiptBlock = uint64Ptr(receipt.Status), uint64Ptr(receipt.BlockNumber.Uint64())
-			if receipt.Status != types.ReceiptStatusSuccessful {
-				event.Event = evmAuditAutoOutcomeFailed
-				return client.applyAutoOutcome(ctx, st, fence, outcome, nil, event)
-			}
-			event.Event = evmAuditAutoOutcomeSucceeded
-			to := &outcomeRecord{State: evmOutcomeSucceeded, ResultTxHash: outcome.TxHash, ReceiptBlock: receipt.BlockNumber.Uint64(),
-				Source: evmOutcomeSourceAuto}
-			return client.applyAutoOutcome(ctx, st, fence, outcome, to, event)
-		}
+
+	if receiptErr != nil && !stderrors.Is(receiptErr, ethereum.NotFound) {
+		return false, fmt.Errorf("receipt of %s: %w", outcome.TxHash.Hex(), receiptErr)
 	}
 
 	// Another transaction of this signer at the same nonce.

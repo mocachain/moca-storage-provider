@@ -636,12 +636,15 @@ func (m *memEvmStateStore) ListSignedTxAtNonce(_ context.Context, chainID string
 	}
 	var out []signedTxEvidence
 	for id, e := range m.signed {
-		if id > afterID && id <= afterID+window && e.ChainID == chainID && e.From == from && e.Nonce == nonce {
+		if id > afterID && e.ChainID == chainID && e.From == from && e.Nonce == nonce {
 			e.Raw = append([]byte(nil), e.Raw...)
 			out = append(out, e)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if uint64(len(out)) > window {
+		out = out[:window]
+	}
 	return out, nil
 }
 
