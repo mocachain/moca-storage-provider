@@ -184,6 +184,12 @@ func InitDB(config *config.SQLDBConfig) (*gorm.DB, error) {
 		log.Errorw("failed to create shadow integrity meta table", "error", err)
 		return nil, err
 	}
+	// all-in-one deployments get the signer EVM tables too; a standalone
+	// signer never runs InitDB and expects 'signer-evm migrate' instead
+	if err = MigrateSignerEvmTables(db); err != nil {
+		log.Errorw("failed to create signer evm tables", "error", err)
+		return nil, err
+	}
 	return db, nil
 }
 

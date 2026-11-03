@@ -8,14 +8,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/cosmos/gogoproto/proto"
+	commonhttp "github.com/mocachain/moca-common/go/http"
+	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
 	"github.com/mocachain/moca-storage-provider/base/types/gfsptask"
 	coretask "github.com/mocachain/moca-storage-provider/core/task"
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
 )
+
+const peerApprovalExpiry = 5 * time.Minute
 
 // spilt server and client const definition avoids circular references
 // TODO:: extract the common parts of http to the gfsp app layer
@@ -394,6 +399,17 @@ func (s *GfSpClient) GetSecondarySPMigrationBucketApproval(ctx context.Context, 
 		return nil, err
 	}
 	req.Header.Add(GnfdSecondarySPMigrationBucketMsgHeader, hex.EncodeToString(msg))
+	req.Header.Set(GnfdUnsignedApprovalMsgHeader, hex.EncodeToString(msg))
+	expiry := time.Now().Add(peerApprovalExpiry).UTC().Format(time.RFC3339)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, expiry)
+	signature, err := s.SignPeerApprovalRequest(ctx, &gfspserver.GfSpSignPeerApprovalRequest{
+		Host: req.URL.Host, ExpiryTimestamp: expiry,
+		Request: &gfspserver.GfSpSignPeerApprovalRequest_SecondaryMigrationBucket{SecondaryMigrationBucket: signDoc},
+	})
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(commonhttp.HTTPHeaderAuthorization, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
 	resp, err := s.HTTPClient(ctx).Do(req)
 	if err != nil {
 		log.Errorw("failed to send requests to get secondary sp migration bucket approval", "secondary_sp_endpoint",
@@ -405,7 +421,7 @@ func (s *GfSpClient) GetSecondarySPMigrationBucketApproval(ctx context.Context, 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get resp body, status_code(%d), endpoint(%s)", resp.StatusCode, secondarySPEndpoint)
 	}
-	signature, err := hex.DecodeString(resp.Header.Get(GnfdSecondarySPMigrationBucketApprovalHeader))
+	signature, err = hex.DecodeString(resp.Header.Get(GnfdSecondarySPMigrationBucketApprovalHeader))
 	if err != nil {
 		return nil, err
 	}
@@ -425,6 +441,16 @@ func (s *GfSpClient) GetSwapOutApproval(ctx context.Context, destSPEndpoint stri
 		return nil, err
 	}
 	req.Header.Add(GnfdUnsignedApprovalMsgHeader, hex.EncodeToString(msg))
+	expiry := time.Now().Add(peerApprovalExpiry).UTC().Format(time.RFC3339)
+	req.Header.Set(commonhttp.HTTPHeaderExpiryTimestamp, expiry)
+	signature, err := s.SignPeerApprovalRequest(ctx, &gfspserver.GfSpSignPeerApprovalRequest{
+		Host: req.URL.Host, ExpiryTimestamp: expiry,
+		Request: &gfspserver.GfSpSignPeerApprovalRequest_SwapOutApproval{SwapOutApproval: swapOutApproval},
+	})
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(commonhttp.HTTPHeaderAuthorization, commonhttp.Gnfd1Ecdsa+",Signature="+hex.EncodeToString(signature))
 	resp, err := s.HTTPClient(ctx).Do(req)
 	if err != nil {
 		log.Errorw("failed to send requests to get swap out approval", "dest_sp_endpoint",

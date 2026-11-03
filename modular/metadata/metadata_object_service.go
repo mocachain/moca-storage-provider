@@ -267,34 +267,46 @@ func (r *MetadataModular) GfSpGetObjectMeta(ctx context.Context, req *types.GfSp
 
 // GfSpListObjectsByIDs list objects by object ids.
 func (r *MetadataModular) GfSpListObjectsByIDs(ctx context.Context, req *types.GfSpListObjectsByIDsRequest) (resp *types.GfSpListObjectsByIDsResponse, err error) {
-	return r.listObjectsByIDs(ctx, req, false)
+	objects, err := r.listObjectsByIDs(ctx, req, false)
+	if err != nil {
+		return nil, err
+	}
+	return &types.GfSpListObjectsByIDsResponse{Objects: objects}, nil
 }
 
 // GfSpListObjectsByIDsInternal is the private-visibility counterpart of GfSpListObjectsByIDs.
-func (r *MetadataModular) GfSpListObjectsByIDsInternal(ctx context.Context, req *types.GfSpListObjectsByIDsRequest) (resp *types.GfSpListObjectsByIDsResponse, err error) {
-	return r.listObjectsByIDs(ctx, req, true)
+func (r *MetadataModular) GfSpListObjectsByIDsInternal(ctx context.Context, req *types.GfSpListObjectsByIDsInternalRequest) (resp *types.GfSpListObjectsByIDsInternalResponse, err error) {
+	objects, err := r.listObjectsByIDs(ctx, req, true)
+	if err != nil {
+		return nil, err
+	}
+	return &types.GfSpListObjectsByIDsInternalResponse{Objects: objects}, nil
 }
 
-func (r *MetadataModular) listObjectsByIDs(ctx context.Context, req *types.GfSpListObjectsByIDsRequest, includePrivate bool) (resp *types.GfSpListObjectsByIDsResponse, err error) {
+func (r *MetadataModular) listObjectsByIDs(ctx context.Context, req interface {
+	GetObjectIds() []uint64
+	GetIncludeRemoved() bool
+}, includePrivate bool) (map[uint64]*types.Object, error) {
 	var (
 		objects    []*model.Object
 		ids        []common.Hash
 		objectsMap map[uint64]*types.Object
 	)
 
-	ids = make([]common.Hash, len(req.ObjectIds))
-	for i, id := range req.ObjectIds {
+	objectIDs := req.GetObjectIds()
+	ids = make([]common.Hash, len(objectIDs))
+	for i, id := range objectIDs {
 		ids[i] = common.BigToHash(math.NewUint(id).BigInt())
 	}
 
-	objects, err = r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.IncludeRemoved, includePrivate)
+	objects, err := r.baseApp.GfBsDB().ListObjectsByIDs(ids, req.GetIncludeRemoved(), includePrivate)
 	if err != nil {
 		log.CtxErrorw(ctx, "failed to list objects by object ids", "error", err)
 		return nil, err
 	}
 
 	objectsMap = make(map[uint64]*types.Object)
-	for _, id := range req.ObjectIds {
+	for _, id := range objectIDs {
 		objectsMap[id] = nil
 	}
 
@@ -331,9 +343,8 @@ func (r *MetadataModular) listObjectsByIDs(ctx context.Context, req *types.GfSpL
 			SealTxHash:    object.SealTxHash.String(),
 		}
 	}
-	resp = &types.GfSpListObjectsByIDsResponse{Objects: objectsMap}
 	log.CtxInfo(ctx, "succeed to list objects by object ids")
-	return resp, nil
+	return objectsMap, nil
 }
 
 // GfSpListObjectsInGVGAndBucket list objects by gvg and bucket id

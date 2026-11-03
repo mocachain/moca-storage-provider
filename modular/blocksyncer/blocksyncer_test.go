@@ -28,6 +28,19 @@ func TestStorageProviderRejectsLegacyFundingPrivateKey(t *testing.T) {
 	require.ErrorContains(t, err, "FundingPrivateKey is not supported")
 }
 
+func TestStorageProviderRejectsLegacyFundingEnvironment(t *testing.T) {
+	for _, value := range []string{"", "legacy-environment-sentinel"} {
+		t.Setenv("SIGNER_FUNDING_PRIV_KEY", value)
+		set := flag.NewFlagSet("test", flag.ContinueOnError)
+		// Avoid initializing a file logger; no DB, TLS or RPC configuration is supplied.
+		require.NoError(t, utils.LogStdOutputFlag.Apply(set))
+		require.NoError(t, set.Parse([]string{"--log.std"}))
+		err := StorageProvider(cli.NewContext(cli.NewApp(), set, nil))
+		require.ErrorContains(t, err, "SIGNER_FUNDING_PRIV_KEY is not supported")
+		require.NotContains(t, err.Error(), "legacy-environment-sentinel")
+	}
+}
+
 type BasicTestSuite struct {
 	BlockSyncerE2eBaseSuite
 }
@@ -36,11 +49,27 @@ func (s *BasicTestSuite) SetupSuite() {
 	s.BlockSyncerE2eBaseSuite.SetupSuite()
 }
 
+// Test_BlockSyncer runs the blocksyncer against the mock chain and a MySQL
+// server, in a database created for this run alone and dropped afterwards, then
+// verifies what it wrote. The server defaults to 127.0.0.1:3306 with root/root,
+// which "make test-mysql" provides; the BLOCKSYNCER_TEST_DB_* variables
+// (exported by modular/blocksyncer/test/bs_test.sh) override it.
 func (s *BasicTestSuite) Test_BlockSyncer() {
-	go test.MockChainRPCServer()
-	s.Require().NoError(test.WaitForMockChainRPCServer(5 * time.Second))
+	dir := s.T().TempDir()
+	stack := test.StackConfig{
+		DBUser:     envOrDefault("BLOCKSYNCER_TEST_DB_USER", "root"),
+		DBPassword: envOrDefault("BLOCKSYNCER_TEST_DB_PASSWORD", "root"),
+		DBAddress:  envOrDefault("BLOCKSYNCER_TEST_DB_ADDRESS", "127.0.0.1:3306"),
+	}
+	prefix := envOrDefault("BLOCKSYNCER_TEST_DB_NAME", "block_syncer")
+	stack.DBName = test.CreateDatabase(s.T(), stack.DBUser, stack.DBPassword, stack.DBAddress, prefix)
 
-	args := []string{"", "-config", "config.toml", "--server", "blocksyncer"}
+	go test.MockChainRPCServerAt("127.0.0.1:0")
+	s.Require().NoError(test.WaitForMockChainRPCServer(5 * time.Second))
+	stack.ChainAddress = test.MockChainAddress()
+
+	configPath := test.WriteConfig(s.T(), dir, stack)
+	args := []string{"", "-config", configPath, "--server", "blocksyncer"}
 
 	go func() {
 		if err := App.Run(args); err != nil {
@@ -50,8 +79,15 @@ func (s *BasicTestSuite) Test_BlockSyncer() {
 
 	time.Sleep(time.Second * 20)
 
-	err := test.Verify(s.T())
+	err := test.Verify(s.T(), stack.DSN())
 	s.Equal(nil, err)
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func TestBasicTestSuite(t *testing.T) {

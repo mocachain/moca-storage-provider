@@ -135,6 +135,32 @@ func TestGfSpTQueue_PopByKey2(t *testing.T) {
 	assert.NotNil(t, result)
 }
 
+// TestGfSpTQueue_PopTask: PopTask removes the queued task itself but leaves another task
+// registered under the same key.
+func TestGfSpTQueue_PopTask(t *testing.T) {
+	queue := NewGfSpTQueue("mock", 2)
+	newTask := func() *gfsptask.GfSpCreateObjectApprovalTask {
+		return &gfsptask.GfSpCreateObjectApprovalTask{
+			CreateObjectInfo: &storagetypes.MsgCreateObject{
+				ObjectName:        "mockObjectName",
+				PrimarySpApproval: &common.Approval{ExpiredHeight: 99},
+			},
+		}
+	}
+	queued, other := newTask(), newTask()
+	require.Equal(t, queued.Key(), other.Key())
+	assert.False(t, queue.PopTask(queued), "nothing queued")
+	require.NoError(t, queue.Push(queued))
+
+	assert.False(t, queue.PopTask(other))
+	assert.True(t, queue.Has(queued.Key()))
+	assert.False(t, queue.PopTask(nil))
+
+	assert.True(t, queue.PopTask(queued))
+	assert.False(t, queue.Has(queued.Key()))
+	assert.False(t, queue.PopTask(queued), "already popped")
+}
+
 func TestGfSpTQueue_Push(t *testing.T) {
 	t.Log("Case description: queue exceeds")
 	queue := NewGfSpTQueue("mock", 1)

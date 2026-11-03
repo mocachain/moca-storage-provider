@@ -29,6 +29,7 @@ var (
 	MockBLockRes       []string
 	MockBLockResultRes []string
 	mockChainReady     = make(chan struct{})
+	mockChainAddress   string
 )
 
 func initMockRes() {
@@ -189,24 +190,37 @@ func homePage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func setupRoutes() error {
+func setupRoutes(address string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", homePage)
 	mux.HandleFunc("/websocket", wsEndpoint)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return err
 	}
+	mockChainAddress = listener.Addr().String()
 	close(mockChainReady)
 	return http.Serve(listener, mux)
 }
 
+// MockChainRPCServer serves the mock chain on 127.0.0.1:8080.
 func MockChainRPCServer() {
+	MockChainRPCServerAt("127.0.0.1:8080")
+}
+
+// MockChainRPCServerAt serves the mock chain on address; "127.0.0.1:0" picks a free
+// port, which MockChainAddress reports once WaitForMockChainRPCServer returns.
+func MockChainRPCServerAt(address string) {
 	initMockRes()
-	if err := setupRoutes(); err != nil {
+	if err := setupRoutes(address); err != nil {
 		golog.Printf("failed to start mock chain rpc server: %v", err)
 	}
+}
+
+// MockChainAddress returns the address the mock chain is listening on.
+func MockChainAddress() string {
+	return mockChainAddress
 }
 
 func WaitForMockChainRPCServer(timeout time.Duration) error {

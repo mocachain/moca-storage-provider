@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
@@ -32,6 +33,20 @@ func TestNewGfSpBaseAppRejectsLegacyFundingPrivateKey(t *testing.T) {
 	})
 
 	assert.ErrorContains(t, err, "FundingPrivateKey is not supported")
+}
+
+func TestNewGfSpBaseAppRejectsLegacyFundingEnvironment(t *testing.T) {
+	for _, server := range []string{module.SignModularName, module.ManageModularName, module.BlockSyncerModularName} {
+		t.Run(server, func(t *testing.T) {
+			for _, value := range []string{"", "legacy-environment-sentinel"} {
+				t.Setenv("SIGNER_FUNDING_PRIV_KEY", value)
+				app, err := NewGfSpBaseApp(&gfspconfig.GfSpConfig{Server: []string{server}})
+				require.Nil(t, app)
+				require.ErrorContains(t, err, "SIGNER_FUNDING_PRIV_KEY is not supported")
+				require.NotContains(t, err.Error(), "legacy-environment-sentinel")
+			}
+		})
+	}
 }
 
 func TestValidateSignerAuthConfig(t *testing.T) {

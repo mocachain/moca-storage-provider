@@ -667,7 +667,7 @@ func TestMetadataModular_GfSpListObjectsByIDsInternal_IncludesPrivate(t *testing
 			return nil, nil
 		},
 	).Times(1)
-	_, err := a.GfSpListObjectsByIDsInternal(context.Background(), &types.GfSpListObjectsByIDsRequest{
+	_, err := a.GfSpListObjectsByIDsInternal(context.Background(), &types.GfSpListObjectsByIDsInternalRequest{
 		ObjectIds: []uint64{1},
 	})
 	assert.Nil(t, err)

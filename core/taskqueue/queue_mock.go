@@ -21,6 +21,7 @@ import (
 type MockTQueue struct {
 	ctrl     *gomock.Controller
 	recorder *MockTQueueMockRecorder
+	isgomock struct{}
 }
 
 // MockTQueueMockRecorder is the mock recorder for MockTQueue.
@@ -110,6 +111,20 @@ func (mr *MockTQueueMockRecorder) PopByKey(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PopByKey", reflect.TypeOf((*MockTQueue)(nil).PopByKey), arg0)
 }
 
+// PopTask mocks base method.
+func (m *MockTQueue) PopTask(arg0 task.Task) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PopTask", arg0)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PopTask indicates an expected call of PopTask.
+func (mr *MockTQueueMockRecorder) PopTask(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PopTask", reflect.TypeOf((*MockTQueue)(nil).PopTask), arg0)
+}
+
 // Push mocks base method.
 func (m *MockTQueue) Push(arg0 task.Task) error {
 	m.ctrl.T.Helper()
@@ -154,6 +169,7 @@ func (mr *MockTQueueMockRecorder) Top() *gomock.Call {
 type MockTQueueWithLimit struct {
 	ctrl     *gomock.Controller
 	recorder *MockTQueueWithLimitMockRecorder
+	isgomock struct{}
 }
 
 // MockTQueueWithLimitMockRecorder is the mock recorder for MockTQueueWithLimit.
@@ -287,6 +303,7 @@ func (mr *MockTQueueWithLimitMockRecorder) TopByLimit(arg0 any) *gomock.Call {
 type MockTQueueOnStrategy struct {
 	ctrl     *gomock.Controller
 	recorder *MockTQueueOnStrategyMockRecorder
+	isgomock struct{}
 }
 
 // MockTQueueOnStrategyMockRecorder is the mock recorder for MockTQueueOnStrategy.
@@ -376,6 +393,20 @@ func (mr *MockTQueueOnStrategyMockRecorder) PopByKey(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PopByKey", reflect.TypeOf((*MockTQueueOnStrategy)(nil).PopByKey), arg0)
 }
 
+// PopTask mocks base method.
+func (m *MockTQueueOnStrategy) PopTask(arg0 task.Task) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PopTask", arg0)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PopTask indicates an expected call of PopTask.
+func (mr *MockTQueueOnStrategyMockRecorder) PopTask(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PopTask", reflect.TypeOf((*MockTQueueOnStrategy)(nil).PopTask), arg0)
+}
+
 // Push mocks base method.
 func (m *MockTQueueOnStrategy) Push(arg0 task.Task) error {
 	m.ctrl.T.Helper()
@@ -444,6 +475,7 @@ func (mr *MockTQueueOnStrategyMockRecorder) Top() *gomock.Call {
 type MockTQueueOnStrategyWithLimit struct {
 	ctrl     *gomock.Controller
 	recorder *MockTQueueOnStrategyWithLimitMockRecorder
+	isgomock struct{}
 }
 
 // MockTQueueOnStrategyWithLimitMockRecorder is the mock recorder for MockTQueueOnStrategyWithLimit.
@@ -601,6 +633,7 @@ func (mr *MockTQueueOnStrategyWithLimitMockRecorder) TopByLimit(arg0 any) *gomoc
 type MockTQueueStrategy struct {
 	ctrl     *gomock.Controller
 	recorder *MockTQueueStrategyMockRecorder
+	isgomock struct{}
 }
 
 // MockTQueueStrategyMockRecorder is the mock recorder for MockTQueueStrategy.

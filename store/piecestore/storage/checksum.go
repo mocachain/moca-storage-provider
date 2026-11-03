@@ -7,8 +7,6 @@ import (
 	"io"
 	"reflect"
 	"strconv"
-
-	"github.com/mocachain/moca-storage-provider/pkg/log"
 )
 
 var crc32c = crc32.MakeTable(crc32.Castagnoli)
@@ -54,9 +52,13 @@ func (c *checksumReader) Read(buf []byte) (n int, err error) {
 
 // verifiedRange reads a whole object through its verifying reader and serves
 // the requested slice, so a ranged read is integrity-checked before any byte
-// is returned; an empty checksum degrades to an unverified local slice.
+// is returned; an empty checksum degrades to an unverified local slice, and an
+// unparseable one fails with ErrInvalidChecksum.
 func verifiedRange(rc io.ReadCloser, checksum string, offset, limit int64) (io.ReadCloser, error) {
-	vr := verifyChecksum(rc, checksum)
+	vr, err := verifyChecksum(rc, checksum)
+	if err != nil {
+		return nil, err
+	}
 	defer vr.Close()
 	data, err := io.ReadAll(vr)
 	if err != nil {
@@ -74,18 +76,21 @@ func verifiedRange(rc io.ReadCloser, checksum string, offset, limit int64) (io.R
 	return io.NopCloser(bytes.NewReader(data[offset:end])), nil
 }
 
-func verifyChecksum(rc io.ReadCloser, checksum string) io.ReadCloser {
+// verifyChecksum wraps rc in a verifying reader. An empty checksum passes rc
+// through unverified; a checksum that cannot be parsed fails closed: rc is
+// closed and ErrInvalidChecksum is returned.
+func verifyChecksum(rc io.ReadCloser, checksum string) (io.ReadCloser, error) {
 	if checksum == "" {
-		return rc
+		return rc, nil
 	}
 	expected, err := strconv.ParseUint(checksum, 10, 32)
 	if err != nil {
 		signedExpected, signedErr := strconv.ParseInt(checksum, 10, 32)
 		if signedErr != nil {
-			log.Errorf("invalid crc32c: %s", checksum)
-			return rc
+			_ = rc.Close()
+			return nil, fmt.Errorf("%w: %q", ErrInvalidChecksum, checksum)
 		}
 		expected = uint64(uint32(signedExpected))
 	}
-	return &checksumReader{rc, uint32(expected), 0}
+	return &checksumReader{rc, uint32(expected), 0}, nil
 }

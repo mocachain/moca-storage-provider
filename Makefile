@@ -9,7 +9,7 @@ ifdef GITHUB_TOKEN
   $(shell git config --global url."https://$(GITHUB_TOKEN):@github.com/".insteadOf "https://github.com/" 2>/dev/null)
 endif
 
-.PHONY: all build clean check-go-env check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-changed lint-fix lint-staged mock-gen pre-commit pre-commit-staged test test-local test-changed test-staged test-p2p check-p2p-coverage tidy vet buf-gen proto-clean
+.PHONY: all build clean check-go-env test-mysql test-mysql-down check-lint format hooks install-go-test-coverage install-lint install-tools generate lint lint-changed lint-fix lint-staged mock-gen pre-commit pre-commit-staged test test-local test-changed test-staged test-p2p check-p2p-coverage tidy vet buf-gen proto-clean
 .PHONY: install-go-test-coverage check-coverage
 
 GO ?= $(shell for candidate in /opt/homebrew/bin/go /usr/local/go/bin/go "$$(command -v go 2>/dev/null)"; do \
@@ -172,10 +172,23 @@ mock-gen:
 	mockgen -source=store/bsdb/database.go -destination=store/bsdb/database_mock.go -package=bsdb
 	mockgen -source=core/task/task.go -destination=core/task/task_mock.go -package=task
 
-# only run unit tests, exclude e2e tests
-test: check-go-env
+# The blocksyncer tests need a MySQL server: use the one already on
+# 127.0.0.1:3306 (root/root), else start a loopback-bound mysql:8.0 container.
+# Set BLOCKSYNCER_TEST_DB_ADDRESS to use another server instead.
+test-mysql:
+	@bash ./script/test-mysql.sh up
+
+test-mysql-down:
+	@bash ./script/test-mysql.sh down
+
+# test/e2e Go packages that need no running stack (cloud stores skip without credentials)
+E2E_UNIT_PKGS := ./test/e2e/piecestore ./test/e2e/spworkflow
+UNIT_PKGS_CMD = { $(GO_REPO_ENV) $(GO) list ./... | grep -v '/test/e2e/'; $(GO_REPO_ENV) $(GO) list $(E2E_UNIT_PKGS); }
+
+# run the unit tests, plus the e2e Go packages listed in E2E_UNIT_PKGS
+test: check-go-env test-mysql
 	@echo "--> Running local unit tests with coverage..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+	@pkgs="$$($(UNIT_PKGS_CMD))"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -covermode=atomic -coverprofile=./coverage.out -timeout 99999s
 	# go test -cover ./...
 	# go test -coverprofile=coverage.out ./...
@@ -183,9 +196,9 @@ test: check-go-env
 
 # Run the same local-only unit test set as `test` without writing coverage
 # artifacts, so pre-commit checks do not modify the worktree.
-test-local: check-go-env
+test-local: check-go-env test-mysql
 	@echo "--> Running local unit tests..."
-	@pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+	@pkgs="$$($(UNIT_PKGS_CMD))"; \
 	$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s
 
 P2P_COVERAGE_MIN ?= 5
@@ -198,17 +211,17 @@ check-p2p-coverage: test-p2p
 	@coverage="$$($(GO_REPO_ENV) $(GO) tool cover -func=./p2p-coverage.out | awk '/^total:/ { gsub("%", "", $$3); print $$3 }')"; \
 	awk -v actual="$$coverage" -v minimum="$(P2P_COVERAGE_MIN)" 'BEGIN { if (actual + 0 < minimum + 0) { printf "P2P coverage %.1f%% is below the required %.1f%%\n", actual, minimum; exit 1 } printf "P2P coverage %.1f%% meets the required %.1f%%\n", actual, minimum }'
 
-test-changed: check-go-env
-	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true )"; \
+test-changed: check-go-env test-mysql
+	@changed_dirs="$$( { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true )"; \
 	if { git diff --name-only --diff-filter=ACMR HEAD; git ls-files --others --exclude-standard; } | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+		pkgs="$$($(UNIT_PKGS_CMD))"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$changed_dirs" ]; then \
 		echo "--> No local changed Go packages to test"; \
 	else \
 		echo "--> Running unit tests for local changed Go packages..."; \
-		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | grep -v modular/blocksyncer | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$changed_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | sort -u | comm -12 - <($(UNIT_PKGS_CMD) | sort -u))"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the local changed files"; \
 		else \
@@ -216,17 +229,17 @@ test-changed: check-go-env
 		fi; \
 	fi
 
-test-staged: check-go-env
-	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed 's#^\.$$#./#' | sort -u || true)"; \
+test-staged: check-go-env test-mysql
+	@staged_dirs="$$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$$' | xargs -n1 dirname 2>/dev/null | sed -E 's#^\.$$#./#; s#^([^./])#./\1#' | sort -u || true)"; \
 	if git diff --cached --name-only --diff-filter=ACMR | grep -Eq '(^|/)(go\.mod|go\.sum)$$'; then \
 		echo "--> go.mod/go.sum changed; running full local unit tests..."; \
-		pkgs="$$($(GO_REPO_ENV) $(GO) list ./... | grep -v e2e | grep -v modular/blocksyncer)"; \
+		pkgs="$$($(UNIT_PKGS_CMD))"; \
 		$(GO_REPO_ENV) $(GO) test -failfast $$pkgs -timeout 99999s; \
 	elif [ -z "$$staged_dirs" ]; then \
 		echo "--> No staged Go packages to test"; \
 	else \
 		echo "--> Running unit tests for staged Go packages..."; \
-		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | grep -v e2e | grep -v modular/blocksyncer | sort -u)"; \
+		pkgs="$$(printf '%s\n' $$staged_dirs | xargs $(GO_REPO_ENV) $(GO) list 2>/dev/null | sort -u | comm -12 - <($(UNIT_PKGS_CMD) | sort -u))"; \
 		if [ -z "$$pkgs" ]; then \
 			echo "--> No testable Go packages matched the staged files"; \
 		else \
@@ -288,7 +301,7 @@ stop-dc:
 ###############################################################################
 
 PACKAGE_NAME:=github.com/mocachain/moca-storage-provider
-GOLANG_CROSS_VERSION  = v1.23
+GOLANG_CROSS_VERSION  = v1.26.10
 GOPATH ?= $(HOME)/go
 release-dry-run:
 	docker run \

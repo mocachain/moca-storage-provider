@@ -87,6 +87,45 @@ Signer interface inherits [Modular interface](./common/lifecycle_modular.md#modu
 
 In terms of the functions provided by Signer module, there are ten methods. You can rewrite these methods to meet your own requirements.
 
+## Gas of EVM transactions
+
+Every EVM transaction the signer sends carries an estimated gas limit, not a fixed one.
+Before signing, the signer asks the node to estimate the exact call
+(`eth_estimateGas`) and adds `[Chain] EvmGasMarginPercent` (default 25, at most 100).
+
+- The per-type `[Chain] *GasLimit` settings (`SealGasLimit`, `CreateGlobalVirtualGroupGasLimit`
+  and so on) are upper bounds. A transaction whose estimate is above its bound is not sent,
+  and the error names both numbers; the margin never raises a limit above its bound. An unset
+  bound takes the default, about twice the largest gas measured on a moca v2 network
+  (a seal uses 432k to 473k gas).
+- A call the node cannot estimate, for example because it would revert, is not signed or
+  sent, and the request fails with the node's reason. The fee for a reverted transaction is
+  not spent, and no pending transaction is recorded for it.
+- The margin is cheap: the fee market charges the larger of the gas used and half the gas
+  limit, so a margin up to 100% is not charged.
+
+### Chain requirement and rollout order
+
+Estimating storage calls needs a moca v2 chain that includes
+[mocachain/moca#593](https://github.com/mocachain/moca/pull/593), which builds against
+cosmos/evm v0.6.3 with the snapshotmulti fix from mocachain/cosmos-evm. On a v2 node without
+it, `eth_estimateGas` fails with `snapshot index 0 out of bound` for every storage call that
+mints or burns an object, bucket or group NFT, every seal included. The signer then refuses
+those transactions before sending them, so the SP stops sealing however high its `*GasLimit`
+bounds are. moca v2.0.0-rc0 does not include the fix.
+
+Deploy in this order:
+
+1. Upgrade the chain to a moca v2 build that includes the fix. The node the signer estimates
+   against, the first entry of `[Chain] RpcAddress`, must run it as well. On each node,
+   `mocad version --long` must list
+   `github.com/cosmos/evm@v0.6.3 => github.com/mocachain/cosmos-evm@<version>`; a plain
+   `github.com/cosmos/evm@v0.6.3` line means the node does not have the fix.
+2. Raise or remove every explicit `*GasLimit` below the gas its transaction uses, for example
+   `SealGasLimit = 180000`; otherwise that transaction is refused.
+3. Deploy this SP version.
+
+
 ## SignReplicatePieceApproval
 
 The second params of SignReplicatePieceApproval is a task interface, the corresponding interface definition is shown below:

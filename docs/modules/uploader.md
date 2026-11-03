@@ -66,6 +66,14 @@ The corresponding `protobuf` definition is shown below:
 - [ObjectInfo](./common/proto.md#objectinfo-proto)
 - [Params](./common/proto.md#params-proto)
 
+### Resuming interrupted requests
+
+For objects with a declared payload size, resume offsets must be at a segment boundary at or before persisted progress. Replayed segments must match their stored checksums and are not written or counted again. This lets a final request be retried if its pieces were saved but recording completion failed. Once all declared bytes are stored, a completed request at the payload end with an empty body can also retry finalization. A non-final request that ends partway through a segment returns a closed-stream error without storing that partial segment. Previously completed segments remain available; retry from the last complete segment boundary and resend the discarded bytes. A final request may store a short last segment, but completion requires the total stored size to match the declared payload for both agent and non-agent uploads.
+
+The uploader checks upload state before validating the offset or notifying the manager. Requests for objects already uploaded or being replicated return the existing upload-state conflict error.
+
+An object is reserved for one resumable request from its pre-check until its handler returns. A request for the same object that arrives in between is rejected with a conflict error (code 110010) before the manager is notified or anything is persisted; retry it once the in-flight request has finished. Each manager call made while the object is reserved is limited to 30 seconds; a registration that times out has the manager drop the task and releases the object, and the manager does not keep a registration that completes after the uploader gave up. Once registered, a reservation whose handler never starts expires after 30 seconds: the next request for the object, including a retry at the same offset, has the manager drop the abandoned task before registering its own, and a late handler that finds the object taken is refused. A registration that cannot be dropped stays on record, and the next request for the object retires it before registering its own. Dropped tasks are removed without marking the upload failed.
+
 ## GfSp Framework Uploader Code
 
 Uploader module code implementation: [Uploader](https://github.com/mocachain/moca-storage-provider/tree/master/modular/uploader)

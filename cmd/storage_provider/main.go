@@ -129,6 +129,8 @@ func init() {
 		command.CompleteSwapOutCmd, // only for debugging
 		// update quota
 		command.SetQuotaCmd,
+		// signer EVM state commands
+		command.SignerEvmCmd,
 		// block syncer
 		bs_data_migration.BsDataMigrationCmd,
 		// be related to sp exit
