@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#234](https://github.com/mocachain/moca-storage-provider/pull/234)  fix(manager): report a failed swap-out send instead of treating it as already on chain
 * [#220](https://github.com/mocachain/moca-storage-provider/pull/220)  fix(executor): log task info instead of the whole task after sealing
 * [#219](https://github.com/mocachain/moca-storage-provider/pull/219)  fix(executor): record a secondary signature parse failure on the task
 * [#217](https://github.com/mocachain/moca-storage-provider/pull/217)  fix(downloader): report the piece store read error on object download
