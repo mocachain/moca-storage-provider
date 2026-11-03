@@ -1,56 +1,48 @@
 package piecestore_e2e
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/mocachain/moca-storage-provider/store/piecestore/storage"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestS3Store(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.S3Store, s3BucketURL, storage.AKSKIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	skipUnlessConfigured(t, "s3", storage.AWSAccessKey, storage.AWSSecretKey)
+	handler := setup(t, storage.S3Store, bucketURLFromEnv(s3BucketURLEnv, s3BucketURL), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }
 
 func TestOSSStore(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.OSSStore, ossBucketURL, storage.SAIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	skipUnlessConfigured(t, "oss", storage.OSSRoleARN, storage.OSSOidcProviderArn, storage.OSSWebIdentityTokenFile)
+	handler := setup(t, storage.OSSStore, bucketURLFromEnv(ossBucketURLEnv, ossBucketURL), storage.SAIAMType, 0)
 	doOperations(t, handler)
 }
 
 func TestMinioStore(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.MinioStore, s3BucketURL, storage.AKSKIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	skipUnlessConfigured(t, "minio", minioBucketURLEnv, storage.MinioAccessKey, storage.MinioSecretKey)
+	handler := setup(t, storage.MinioStore, bucketURLFromEnv(minioBucketURLEnv, ""), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }
 
 func TestB2Store(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.B2Store, b2BucketURL, storage.AKSKIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	skipUnlessConfigured(t, "b2", storage.B2AccessKey, storage.B2SecretKey)
+	handler := setup(t, storage.B2Store, bucketURLFromEnv(b2BucketURLEnv, b2BucketURL), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }
 
 func TestDiskFileStore(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.DiskFileStore, "", storage.AKSKIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	handler := setup(t, storage.DiskFileStore, t.TempDir(), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }
 
 func TestMemoryStore(t *testing.T) {
-	// 1. init piece store
-	handler, err := setup(t, storage.MemoryStore, "", storage.AKSKIAMType, 0)
-	assert.Equal(t, err, nil)
-	// 2. do some operations to test piece store api
+	handler := setup(t, storage.MemoryStore, "", storage.AKSKIAMType, 0)
+	doOperations(t, handler)
+}
+
+func TestStoresIgnoreTheBucketURLEnvironment(t *testing.T) {
+	t.Setenv(storage.BucketURL, filepath.Join(t.TempDir(), "elsewhere"))
+	handler := setup(t, storage.DiskFileStore, t.TempDir(), storage.AKSKIAMType, 0)
 	doOperations(t, handler)
 }

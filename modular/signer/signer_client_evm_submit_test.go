@@ -482,7 +482,7 @@ func TestEvmSubmitCancelledBeforeSendRecordsNothing(t *testing.T) {
 	node, signClient := newScenario(t)
 	ctx := scenarioCtx(t)
 	txOpts, err := CreateTxOpts(ctx, signClient.evmClient, signClient.evmPrivateKeys[SignOperator], big.NewInt(5151),
-		300000, scenarioNonce, signClient.maxEvmGasPrice)
+		300000, 0, scenarioNonce, signClient.maxEvmGasPrice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,12 +937,18 @@ func TestEvmSubmitRetryMethodUnrecordedRefusalIsNotResigned(t *testing.T) {
 	}
 }
 
-// A local signing failure (here abigen's gas estimation hitting a node that
-// does not serve eth_getCode) must surface as the returned reason instead of
-// being lost behind the retry loop.
-func TestEvmLocalSignErrorIsReturned(t *testing.T) {
+// A local signing failure (here the node refusing to estimate the call, as it
+// does for a call that would revert) must surface as the returned reason instead
+// of being lost behind the retry loop, and nothing may be sent.
+// evmSignerMethods lists every EVM transaction method of the signer with the gas
+// type whose configured limit bounds it.
+func evmSignerMethods() []struct {
+	name    string
+	gasType GasInfoType
+	call    func(context.Context, *MocaChainSignClient) (string, error)
+} {
 	deposit := sdk.NewCoin("amoca", sdkmath.NewInt(1))
-	for _, tc := range []struct {
+	return []struct {
 		name    string
 		gasType GasInfoType
 		call    func(context.Context, *MocaChainSignClient) (string, error)
@@ -950,20 +956,47 @@ func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 		{"SealObjectEvm", Seal, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.SealObjectEvm(ctx, SignSeal, &storagetypes.MsgSealObject{BucketName: "bucket", ObjectName: "object"})
 		}},
+		{"SealObjectV2Evm", Seal, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.SealObjectV2Evm(ctx, SignSeal, &storagetypes.MsgSealObjectV2{BucketName: "bucket", ObjectName: "object"})
+		}},
 		{"RejectUnSealObjectEvm", RejectSeal, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.RejectUnSealObjectEvm(ctx, SignSeal, &storagetypes.MsgRejectSealObject{BucketName: "bucket", ObjectName: "object"})
 		}},
 		{"CreateGlobalVirtualGroupEvm", CreateGlobalVirtualGroup, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.CreateGlobalVirtualGroupEvm(ctx, SignOperator, &virtualgrouptypes.MsgCreateGlobalVirtualGroup{FamilyId: 1, Deposit: deposit})
 		}},
+		{"DeleteGlobalVirtualGroupEvm", DeleteGlobalVirtualGroup, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DeleteGlobalVirtualGroupEvm(ctx, SignOperator, &virtualgrouptypes.MsgDeleteGlobalVirtualGroup{GlobalVirtualGroupId: 1})
+		}},
+		{"DepositEvm", Deposit, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DepositEvm(ctx, SignOperator, fakeDepositMsg(1000))
+		}},
 		{"CompleteMigrateBucketEvm", CompleteMigrateBucket, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.CompleteMigrateBucketEvm(ctx, SignOperator, &storagetypes.MsgCompleteMigrateBucket{BucketName: "bucket"})
+		}},
+		{"RejectMigrateBucketEvm", RejectMigrateBucket, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.RejectMigrateBucketEvm(ctx, SignOperator, &storagetypes.MsgRejectMigrateBucket{BucketName: "bucket"})
 		}},
 		{"SwapOutEvm", SwapOut, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.SwapOutEvm(ctx, SignOperator, &virtualgrouptypes.MsgSwapOut{GlobalVirtualGroupFamilyId: 1})
 		}},
 		{"CompleteSwapOutEvm", CompleteSwapOut, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.CompleteSwapOutEvm(ctx, SignOperator, &virtualgrouptypes.MsgCompleteSwapOut{GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"ReserveSwapInEvm", ReserveSwapIn, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.ReserveSwapInEvm(ctx, SignOperator, &virtualgrouptypes.MsgReserveSwapIn{TargetSpId: 1, GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"CompleteSwapInEvm", CompleteSwapIn, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CompleteSwapInEvm(ctx, SignOperator, &virtualgrouptypes.MsgCompleteSwapIn{GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"CancelSwapInEvm", CancelSwapIn, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CancelSwapInEvm(ctx, SignOperator, &virtualgrouptypes.MsgCancelSwapIn{GlobalVirtualGroupFamilyId: 1})
+		}},
+		{"SPExitEvm", SPExit, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.SPExitEvm(ctx, SignOperator, &virtualgrouptypes.MsgStorageProviderExit{})
+		}},
+		{"CompleteSPExitEvm", CompleteSPExit, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.CompleteSPExitEvm(ctx, SignOperator, &virtualgrouptypes.MsgCompleteStorageProviderExit{})
 		}},
 		{"DiscontinueBucketEvm", DiscontinueBucket, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
 			return c.DiscontinueBucketEvm(ctx, SignGc, &storagetypes.MsgDiscontinueBucket{BucketName: "bucket", Reason: "test"})
@@ -973,14 +1006,50 @@ func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 				ReadPrice: sdkmath.LegacyNewDec(1), FreeReadQuota: 1, StorePrice: sdkmath.LegacyNewDec(1),
 			})
 		}},
-	} {
+		{"DelegateCreateObjectEvm", DelegateCreateObject, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DelegateCreateObjectEvm(ctx, SignOperator, &storagetypes.MsgDelegateCreateObject{BucketName: "bucket", ObjectName: "object"})
+		}},
+		{"DelegateUpdateObjectContentEvm", DelegateUpdateObjectContent, func(ctx context.Context, c *MocaChainSignClient) (string, error) {
+			return c.DelegateUpdateObjectContentEvm(ctx, SignOperator, &storagetypes.MsgDelegateUpdateObjectContent{BucketName: "bucket", ObjectName: "object"})
+		}},
+	}
+}
+
+// A call the node will not estimate is not sent, and the node's reason reaches the
+// caller.
+func TestEvmLocalSignErrorIsReturned(t *testing.T) {
+	for _, tc := range evmSignerMethods() {
 		t.Run(tc.name, func(t *testing.T) {
 			node, signClient := newScenario(t)
-			signClient.gasInfo[tc.gasType] = GasInfo{GasLimit: 0}
+			node.setGasEstimate(0, "execution reverted: "+tc.name)
 
 			txHash, err := tc.call(scenarioCtx(t), signClient)
-			if txHash != "" || err == nil || !strings.Contains(err.Error(), "eth_getCode") {
+			if txHash != "" || err == nil || !strings.Contains(err.Error(), "failed to estimate gas") ||
+				!strings.Contains(err.Error(), tc.name) {
 				t.Fatalf("expected the local signing error to be returned, got hash=%q err=%v", txHash, err)
+			}
+			if _, sends, _ := node.snapshot(); len(sends) != 0 {
+				t.Fatalf("a transaction was sent; %s", node.describe())
+			}
+		})
+	}
+}
+
+// An estimate above the configured limit (300000 in the scenario) is not sent, and
+// the caller gets both numbers.
+func TestEvmEstimateAboveLimitIsReturned(t *testing.T) {
+	for _, tc := range evmSignerMethods() {
+		t.Run(tc.name, func(t *testing.T) {
+			node, signClient := newScenario(t)
+			if limit := signClient.gasInfo[tc.gasType].GasLimit; limit != 300000 {
+				t.Fatalf("scenario gas limit for %s is %d, want 300000", tc.name, limit)
+			}
+			node.setGasEstimate(400000, "")
+
+			txHash, err := tc.call(scenarioCtx(t), signClient)
+			if txHash != "" || err == nil ||
+				!strings.Contains(err.Error(), "estimated gas 400000 exceeds the configured gas limit 300000") {
+				t.Fatalf("expected the estimate and the limit to be returned, got hash=%q err=%v", txHash, err)
 			}
 			if _, sends, _ := node.snapshot(); len(sends) != 0 {
 				t.Fatalf("a transaction was sent; %s", node.describe())

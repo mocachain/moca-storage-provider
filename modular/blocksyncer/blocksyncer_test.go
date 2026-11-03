@@ -28,6 +28,19 @@ func TestStorageProviderRejectsLegacyFundingPrivateKey(t *testing.T) {
 	require.ErrorContains(t, err, "FundingPrivateKey is not supported")
 }
 
+func TestStorageProviderRejectsLegacyFundingEnvironment(t *testing.T) {
+	for _, value := range []string{"", "legacy-environment-sentinel"} {
+		t.Setenv("SIGNER_FUNDING_PRIV_KEY", value)
+		set := flag.NewFlagSet("test", flag.ContinueOnError)
+		// Avoid initializing a file logger; no DB, TLS or RPC configuration is supplied.
+		require.NoError(t, utils.LogStdOutputFlag.Apply(set))
+		require.NoError(t, set.Parse([]string{"--log.std"}))
+		err := StorageProvider(cli.NewContext(cli.NewApp(), set, nil))
+		require.ErrorContains(t, err, "SIGNER_FUNDING_PRIV_KEY is not supported")
+		require.NotContains(t, err.Error(), "legacy-environment-sentinel")
+	}
+}
+
 type BasicTestSuite struct {
 	BlockSyncerE2eBaseSuite
 }
