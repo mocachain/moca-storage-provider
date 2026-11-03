@@ -937,9 +937,6 @@ func TestEvmSubmitRetryMethodUnrecordedRefusalIsNotResigned(t *testing.T) {
 	}
 }
 
-// A local signing failure (here the node refusing to estimate the call, as it
-// does for a call that would revert) must surface as the returned reason instead
-// of being lost behind the retry loop, and nothing may be sent.
 // evmSignerMethods lists every EVM transaction method of the signer with the gas
 // type whose configured limit bounds it.
 func evmSignerMethods() []struct {
@@ -1015,8 +1012,24 @@ func evmSignerMethods() []struct {
 	}
 }
 
-// A call the node will not estimate is not sent, and the node's reason reaches the
-// caller.
+// assertRefusedWhileSigning checks that a call refused while signing was estimated
+// once, with one gas price query, and that nothing was sent. The estimate does not
+// depend on the nonce, so signing again cannot change the answer.
+func assertRefusedWhileSigning(t *testing.T, node *fakeEvmNode) {
+	t.Helper()
+	if estimates := len(node.estimateCalls()); estimates != 1 {
+		t.Fatalf("expected one gas estimate, got %d; %s", estimates, node.describe())
+	}
+	if prices := node.gasPriceCallCount(); prices != 1 {
+		t.Fatalf("expected one gas price query, got %d; %s", prices, node.describe())
+	}
+	if _, sends, _ := node.snapshot(); len(sends) != 0 {
+		t.Fatalf("a transaction was sent; %s", node.describe())
+	}
+}
+
+// A call the node will not estimate is not sent or retried, and the node's reason
+// reaches the caller.
 func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 	for _, tc := range evmSignerMethods() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1024,19 +1037,17 @@ func TestEvmLocalSignErrorIsReturned(t *testing.T) {
 			node.setGasEstimate(0, "execution reverted: "+tc.name)
 
 			txHash, err := tc.call(scenarioCtx(t), signClient)
-			if txHash != "" || err == nil || !strings.Contains(err.Error(), "failed to estimate gas") ||
+			if txHash != "" || err == nil || !strings.Contains(err.Error(), "failed to sign EVM tx: failed to estimate gas") ||
 				!strings.Contains(err.Error(), tc.name) {
 				t.Fatalf("expected the local signing error to be returned, got hash=%q err=%v", txHash, err)
 			}
-			if _, sends, _ := node.snapshot(); len(sends) != 0 {
-				t.Fatalf("a transaction was sent; %s", node.describe())
-			}
+			assertRefusedWhileSigning(t, node)
 		})
 	}
 }
 
-// An estimate above the configured limit (300000 in the scenario) is not sent, and
-// the caller gets both numbers.
+// An estimate above the configured limit (300000 in the scenario) is not sent or
+// retried, and the caller gets both numbers.
 func TestEvmEstimateAboveLimitIsReturned(t *testing.T) {
 	for _, tc := range evmSignerMethods() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1048,12 +1059,10 @@ func TestEvmEstimateAboveLimitIsReturned(t *testing.T) {
 
 			txHash, err := tc.call(scenarioCtx(t), signClient)
 			if txHash != "" || err == nil ||
-				!strings.Contains(err.Error(), "estimated gas 400000 exceeds the configured gas limit 300000") {
+				!strings.Contains(err.Error(), "failed to sign EVM tx: estimated gas 400000 exceeds the configured gas limit 300000") {
 				t.Fatalf("expected the estimate and the limit to be returned, got hash=%q err=%v", txHash, err)
 			}
-			if _, sends, _ := node.snapshot(); len(sends) != 0 {
-				t.Fatalf("a transaction was sent; %s", node.describe())
-			}
+			assertRefusedWhileSigning(t, node)
 		})
 	}
 }

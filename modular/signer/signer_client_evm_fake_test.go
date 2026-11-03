@@ -339,6 +339,12 @@ func (node *fakeEvmNode) estimateCalls() []fakeEvmEstimate {
 	return append([]fakeEvmEstimate(nil), node.estimates...)
 }
 
+func (node *fakeEvmNode) gasPriceCallCount() int {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	return node.gasPriceCalls
+}
+
 func (node *fakeEvmNode) setHideReceipts(hide bool) {
 	node.mu.Lock()
 	defer node.mu.Unlock()
