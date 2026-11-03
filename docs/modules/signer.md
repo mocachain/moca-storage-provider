@@ -33,6 +33,10 @@ A future enabling design must require a one-time exact permit containing all of 
 
 No permit issuer or approval authority is defined here. mTLS identity, `ValidateBasic`, and amount limits do not authorize request content and must not bypass the guard.
 
+The proposed v2 follow-up is documented in [Signer content authorization](../signer-content-authorization.md).
+It specifies a separate approval authority, exact typed permits, durable consumption,
+and crash/retry handling. It is a proposal; the guard and Draft status remain in place.
+
 ```go
 type Signer interface {
     Modular
