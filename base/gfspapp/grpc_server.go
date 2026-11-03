@@ -67,13 +67,21 @@ func (g *GfSpBaseApp) StartRPCServer(ctx context.Context) error {
 	return nil
 }
 
-// grpcGracefulStopTimeout bounds how long StopRPCServer waits for in-flight RPCs
-// and open streams before it closes every connection.
-var grpcGracefulStopTimeout = 10 * time.Second
+var (
+	// grpcGracefulStopTimeout bounds how long StopRPCServer waits for in-flight
+	// RPCs and open streams before it closes every connection.
+	grpcGracefulStopTimeout = 10 * time.Second
+	// grpcForceStopTimeout bounds how long StopRPCServer then waits for the
+	// method handlers to return. A handler that ignores the cancellation of its
+	// context (for example one blocked on a backend call without a deadline)
+	// keeps GracefulStop, and can keep Stop, from returning.
+	grpcForceStopTimeout = 2 * time.Second
+)
 
 // StopRPCServer stops the gRPC server gracefully, and closes every connection if
 // in-flight RPCs or open streams (peers and clients keep some open) have not
-// finished within grpcGracefulStopTimeout or ctx is done.
+// finished within grpcGracefulStopTimeout or ctx is done. Handlers still running
+// grpcForceStopTimeout after that are left behind.
 func (g *GfSpBaseApp) StopRPCServer(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -89,7 +97,13 @@ func (g *GfSpBaseApp) StopRPCServer(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 	log.Warnw("grpc server did not stop gracefully in time, closing all connections", "timeout", grpcGracefulStopTimeout)
-	g.server.Stop()
-	<-done
+	go g.server.Stop()
+	forceTimer := time.NewTimer(grpcForceStopTimeout)
+	defer forceTimer.Stop()
+	select {
+	case <-done:
+	case <-forceTimer.C:
+		log.Errorw("grpc handlers still running after closing all connections, leaving them", "timeout", grpcForceStopTimeout)
+	}
 	return nil
 }
