@@ -1241,7 +1241,7 @@ func GetSwapOutApprovalAndSendTx(baseApp *gfspapp.GfSpBaseApp, destSP *sptypes.S
 			)
 			if txHash, txErr = baseApp.GfSpClient().SwapOut(ctx, approvalSwapOut); txErr != nil && !isAlreadyExists(txErr) {
 				log.Errorw("failed to send swap out tx to chain", "swap_out_msg", approvalSwapOut, "error", txErr)
-				return "", err
+				return "", txErr
 			}
 			return txHash, nil
 		}); err != nil {
