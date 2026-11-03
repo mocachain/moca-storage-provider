@@ -52,9 +52,8 @@ func TestGfSpBaseApp_stopServicesSuccess(t *testing.T) {
 	}).AnyTimes()
 	m.EXPECT().Name().Return("mock").AnyTimes()
 	g := &GfSpBaseApp{}
-	ctx, cancel := context.WithCancel(context.TODO())
 	g.RegisterServices(m)
-	g.stopServices(ctx, cancel)
+	g.stopServices(context.TODO())
 }
 
 func TestGfSpBaseApp_stopServicesFailure(t *testing.T) {
@@ -65,9 +64,8 @@ func TestGfSpBaseApp_stopServicesFailure(t *testing.T) {
 	}).AnyTimes()
 	m.EXPECT().Name().Return("mock").AnyTimes()
 	g := &GfSpBaseApp{}
-	ctx, cancel := context.WithCancel(context.TODO())
 	g.RegisterServices(m)
-	g.stopServices(ctx, cancel)
+	g.stopServices(context.TODO())
 }
 
 func TestGfSpBaseApp_Done(t *testing.T) {
