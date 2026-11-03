@@ -1,3 +1,5 @@
+//go:build go1.25
+
 package manager
 
 import (
@@ -8,8 +10,8 @@ import (
 	"time"
 
 	sdkmath "cosmossdk.io/math"
-	storagetypes "github.com/mocachain/moca/v2/x/storage/types"
-	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	storagetypes "github.com/evmos/evmos/v12/x/storage/types"
+	virtualgrouptypes "github.com/evmos/evmos/v12/x/virtualgroup/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
