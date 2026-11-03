@@ -4,6 +4,7 @@
 
 BUGFIXES
 
+* [#234](https://github.com/mocachain/moca-storage-provider/pull/234)  fix(manager): report a failed swap-out send instead of treating it as already on chain
 * [#233](https://github.com/mocachain/moca-storage-provider/pull/233)  fix(signer): every EVM transaction method now returns a signing failure (a call the node cannot estimate, or one estimated above its `*GasLimit`) at once with `failed to sign EVM tx: <reason>`, as DiscontinueBucket and UpdateSPPrice already did, instead of estimating the call three times back to back and reporting `failed to broadcast`; nonce refusals are still retried
 * [#230](https://github.com/mocachain/moca-storage-provider/pull/230)  fix(gfspapp): stop within a bounded time on SIGTERM, SIGINT or SIGHUP. The gRPC server waited forever for open streams, so a stopped storage provider kept running until its supervisor sent SIGKILL (after 10s with Docker, 30s on Kubernetes, 90s with systemd). The gRPC stop now closes the remaining connections after 10s and waits at most 2s more for call handlers (one that ignores cancellation is left behind), the module stop is bounded at 30s (its timeout was 30 nanoseconds and never applied), the whole stop exits after 45s at the latest, and a second signal exits at once. The last log lines are flushed before exit, for at most 2s, so a stalled log writer cannot keep the process alive. docs/stopping.md lists the supervisor settings
 
