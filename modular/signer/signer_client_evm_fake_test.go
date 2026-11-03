@@ -102,6 +102,20 @@ type fakeEvmNode struct {
 	// executions counts committed transactions per call content, standing
 	// in for a non-idempotent effect such as a deposit.
 	executions map[string]int
+	// gasEstimate answers eth_estimateGas; estimateErr, when set, is returned
+	// instead. estimates records each call's arguments.
+	gasEstimate uint64
+	estimateErr string
+	estimates   []fakeEvmEstimate
+}
+
+// fakeEvmEstimate is one eth_estimateGas call's arguments.
+type fakeEvmEstimate struct {
+	From     ethcmn.Address  `json:"from"`
+	To       *ethcmn.Address `json:"to"`
+	Data     hexutil.Bytes   `json:"data"`
+	Input    hexutil.Bytes   `json:"input"`
+	GasPrice *hexutil.Big    `json:"gasPrice"`
 }
 
 func newFakeEvmNode(t *testing.T, accountNonce uint64) *fakeEvmNode {
@@ -115,6 +129,7 @@ func newFakeEvmNode(t *testing.T, accountNonce uint64) *fakeEvmNode {
 		receiptStatus: map[ethcmn.Hash]uint64{},
 		height:        100,
 		executions:    map[string]int{},
+		gasEstimate:   100_000,
 	}
 	node.server = httptest.NewServer(http.HandlerFunc(node.serveHTTP))
 	t.Cleanup(node.server.Close)
@@ -159,6 +174,21 @@ func (node *fakeEvmNode) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		node.writeResult(w, req.ID, hexutil.EncodeUint64(height))
 	case "eth_sendRawTransaction":
 		node.serveSend(w, r, req)
+	case "eth_estimateGas":
+		var call fakeEvmEstimate
+		if len(req.Params) == 0 || json.Unmarshal(req.Params[0], &call) != nil {
+			node.writeError(w, req.ID, -32602, "invalid argument 0")
+			return
+		}
+		node.mu.Lock()
+		node.estimates = append(node.estimates, call)
+		estimate, estimateErr := node.gasEstimate, node.estimateErr
+		node.mu.Unlock()
+		if estimateErr != "" {
+			node.writeError(w, req.ID, 3, estimateErr)
+			return
+		}
+		node.writeResult(w, req.ID, hexutil.EncodeUint64(estimate))
 	default:
 		node.mu.Lock()
 		node.unknownMethods = append(node.unknownMethods, req.Method)
@@ -293,6 +323,20 @@ func (node *fakeEvmNode) commitExternal() {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	node.accountNonce++
+}
+
+// setGasEstimate sets what eth_estimateGas answers: estimate, or errMessage as an
+// RPC error when it is not empty.
+func (node *fakeEvmNode) setGasEstimate(estimate uint64, errMessage string) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	node.gasEstimate, node.estimateErr = estimate, errMessage
+}
+
+func (node *fakeEvmNode) estimateCalls() []fakeEvmEstimate {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	return append([]fakeEvmEstimate(nil), node.estimates...)
 }
 
 func (node *fakeEvmNode) setHideReceipts(hide bool) {

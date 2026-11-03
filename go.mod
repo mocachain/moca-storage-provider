@@ -356,6 +356,8 @@ replace (
 	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.3.0-rc1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.4.0-rc1
+	// cosmos/evm v0.6.3 plus the snapshotmulti CacheMultiStore branch fix, matching mocachain/moca main
+	github.com/cosmos/evm => github.com/mocachain/cosmos-evm v0.6.4-0.20261030062549-5127a378854f
 	// use Cosmos geth fork, matching mocachain/moca main
 	github.com/ethereum/go-ethereum => github.com/cosmos/go-ethereum v1.16.2-cosmos-1
 	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc1
@@ -363,7 +365,7 @@ replace (
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
 	github.com/mocachain/moca-common/go => github.com/mocachain/moca-common/go v1.3.0-rc0
 	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.3.0-rc0
-	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-rc0.0.20261028162955-42f9474d156c
+	github.com/mocachain/moca/v2 => github.com/mocachain/moca/v2 v2.0.0-rc0.0.20261102081743-b399ee03b433
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17

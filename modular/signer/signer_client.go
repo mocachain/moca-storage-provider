@@ -149,15 +149,17 @@ type MocaChainSignClient struct {
 	sealLock sync.Mutex
 	gcLock   sync.Mutex
 
-	gasInfo          map[GasInfoType]GasInfo
-	maxEvmGasPrice   *big.Int
-	mocaClients      map[SignType]*client.MocaClient
-	evmPrivateKeys   map[SignType]*ecdsa.PrivateKey
-	evmClient        *ethclient.Client
-	operatorAccNonce uint64
-	sealAccNonce     uint64
-	gcAccNonce       uint64
-	blsKm            keys.KeyManager
+	gasInfo        map[GasInfoType]GasInfo
+	maxEvmGasPrice *big.Int
+	// evmGasMarginPercent is added to every EVM transaction's gas estimate.
+	evmGasMarginPercent uint64
+	mocaClients         map[SignType]*client.MocaClient
+	evmPrivateKeys      map[SignType]*ecdsa.PrivateKey
+	evmClient           *ethclient.Client
+	operatorAccNonce    uint64
+	sealAccNonce        uint64
+	gcAccNonce          uint64
+	blsKm               keys.KeyManager
 	// evm is the persisted EVM submission state; nil refuses every EVM
 	// transaction.
 	evm       *evmState
@@ -416,7 +418,7 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
 
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -569,7 +571,7 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[RejectSeal].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[RejectSeal].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -701,7 +703,7 @@ func (client *MocaChainSignClient) DiscontinueBucketEvm(ctx context.Context, sco
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.gcAccNonce
 
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DiscontinueBucket].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DiscontinueBucket].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -850,7 +852,7 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CreateGlobalVirtualGroup].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CreateGlobalVirtualGroup].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -999,7 +1001,7 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteMigrateBucket].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteMigrateBucket].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1165,7 +1167,7 @@ func (client *MocaChainSignClient) UpdateSPPriceEvm(ctx context.Context, scope S
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
 
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[UpdateSPPrice].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[UpdateSPPrice].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1326,7 +1328,7 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[SwapOut].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[SwapOut].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1481,7 +1483,7 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSwapOut].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSwapOut].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1618,14 +1620,15 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[SPExit].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[SPExit].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1642,6 +1645,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1661,6 +1665,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast start sp exit tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1674,7 +1679,7 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 		return txHash, nil
 	}
 
-	ErrSPExitOnChain.SetError(fmt.Errorf("failed to broadcast start sp exit, error: %v", err))
+	ErrSPExitOnChain.SetError(fmt.Errorf("failed to broadcast start sp exit, error: %v", broadcastErr))
 	return "", ErrSPExitOnChain
 }
 
@@ -1754,13 +1759,14 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSPExit].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSPExit].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1779,6 +1785,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1798,6 +1805,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete sp exit tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1811,7 +1819,7 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		return txHash, nil
 	}
 
-	ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to broadcast complete sp exit, error: %v", err))
+	ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to broadcast complete sp exit, error: %v", broadcastErr))
 	return "", ErrCompleteSPExitOnChain
 }
 
@@ -1887,13 +1895,14 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[RejectMigrateBucket].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[RejectMigrateBucket].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -1912,6 +1921,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -1924,13 +1934,14 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrRejectMigrateBucketOnChain
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast reject migrate bucket tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -1945,7 +1956,7 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 	}
 
 	// failed to broadcast tx
-	ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to broadcast reject migrate bucket, error: %v", err))
+	ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to broadcast reject migrate bucket, error: %v", broadcastErr))
 	return "", ErrRejectMigrateBucketOnChain
 }
 
@@ -2021,13 +2032,14 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Deposit].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Deposit].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -2051,6 +2063,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -2063,13 +2076,14 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrDepositOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrDepositOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrDepositOnChain
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast deposit tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -2084,7 +2098,7 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 	}
 
 	// failed to broadcast tx
-	ErrDepositOnChain.SetError(fmt.Errorf("failed to broadcast deposit, error: %v", err))
+	ErrDepositOnChain.SetError(fmt.Errorf("failed to broadcast deposit, error: %v", broadcastErr))
 	return "", ErrDepositOnChain
 }
 
@@ -2160,13 +2174,14 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DeleteGlobalVirtualGroup].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DeleteGlobalVirtualGroup].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -2185,6 +2200,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -2197,13 +2213,14 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrDeleteGVGOnChain
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delete GVG tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -2218,7 +2235,7 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 	}
 
 	// failed to broadcast tx
-	ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to broadcast delete GVG, error: %v", err))
+	ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to broadcast delete GVG, error: %v", broadcastErr))
 	return "", ErrDeleteGVGOnChain
 }
 
@@ -2291,13 +2308,14 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DelegateCreateObject].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DelegateCreateObject].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -2328,6 +2346,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -2340,13 +2359,14 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrDelegateCreateObjectOnChain
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delegate create object tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -2361,7 +2381,7 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 	}
 
 	// failed to broadcast tx
-	ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to delegate create object, error: %v", err))
+	ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to delegate create object, error: %v", broadcastErr))
 	return "", ErrDelegateCreateObjectOnChain
 }
 
@@ -2434,13 +2454,14 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DelegateUpdateObjectContent].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[DelegateUpdateObjectContent].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -2469,6 +2490,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -2481,13 +2503,14 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrDelegateUpdateObjectContentOnChain
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast delegate update object content tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -2502,7 +2525,7 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 	}
 
 	// failed to broadcast tx
-	ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to broadcast delegte update object, error: %v", err))
+	ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to broadcast delegte update object, error: %v", broadcastErr))
 	return "", ErrDelegateUpdateObjectContentOnChain
 }
 
@@ -2874,13 +2897,14 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[ReserveSwapIn].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[ReserveSwapIn].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -2901,6 +2925,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -2913,13 +2938,14 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrReserveSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrReserveSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrReserveSwapIn
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast reserve swap in tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -2934,7 +2960,7 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 	}
 
 	// failed to broadcast tx
-	ErrReserveSwapIn.SetError(fmt.Errorf("failed to broadcast reserve swap in, error: %v", err))
+	ErrReserveSwapIn.SetError(fmt.Errorf("failed to broadcast reserve swap in, error: %v", broadcastErr))
 	return "", ErrReserveSwapIn
 }
 
@@ -3010,13 +3036,14 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSwapIn].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CompleteSwapIn].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -3036,6 +3063,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -3048,13 +3076,14 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrCompleteSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrCompleteSwapIn
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast complete swap in tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -3069,7 +3098,7 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 	}
 
 	// failed to broadcast tx
-	ErrCompleteSwapIn.SetError(fmt.Errorf("failed to broadcast rcomplete swap in, error: %v", err))
+	ErrCompleteSwapIn.SetError(fmt.Errorf("failed to broadcast rcomplete swap in, error: %v", broadcastErr))
 	return "", ErrCompleteSwapIn
 }
 
@@ -3145,13 +3174,14 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.operatorAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CancelSwapIn].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[CancelSwapIn].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -3171,6 +3201,7 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -3183,13 +3214,14 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 			// if nonce mismatches, waiting for next block, reset nonce by querying the nonce on chain
 			nonce, nonceErr = client.getNonceOnChain(ctx, client.mocaClients[scope])
 			if nonceErr != nil {
-				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", err)
-				ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", err))
+				log.CtxErrorw(ctx, "failed to get operator account nonce", "error", nonceErr)
+				ErrCancelSwapIn.SetError(fmt.Errorf("failed to get operator account nonce, error: %v", nonceErr))
 				return "", ErrCancelSwapIn
 			}
 			client.operatorAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast cancel swap in tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.operatorAccNonce = nonce + 1
@@ -3204,7 +3236,7 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 	}
 
 	// failed to broadcast tx
-	ErrCancelSwapIn.SetError(fmt.Errorf("failed to broadcast cancel swap in, error: %v", err))
+	ErrCancelSwapIn.SetError(fmt.Errorf("failed to broadcast cancel swap in, error: %v", broadcastErr))
 	return "", ErrCancelSwapIn
 }
 
@@ -3295,13 +3327,14 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 	}
 
 	var (
-		txHash   string
-		nonce    uint64
-		nonceErr error
+		txHash       string
+		nonce        uint64
+		nonceErr     error
+		broadcastErr error
 	)
 	for i := 0; i < BroadcastTxRetry; i++ {
 		nonce = client.sealAccNonce
-		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, nonce, client.maxEvmGasPrice)
+		txOpts, err := CreateTxOpts(ctx, client.evmClient, client.evmPrivateKeys[scope], chainId, client.gasInfo[Seal].GasLimit, client.evmGasMarginPercent, nonce, client.maxEvmGasPrice)
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to create tx opts", "error", err)
 			return "", err
@@ -3329,6 +3362,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 
 		if err != nil {
 			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
@@ -3348,6 +3382,7 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 			client.sealAccNonce = nonce
 
 			log.CtxErrorw(ctx, "failed to broadcast seal object tx", "retry_number", i, "error", err)
+			broadcastErr = err
 			continue
 		}
 		client.sealAccNonce = nonce + 1
@@ -3362,6 +3397,6 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 	}
 
 	// failed to broadcast tx
-	ErrSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast seal object tx, error: %v", err))
+	ErrSealObjectOnChain.SetError(fmt.Errorf("failed to broadcast seal object tx, error: %v", broadcastErr))
 	return "", ErrSealObjectOnChain
 }
