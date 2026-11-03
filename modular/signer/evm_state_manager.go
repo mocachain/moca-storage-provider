@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"sync"
+	"time"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -52,6 +53,9 @@ type evmScopeMemory struct {
 	// this process; finding the scope empty with it set means the row was
 	// removed by someone else (the CLI).
 	lastSeenPending uint64
+	// autoSeen is the first sighting of an automatic conclusion that waits
+	// for a second one at a higher height (evm_state_auto.go).
+	autoSeen *evmAutoObservation
 }
 
 type evmTerminalRetry struct {
@@ -78,12 +82,14 @@ type evmState struct {
 	mu      sync.Mutex
 	scopes  map[SignType]*evmScopeMemory
 	audited map[string]bool // evidence_invalid already written for this row
+	// outcomeChecked is when each blocked outcome was last checked on chain.
+	outcomeChecked map[uint64]time.Time
 }
 
 func newEvmState(store evmStateStore, chainID string, evmChainID uint64, lease *evmLease) *evmState {
 	st := &evmState{
 		store: store, chainID: chainID, evmChainID: evmChainID, lease: lease,
-		scopes: map[SignType]*evmScopeMemory{}, audited: map[string]bool{},
+		scopes: map[SignType]*evmScopeMemory{}, audited: map[string]bool{}, outcomeChecked: map[uint64]time.Time{},
 	}
 	st.spawn = func(f func()) {
 		st.workers.Add(1)
@@ -315,7 +321,10 @@ func (client *MocaChainSignClient) syncEvmScopeEpoch(ctx context.Context, st *ev
 	return nil
 }
 
-const evmResolveMaxDepth = 2
+// evmResolveMaxDepth bounds how often one request re-reads the state after a
+// transition: each automatic step (ending a pending row, settling an outcome)
+// is progress and reads it again.
+const evmResolveMaxDepth = 4
 
 func (client *MocaChainSignClient) resolveEvmState(ctx context.Context, st *evmState, fence evmFence, scope SignType,
 	operation ethcmn.Hash, depth int,
@@ -348,7 +357,14 @@ func (client *MocaChainSignClient) resolveEvmState(ctx context.Context, st *evmS
 				return "", true, fmt.Errorf("EVM operation %s was executed by transaction %s (%s); outcome %d stays until it is disposed manually",
 					operation.Hex(), outcome.EvidenceTxHash, outcome.EvidenceKind, outcome.ID)
 			case evmOutcomeBlockedUnknown:
-				return "", true, fmt.Errorf("EVM operation %s is blocked: outcome_id=%d reason=%s; it stays blocked until handled manually (see 'signer-evm list')",
+				settled, settleErr := client.autoSettleOutcome(rctx, st, fence, *outcome)
+				if settled {
+					return client.resolveEvmState(ctx, st, fence, scope, operation, depth+1)
+				}
+				if settleErr != nil {
+					log.CtxWarnw(ctx, "failed to check a blocked EVM outcome on chain", "outcome_id", outcome.ID, "error", settleErr)
+				}
+				return "", true, fmt.Errorf("EVM operation %s is blocked: outcome_id=%d reason=%s; it stays blocked until the chain decides it or it is handled manually (see 'signer-evm list')",
 					operation.Hex(), outcome.ID, outcome.Reason)
 			default:
 				return "", true, fmt.Errorf("%w: outcome %d has unknown state %q", errEvmStateConflict, outcome.ID, outcome.State)
@@ -387,12 +403,24 @@ func (client *MocaChainSignClient) resolveEvmState(ctx context.Context, st *evmS
 		return pending.TxHash.String(), true, err
 	}
 
-	receipt, err := transactionReceiptFn(ctx, client.evmClient, pending.TxHash)
+	qctx, cancelQuery := context.WithTimeout(ctx, evmChainQueryTimeout)
+	receipt, err := transactionReceiptFn(qctx, client.evmClient, pending.TxHash)
+	cancelQuery()
 	if err != nil || receipt == nil {
+		moved, sent, autoErr := client.autoDisposePending(ctx, st, fence, scope, *pending, signedTx)
+		if moved {
+			return client.resolveEvmState(ctx, st, fence, scope, operation, depth+1)
+		}
+		if autoErr != nil {
+			log.CtxWarnw(ctx, "failed to check the EVM pending transaction on chain", "scope", scope,
+				"tx_hash", pending.TxHash.Hex(), "error", autoErr)
+		}
 		// The bytes may never have reached a node (cancelled mid-send, lost
 		// before forwarding). Re-sending the identical transaction can execute
 		// at most once, so it is safe and keeps the scope from blocking forever.
-		client.rebroadcastPendingEvmTx(ctx, scope, *pending, signedTx)
+		if !sent {
+			client.rebroadcastPendingEvmTx(ctx, scope, *pending, signedTx)
+		}
 		reason := "receipt unavailable"
 		if err != nil {
 			reason = err.Error()

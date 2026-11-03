@@ -1,9 +1,65 @@
 # Signer EVM state: manual disposition
 
-The persisted signer never clears an EVM transaction it cannot prove the end of. A
-pending row stays until its receipt appears or the node refuses its first send, and a
-`blocked_unknown` outcome stays forever. This document covers the four commands that
-end those rows by hand, what they decide from, and what nobody can decide for you.
+The persisted signer never lets an operation be signed again while its transaction may
+still execute. It ends a pending row on its receipt, on the node's refusal of its first
+send, or on the chain evidence described in [Automatic disposition](#automatic-disposition-by-the-signer);
+whatever the chain does not decide stays for the four commands below. This document
+covers what the signer decides by itself, the commands that end the rest by hand, what
+they decide from, and what nobody can decide for you.
+
+## Automatic disposition by the signer
+
+A pending row blocks its whole scope (every transaction of that key), because the next
+transaction would need the next nonce. When a request reaches a pending row that has no
+receipt, and again after each lease acquisition, the signer reads the sender's nonce C at
+the latest height, the pending nonce P that includes the node's mempool, and, through the
+CometBFT RPC (`[Chain] ChainAddress`), the Cosmos transaction that carried the hash
+(`ethereum_tx.ethereumTxHash`). For a pending transaction at nonce N:
+
+| Chain shows | The signer | Audit event |
+|---|---|---|
+| C > N, and the transaction is in a block with a non-zero code (for example a node that aborts the execution records only the Cosmos result, with no EVM receipt) | deletes the pending row: the transaction failed and left no state (V1), so the operation may be signed again | `auto_resolved_failed` |
+| C > N, and no transaction carries the hash | turns the row into `blocked_unknown(receipt_missing)` | `auto_blocked_receipt_missing` |
+| C = N, P = C (nothing of this sender in the mempool), and the node refuses the re-sent bytes for a reason other than the nonce (insufficient funds or fee, failed validation) | turns the row into `blocked_unknown(dropped)` | `auto_blocked_dropped` |
+| C < N, P = C, and the node refuses the re-sent bytes as nonce too high | turns the row into `blocked_unknown(nonce_gap)`, as `--accept-gap` does | `auto_blocked_nonce_gap` |
+| anything else: our transaction waits in the mempool, the original was included without a failure code, an RPC fails or serves another chain, the index is disabled | keeps re-sending the identical bytes; the scope stays blocked | none |
+
+A `blocked_unknown` outcome blocks only its operation, never re-signs it, and frees the
+scope: the next transaction of the key takes the chain nonce C. For `dropped` and
+`nonce_gap` that next transaction takes N (or fills the gap up to N), so once it lands
+the recorded bytes can never be included. The three conclusions that rest on an absence
+(nothing found, bytes refused) are acted on only when a check at a higher height repeats
+them, so a lagging index or a single refusal does not decide.
+
+The signer settles a `blocked_unknown` outcome when its operation is requested again
+(at most every 10 seconds) and after each lease acquisition, from evidence only:
+
+| Chain shows | The signer | Audit event |
+|---|---|---|
+| the original's success receipt | outcome `succeeded`: the next request for the operation gets the original hash | `auto_outcome_succeeded` |
+| the original's failure receipt, or the original in a block with a non-zero code | deletes the outcome; the operation may be signed again | `auto_outcome_failed` |
+| a receipt, or a carrying Cosmos transaction, of another transaction this signer signed from the same address at nonce N (its evidence row passes V(e)) | deletes the outcome: that transaction used N, so the original never ran (branch b) | `auto_outcome_superseded` |
+
+Receipts are read first, the original's and then those of the other transactions at N,
+and the Cosmos index last. An index that fails or is disabled therefore never keeps an
+outcome that a receipt settles; its error is reported only when nothing settles it.
+
+Like the commands below, every check first verifies that the EVM RPC
+(`[Chain] RpcAddress`) serves the signer's EVM chain id and, before it uses Cosmos
+transactions, that the CometBFT RPC serves the signer's chain id. Another network can
+share the EVM chain id, and a replay of the signer's transaction can fail there while it
+runs here. When the EVM RPC fails this check (another chain id, or no answer), the
+check changes nothing. When the CometBFT RPC fails it, its transactions are not used:
+a pending row that needs them stays, and only receipts can settle an outcome. Either
+way the request reports the error.
+
+If the original lands after it was turned into `dropped` (another node still held it),
+the next transaction at N is refused for its nonce and signed again at N+1, and the
+request for the original operation gets the original's result. Nothing is signed
+twice. Every automatic row carries `source = 'auto'`, the chain nonce and height of the
+deciding read, and the Cosmos transaction when there is one. Whatever the chain does not
+decide (`receipt_missing` with no later evidence, a success without a receipt) stays for
+the commands below.
 
 All four connect to the SP DB directly with the CLI account (the runtime grants in the
 [upgrade runbook](signer-evm-upgrade-runbook.md)), hold no signer lease, and can run
@@ -49,7 +105,11 @@ At each height:
    - C = N: the original bytes are still the next valid transaction and can be included
      at any time. Refused.
    - C < N: a nonce gap (below).
-   - C > N: some transaction T used N. The command looks for it: `--evidence-tx`,
+   - C > N, and a CometBFT `tx_search` for `ethereum_tx.ethereumTxHash='<hash>'` finds
+     the original itself in a block at or below H with a non-zero code: the original
+     failed without a receipt (a node that aborts the execution records only the Cosmos
+     result). Same as a failure receipt: the operation may be signed again.
+   - C > N otherwise: some transaction T used N. The command looks for it: `--evidence-tx`,
      then `--evidence-cosmos-tx`, then, with `--scan-blocks N`, the EVM blocks from the
      recorded block (at most 10000, never past H) and a CometBFT `tx_search` for
      `tx.acc_seq='<sender>/<N>'`. T must be from the sender at nonce N, other than the
@@ -148,6 +208,12 @@ occupying transaction (`evidence_tx_hash`, `evidence_kind`) when there is one, a
 `manual_resolve_nonce_gap`, `manual_outcome_resolved`, `manual_release_unknown`,
 `manual_dispose_outcome`, `manual_rejected`, `evidence_invalid`.
 
+The signer's automatic rows are written under its lease epoch with its own identity as
+`actor`, the chain nonce and height of the deciding read and the evidence transaction:
+`auto_resolved_failed`, `auto_blocked_receipt_missing`, `auto_blocked_dropped`,
+`auto_blocked_nonce_gap`, `auto_outcome_succeeded`, `auto_outcome_failed`,
+`auto_outcome_superseded`.
+
 Each command also writes one JSON line to stderr, separate from the report on stdout:
 
 ```json
@@ -220,3 +286,7 @@ restarts, background resolution and these manual steps. It does not guarantee
 end-to-end exactly-once: if the signer returns a hash and the response is lost on the
 way to the caller, the caller's retry is signed again. Callers that need exactly-once
 must deduplicate on their side.
+
+Automatic settlement reads the EVM receipts, the original's and those of the signer's other transactions at the same nonce, before querying the optional Cosmos transaction index. A valid receipt can settle the operation even when that index is disabled or unavailable, or the CometBFT RPC serves another chain.
+
+The same-nonce evidence lookup limits matching results to 1000 rather than limiting the distance between evidence IDs. It can scan more history on the existing schema; the existing 10-second chain-check context bounds the query, and a timeout leaves the outcome blocked for a later retry.
