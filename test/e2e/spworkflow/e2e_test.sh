@@ -19,7 +19,15 @@ TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
 TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
 DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
-echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
+# NOTE: this prints the per-run throwaway localup test key into every step log,
+# and the steps tee that output into .github/action-logs/*.log. The
+# --redactEvidence step scrubs keys from those files before they are uploaded;
+# do not add more key output, and never write keys into the evidence files.
+# The evidence-only modes skip it so they add no key output of their own.
+case "$1" in
+--recordMetadata | --redactEvidence) ;;
+*) echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY" ;;
+esac
 
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
@@ -127,24 +135,307 @@ function select_exit_sp_dir() {
   return 1
 }
 
+#########################################
+# e2e evidence (non-sensitive only)     #
+#########################################
+# Records what was actually tested: refs, resolved SHAs, local patch diffs,
+# go.mod/go.sum digests and binary hashes. Only write values that are safe to
+# publish as a CI artifact: never keys, mnemonics, keystores, passwords,
+# config files or environment dumps.
+E2E_EVIDENCE_DIR="${E2E_EVIDENCE_DIR:-${workspace}/.github/action-logs}"
+E2E_METADATA_FILE="${E2E_EVIDENCE_DIR}/e2e-metadata.txt"
+
+# evidence is best effort: a failed write warns and never aborts the test
+function record_evidence() {
+  if ! { mkdir -p "${E2E_EVIDENCE_DIR}" && printf '%s=%s\n' "$1" "$2" >>"${E2E_METADATA_FILE}"; } 2>/dev/null; then
+    echo "warning: could not record e2e evidence $1" >&2
+  fi
+  return 0
+}
+
+function is_full_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]]
+}
+
+function file_sha256() {
+  if [ -f "$1" ]; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  else
+    echo "UNKNOWN"
+  fi
+}
+
+function record_go_mod_digest() {
+  local label=$1
+  local mod_dir=$2
+
+  record_evidence "${label}.go_mod_sha256" "$(file_sha256 "${mod_dir}/go.mod")"
+  record_evidence "${label}.go_sum_sha256" "$(file_sha256 "${mod_dir}/go.sum")"
+}
+
+# record the tracked local changes the harness applied on top of a checkout
+# (appended per call, so a repeated prepare is recorded every time)
+function record_tree_diff() {
+  local label=$1
+  local repo_dir=$2
+  local diff_file="${E2E_EVIDENCE_DIR}/${label}-prepare.diff"
+  local count base_sha diff_tmp diff_sha="UNKNOWN" files="UNKNOWN"
+
+  mkdir -p "${E2E_EVIDENCE_DIR}" 2>/dev/null || true
+  count=$(grep -c "^${label}\.prepare\.[0-9]*\.diff_sha256=" "${E2E_METADATA_FILE}" 2>/dev/null || true)
+  count=$((${count:-0} + 1))
+  base_sha=$(git -C "${repo_dir}" rev-parse HEAD 2>/dev/null || echo UNKNOWN)
+  if ! diff_tmp=$(mktemp 2>/dev/null); then
+    echo "warning: could not create a temp file for the ${label} diff" >&2
+    record_evidence "${label}.prepare.${count}.base_sha" "${base_sha}"
+    record_evidence "${label}.prepare.${count}.diff_sha256" "UNKNOWN"
+    return 0
+  fi
+  if git -C "${repo_dir}" diff --binary HEAD >"${diff_tmp}"; then
+    diff_sha=$(sha256sum "${diff_tmp}" | cut -d ' ' -f 1)
+    files=$(git -C "${repo_dir}" diff --name-only HEAD | paste -sd ',' -)
+  fi
+  {
+    echo "### ${label} prepare ${count}: base ${base_sha}"
+    cat "${diff_tmp}"
+  } >>"${diff_file}" 2>/dev/null || echo "warning: could not write ${diff_file}" >&2
+  rm -f "${diff_tmp}"
+  record_evidence "${label}.prepare.${count}.base_sha" "${base_sha}"
+  record_evidence "${label}.prepare.${count}.files" "${files}"
+  record_evidence "${label}.prepare.${count}.diff_sha256" "${diff_sha}"
+  record_evidence "${label}.prepare.${count}.untracked_count" "$(git -C "${repo_dir}" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
+}
+
+# record a built binary's sha256 and the vcs stamp Go embedded, if any
+function record_binary() {
+  local label=$1
+  local bin=$2
+  local buildinfo go_version revision modified
+
+  if [ ! -f "${bin}" ]; then
+    record_evidence "${label}.binary" "MISSING"
+    return 0
+  fi
+  buildinfo=$(go version -m "${bin}" 2>/dev/null || true)
+  go_version=$(printf '%s\n' "${buildinfo}" | head -n 1 | awk '{ print $2 }')
+  revision=$(printf '%s\n' "${buildinfo}" | awk '$1 == "build" && $2 ~ /^vcs\.revision=/ { sub(/^vcs\.revision=/, "", $2); print $2 }')
+  modified=$(printf '%s\n' "${buildinfo}" | awk '$1 == "build" && $2 ~ /^vcs\.modified=/ { sub(/^vcs\.modified=/, "", $2); print $2 }')
+  record_evidence "${label}.binary_sha256" "$(file_sha256 "${bin}")"
+  record_evidence "${label}.binary_go_version" "${go_version:-UNKNOWN}"
+  record_evidence "${label}.binary_vcs_revision" "${revision:-UNKNOWN}"
+  record_evidence "${label}.binary_vcs_modified" "${modified:-UNKNOWN}"
+}
+
+# check out repo_ref and fail before anything is built when the checkout does
+# not match the expected commit. The expected commit is expected_sha, or
+# repo_ref itself when it is a full 40-char SHA. Pass a tag/branch together
+# with expected_sha when a server refuses to fetch by SHA.
 function sync_repo_ref() {
   local repo_url=$1
   local repo_dir=$2
   local repo_ref=$3
+  local expected_sha=${4:-}
+  local label=${5:-$(basename "${repo_dir}")}
+  local resolved_sha
 
-  cd "${workspace}"
-  if [ ! -d "${repo_dir}/.git" ]; then
-    git clone "${repo_url}" "${repo_dir}"
+  if [ -z "${expected_sha}" ] && is_full_sha "${repo_ref}"; then
+    expected_sha=${repo_ref}
   fi
 
-  cd "${repo_dir}"
-  git fetch --tags --prune origin "${repo_ref}"
-  git checkout -B codex-ci-ref FETCH_HEAD
+  cd "${workspace}" || return 1
+  if [ ! -d "${repo_dir}/.git" ]; then
+    git clone "${repo_url}" "${repo_dir}" || return 1
+  fi
+
+  cd "${repo_dir}" || return 1
+  git fetch --tags --prune origin "${repo_ref}" || return 1
+  git checkout -B codex-ci-ref FETCH_HEAD || return 1
+  resolved_sha=$(git rev-parse HEAD) || return 1
+
+  record_evidence "${label}.repo" "${repo_url}"
+  record_evidence "${label}.ref" "${repo_ref}"
+  record_evidence "${label}.expected_sha" "${expected_sha:-UNPINNED}"
+  record_evidence "${label}.resolved_sha" "${resolved_sha}"
+  if [ -n "${expected_sha}" ] && [ "${resolved_sha}" != "${expected_sha}" ]; then
+    echo "${label}: ${repo_ref} resolved to ${resolved_sha}, expected ${expected_sha}" >&2
+    record_evidence "${label}.ref_check" "FAIL"
+    return 1
+  fi
+  record_evidence "${label}.ref_check" "$([ -n "${expected_sha}" ] && echo PASS || echo UNPINNED)"
+}
+
+# job-level facts: which SP commit the runner actually tested (for PRs this is
+# GitHub's synthetic merge; check its parents against the frozen base/head via
+# the GitHub commit API) and which runner image ran it
+function record_run_metadata() {
+  local parent index=0
+
+  cd "${workspace}" || return 1
+  record_evidence "run.repository" "${GITHUB_REPOSITORY:-UNKNOWN}"
+  record_evidence "run.workflow" "${GITHUB_WORKFLOW:-UNKNOWN}"
+  record_evidence "run.job" "${GITHUB_JOB:-UNKNOWN}"
+  record_evidence "run.id" "${GITHUB_RUN_ID:-UNKNOWN}"
+  record_evidence "run.attempt" "${GITHUB_RUN_ATTEMPT:-UNKNOWN}"
+  record_evidence "run.event" "${GITHUB_EVENT_NAME:-UNKNOWN}"
+  record_evidence "run.github_sha" "${GITHUB_SHA:-UNKNOWN}"
+  record_evidence "run.pr_number" "${E2E_PR_NUMBER:-UNKNOWN}"
+  record_evidence "run.pr_head_sha" "${E2E_PR_HEAD_SHA:-UNKNOWN}"
+  record_evidence "run.pr_base_sha" "${E2E_PR_BASE_SHA:-UNKNOWN}"
+  record_evidence "runner.os" "${RUNNER_OS:-UNKNOWN}"
+  record_evidence "runner.image_os" "${ImageOS:-UNKNOWN}"
+  record_evidence "runner.image_version" "${ImageVersion:-UNKNOWN}"
+  record_evidence "sp.checkout_sha" "$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
+  record_evidence "sp.checkout_tree" "$(git rev-parse 'HEAD^{tree}' 2>/dev/null || echo UNKNOWN)"
+  # read parents from the raw commit object: a depth-1 checkout has no parent
+  # objects, so HEAD^2 and git log cannot be used here
+  while read -r parent; do
+    index=$((index + 1))
+    record_evidence "sp.checkout_parent.${index}" "${parent}"
+  done < <(git cat-file -p HEAD 2>/dev/null | awk '$1 == "parent" { print $2 } /^$/ { exit }')
+  record_evidence "sp.checkout_parent_count" "${index}"
+  record_go_mod_digest sp "${workspace}"
+}
+
+# Scrub keys and mnemonics from everything the e2e jobs upload, in place.
+# Runs as its own always() step after the test steps, so it never changes a
+# test step's exit status; the upload step only runs when this succeeds, so a
+# failed scrub uploads nothing. Known secrets (the per-run test key, the dev
+# key, the localup SP keys in sp.json and the suite's info/challenger_info
+# files) are replaced wherever they appear; long hex values and 12-24 word runs
+# on lines that name a key or mnemonic, and bare mnemonic lines, are replaced
+# too. An existing sp.json that cannot be parsed fails the step. Scrubbing a
+# *-prepare.diff changes it after its diff_sha256 was recorded; the patches
+# hold no keys, so a mismatch there means something was redacted.
+# Every scrubbed file is then re-read and the step fails if a secret is left.
+E2E_REDACT_PATHS=(
+  ".github/action-logs"
+  "deployment/localup/local_env"
+  "moca/deployment/localup/.local"
+  "modular/blocksyncer/coverage.txt"
+)
+function redact_evidence() {
+  cd "${workspace}" || return 1
+  E2E_REDACT_KEY_1="${TEST_ACCOUNT_PRIVATE_KEY}" E2E_REDACT_KEY_2="${DEV_ACCOUNT_PRIVATE_KEY}" \
+    python3 - "${E2E_REDACT_PATHS[@]}" <<'PY'
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+MARK = "[REDACTED]"
+# only files that are uploaded are scrubbed: logs, evidence text and coverage
+UPLOAD_NAME = re.compile(r"(\.log|\.txt|\.diff)$")
+KEY_WORD = re.compile(r"(?i)priv(ate)?[ _-]?key|mnemonic|seed[ _-]?phrase|secret[ _-]?key")
+LONG_HEX = re.compile(r"(?i)\b(0x)?[0-9a-f]{32,}\b")
+WORD_LINE = re.compile(r"^\s*([a-z]+\s+){11,23}[a-z]+\s*$")
+# a 12-24 word mnemonic inside a line that names a key or mnemonic
+WORD_RUN = re.compile(r"\b([a-z]+[ \t]+){11,23}[a-z]+\b")
+
+secrets = set()
+
+
+def add_secret(value):
+    if not isinstance(value, str):
+        return
+    value = value.strip()
+    if value[:2].lower() == "0x":
+        value = value[2:]
+    if len(value) >= 16:
+        secrets.add(value)
+
+
+def walk_json(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if KEY_WORD.search(str(key)):
+                add_secret(value)
+            walk_json(value)
+    elif isinstance(node, list):
+        for value in node:
+            walk_json(value)
+
+
+def is_secret_line(line):
+    line = line.strip()
+    return bool(re.fullmatch(r"(?i)(0x)?[0-9a-f]{64}", line)) or bool(WORD_LINE.match(line))
+
+
+add_secret(os.environ.get("E2E_REDACT_KEY_1", ""))
+add_secret(os.environ.get("E2E_REDACT_KEY_2", ""))
+for name in ("moca/sp.json", "moca/deployment/localup/.local/sp_export.json"):
+    path = Path(name)
+    if not path.exists():
+        continue
+    try:
+        walk_json(json.loads(path.read_text()))
+    except (OSError, ValueError) as err:
+        # an SP key file we cannot read means we cannot know its keys: fail
+        print(f"cannot read SP keys from {name}: {type(err).__name__}", file=sys.stderr)
+        sys.exit(1)
+local = Path("moca/deployment/localup/.local")
+for info in list(local.glob("*/info")) + list(local.glob("*/challenger_info")):
+    try:
+        for line in info.read_text(errors="replace").splitlines():
+            if is_secret_line(line):
+                add_secret(line)
+    except OSError:
+        pass
+
+secret_patterns = [re.compile(r"(?i)(0x)?" + re.escape(s)) for s in sorted(secrets, key=len, reverse=True)]
+
+
+def scrub_line(line):
+    for pattern in secret_patterns:
+        line = pattern.sub(MARK, line)
+    body = line.rstrip("\r\n")
+    if WORD_LINE.match(body):
+        return MARK + line[len(body):]
+    if KEY_WORD.search(line):
+        line = WORD_RUN.sub(MARK, LONG_HEX.sub(MARK, line))
+    return line
+
+
+def leftover(text):
+    for pattern in secret_patterns:
+        if pattern.search(text):
+            return "known secret"
+    for line in text.splitlines():
+        if WORD_LINE.match(line):
+            return "mnemonic line"
+        if KEY_WORD.search(line) and (LONG_HEX.search(line) or WORD_RUN.search(line)):
+            return "hex value or word run on a key line"
+    return None
+
+
+files = []
+for root in sys.argv[1:]:
+    path = Path(root)
+    if path.is_file():
+        files.append(path)
+    elif path.is_dir():
+        files.extend(p for p in sorted(path.rglob("*")) if p.is_file() and not p.is_symlink() and UPLOAD_NAME.search(p.name))
+
+failed = False
+for path in files:
+    raw = path.read_bytes().decode("latin-1")
+    scrubbed = "".join(scrub_line(line) for line in raw.splitlines(keepends=True))
+    if scrubbed != raw:
+        tmp = path.with_name(path.name + ".redact-tmp")
+        tmp.write_bytes(scrubbed.encode("latin-1"))
+        os.replace(tmp, path)
+    problem = leftover(path.read_bytes().decode("latin-1"))
+    if problem:
+        print(f"redaction check failed for {path}: {problem}", file=sys.stderr)
+        failed = True
+print(f"redacted {len(files)} file(s) against {len(secrets)} known secret(s)")
+sys.exit(1 if failed else 0)
+PY
 }
 
 function prepare_moca_go_sdk() {
   set -e
-  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}"
+  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}" "${MOCA_GO_SDK_EXPECTED_SHA:-}" sdk
 
   SP_REQUEST_HOST="${SP_REQUEST_HOST}" python3 - <<'PY'
 import os
@@ -249,6 +540,8 @@ if migrate_test.exists():
         migrate_test.write_text(mt)
 PY
 
+  record_tree_diff sdk "${workspace}/moca-go-sdk"
+  record_go_mod_digest sdk "${workspace}/moca-go-sdk"
   cd "${workspace}"
 }
 
@@ -287,10 +580,16 @@ function moca_chain() {
   set -e
   # build Moca chain
   echo "${workspace}"
-  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
+  # check every pinned ref before the chain starts; the go-sdk and moca-cmd
+  # checkouts are synced (and checked) again where they are used
+  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}" "${MOCA_GO_SDK_EXPECTED_SHA:-}" sdk
+  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}" "${MOCA_CMD_EXPECTED_SHA:-}" cmd
+  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}" "${MOCA_EXPECTED_SHA:-}" chain
   cd "${workspace}"/moca/
   make proto-gen &
   make build
+  record_go_mod_digest chain "${workspace}/moca"
+  record_binary chain.mocad "${workspace}/moca/build/mocad"
 
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
@@ -324,6 +623,7 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
+  record_binary sp.moca-sp "${workspace}/build/moca-sp"
   sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
@@ -353,11 +653,15 @@ function build_cmd() {
   cd "${workspace}"
   prepare_moca_go_sdk
   # build sp
-  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
+  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}" "${MOCA_CMD_EXPECTED_SHA:-}" cmd
   cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
   go mod tidy
+  record_evidence "cmd.go_sdk_replace" "$(go mod edit -json | jq -r '.Replace[]? | select(.Old.Path == "github.com/mocachain/moca-go-sdk") | .New.Path')"
+  record_tree_diff cmd "${workspace}/moca-cmd"
+  record_go_mod_digest cmd "${workspace}/moca-cmd"
   make build
+  record_binary cmd.moca-cmd "${workspace}/moca-cmd/build/moca-cmd"
   cd build/
 
   # generate a keystore file to manage private key information
@@ -635,6 +939,12 @@ function main() {
   --runSDKE2E)
     build_moca-go-sdk
     run_go_sdk_e2e
+    ;;
+  --recordMetadata)
+    record_run_metadata
+    ;;
+  --redactEvidence)
+    redact_evidence
     ;;
   esac
 }

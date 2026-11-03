@@ -18,6 +18,13 @@ jobs:
         go-version: [ 1.26.10 ]
         os: [ ubuntu-latest ]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Frozen e2e stack for release/1.4.x. sync_repo_ref fails the job before
+      # anything is built if a checkout does not resolve to these commits.
+      MOCA_TAG: 0ca947f9e753df2e00f6de914dd8893d2978cefa  # mocachain/moca release/v1.4.x (= v1.4.3)
+      MOCA_CMD_TAG: 806a8738ff54f8723456a24b396bedf17812953c  # mocachain/moca-cmd v1.2.0-rc1
+      MOCA_GO_SDK_TAG: 85dae194d6be723f9dc5bf83a1ae3c7ae4e97156  # mocachain/moca-go-sdk v1.2.0-rc1
 
     steps:
       - name: Install Go
@@ -27,8 +34,17 @@ jobs:
       # Checkout Moca-SP
       - name: Checkout Moca-SP
         uses: actions/checkout@v4
+      - name: Record test metadata
+        id: metadata
+        env:
+          E2E_PR_NUMBER: ${{ github.event.pull_request.number }}
+          E2E_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          E2E_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          bash ./test/e2e/spworkflow/e2e_test.sh --recordMetadata
       # Run MySQL
       - name: Run MySQL
+        id: mysql
         run: |
           sudo systemctl start mysql.service
       - name: Setup Node.js
@@ -41,6 +57,8 @@ jobs:
       - name: Generate private key
         run: node ./.github/workflows/generate-private-key.js
         id: generate-private-key
+      # NOTE: existing step; it prints the per-run throwaway test key to the
+      # step log. The Redact diagnostics step keeps it out of the artifact.
       - name: set private key and account address as job variables
         run: |
           echo "Private key: ${{ steps.generate-private-key.outputs.private_key }}"
@@ -49,30 +67,74 @@ jobs:
           echo "ACCOUNT_ADDR=${{ steps.generate-private-key.outputs.account_address }}" >> "$GITHUB_ENV"
       # Build and Start Moca Blockchain
       - name: Build and Start Moca Blockchain
+        id: start-chain
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --startChain 2>&1 | tee .github/action-logs/sdk-e2e-start-chain.log
       # Build and Start Moca SP
       - name: Build and Start Moca SP
+        id: start-sp
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --startSP 2>&1 | tee .github/action-logs/sdk-e2e-start-sp.log
       # Run Greeenfield Go-SDK E2E Test
       - name: start e2e
+        id: run-test
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --runSDKE2E 2>&1 | tee .github/action-logs/sdk-e2e-run-test.log
+      - name: Record stage results
+        if: always()
+        env:
+          STAGE_METADATA: ${{ steps.metadata.outcome }}
+          STAGE_MYSQL: ${{ steps.mysql.outcome }}
+          STAGE_START_CHAIN: ${{ steps.start-chain.outcome }}
+          STAGE_START_SP: ${{ steps.start-sp.outcome }}
+          STAGE_RUN_TEST: ${{ steps.run-test.outcome }}
+        run: |
+          mkdir -p .github/action-logs
+          {
+            echo "stage.metadata=${STAGE_METADATA:-UNKNOWN}"
+            echo "stage.mysql=${STAGE_MYSQL:-UNKNOWN}"
+            echo "stage.start-chain=${STAGE_START_CHAIN:-UNKNOWN}"
+            echo "stage.start-sp=${STAGE_START_SP:-UNKNOWN}"
+            echo "stage.run-test=${STAGE_RUN_TEST:-UNKNOWN}"
+          } >> .github/action-logs/e2e-metadata.txt
+      # scrub keys from the logs before anything leaves the runner; when this
+      # step fails, nothing is uploaded
+      - name: Redact diagnostics
+        id: redact
+        if: always()
+        run: |
+          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence
+      # Files are listed one by one on purpose: never add config files,
+      # keystores, account directories or sp.json (they hold test keys).
       - name: Upload Go-SDK E2E diagnostics
-        if: failure()
+        if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: sdk-e2e-diagnostics
-          if-no-files-found: ignore
+          if-no-files-found: warn
+          retention-days: 30
+          # the evidence and logs live under .github/ and .local/, which
+          # upload-artifact@v4 skips unless hidden files are enabled; only the
+          # files listed below are uploaded
+          include-hidden-files: true
           path: |
-            .github/action-logs/
-            deployment/localup/local_env/**/log.txt
-            moca/deployment/localup/.local/**/*.log
-            moca/sp.json
+            .github/action-logs/e2e-metadata.txt
+            .github/action-logs/sdk-prepare.diff
+            .github/action-logs/sdk-e2e-start-chain.log
+            .github/action-logs/sdk-e2e-start-sp.log
+            .github/action-logs/sdk-e2e-run-test.log
+            deployment/localup/local_env/sp0/log.txt
+            deployment/localup/local_env/sp1/log.txt
+            deployment/localup/local_env/sp2/log.txt
+            deployment/localup/local_env/sp3/log.txt
+            deployment/localup/local_env/sp4/log.txt
+            deployment/localup/local_env/sp5/log.txt
+            deployment/localup/local_env/sp6/log.txt
+            deployment/localup/local_env/sp7/log.txt
+            moca/deployment/localup/.local/validator0/logs/node.log
