@@ -56,10 +56,16 @@ func (s *SignModular) Name() string {
 }
 
 func (s *SignModular) Start(ctx context.Context) error {
-	return nil
+	if s.client == nil {
+		return nil
+	}
+	return s.client.startEvmState(ctx)
 }
 
 func (s *SignModular) Stop(ctx context.Context) error {
+	if s.client != nil {
+		s.client.stopEvmState(ctx)
+	}
 	return nil
 }
 

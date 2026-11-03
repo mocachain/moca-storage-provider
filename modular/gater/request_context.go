@@ -103,6 +103,15 @@ func (r *RequestContext) enforceSingleUse() error {
 	if nonce == "" {
 		nonce = r.request.URL.Query().Get(commonhttp.HTTPHeaderNonce)
 	}
+	expiryStr := r.request.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	if expiryStr == "" {
+		expiryStr = r.request.URL.Query().Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	}
+	return r.claimAuthNonce(nonce, expiryStr)
+}
+
+// claimAuthNonce uses only values covered by the verified authentication path.
+func (r *RequestContext) claimAuthNonce(nonce, expiryStr string) error {
 	if nonce == "" {
 		if r.g.requireAuthNonce {
 			return ErrMissingAuthNonce
@@ -115,10 +124,6 @@ func (r *RequestContext) enforceSingleUse() error {
 	decoded, err := hex.DecodeString(nonce)
 	if err != nil || len(decoded) != 16 {
 		return ErrInvalidAuthNonce
-	}
-	expiryStr := r.request.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
-	if expiryStr == "" {
-		expiryStr = r.request.URL.Query().Get(commonhttp.HTTPHeaderExpiryTimestamp)
 	}
 	expiry, parseErr := time.Parse(ExpiryDateFormat, expiryStr)
 	if parseErr != nil {

@@ -115,6 +115,21 @@ func (t *GfSpTQueue) PopByKey(key coretask.TKey) coretask.Task {
 	return task
 }
 
+// PopTask pops the task only if it is the very task queued under its key, and returns whether it was popped.
+func (t *GfSpTQueue) PopTask(task coretask.Task) bool {
+	t.mux.Lock()
+	startTime := time.Now()
+	defer func() {
+		t.mux.Unlock()
+		metrics.QueueTime.WithLabelValues(t.name + "-pop_task").Observe(time.Since(startTime).Seconds())
+	}()
+	if task == nil || t.tasks[task.Key()] != task {
+		return false
+	}
+	t.delete(task)
+	return true
+}
+
 // Push pushes the task in queue tail, if the queue len greater the capacity, returns error.
 func (t *GfSpTQueue) Push(task coretask.Task) error {
 	t.mux.Lock()

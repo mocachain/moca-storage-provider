@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/math"
@@ -9,46 +10,53 @@ import (
 	"github.com/mocachain/moca-storage-provider/base/gfspapp"
 	"github.com/mocachain/moca-storage-provider/base/gfspconfig"
 	coremodule "github.com/mocachain/moca-storage-provider/core/module"
+	"github.com/mocachain/moca-storage-provider/store/sqldb"
 	"github.com/mocachain/moca-storage-provider/util"
 	"github.com/mocachain/moca/v2/sdk/types"
 )
 
 const (
-	DefaultSealGasLimit                         = 1200 // fix gas limit for MsgSealObject is 1200
+	// The Default*GasLimit values are upper bounds, not the gas a transaction is sent
+	// with: every EVM transaction is sent with the node's estimate plus
+	// EvmGasMarginPercent (see CreateTxOpts). They sit at about twice the largest gas
+	// measured on a moca v2 network, for example 432k-473k for a seal, 109k to create a
+	// global virtual group and 121k to complete a swap-out, so they only stop an estimate
+	// that has gone far off.
+	DefaultSealGasLimit                         = 1_000_000
 	DefaultSealFeeAmount                        = 6000000000000
-	DefaultRejectSealGasLimit                   = 12000 // fix gas limit for MsgRejectSealObject is 12000
+	DefaultRejectSealGasLimit                   = 300_000
 	DefaultRejectSealFeeAmount                  = 60000000000000
-	DefaultDiscontinueBucketGasLimit            = 2400 // fix gas limit for MsgDiscontinueBucket is 2400
+	DefaultDiscontinueBucketGasLimit            = 300_000
 	DefaultDiscontinueBucketFeeAmount           = 12000000000000
-	DefaultCreateGlobalVirtualGroupGasLimit     = 1200 // fix gas limit for MsgCreateGlobalVirtualGroup is 1200
+	DefaultCreateGlobalVirtualGroupGasLimit     = 500_000
 	DefaultCreateGlobalVirtualGroupFeeAmount    = 6000000000000
-	DefaultCompleteMigrateBucketGasLimit        = 1200 // fix gas limit for MsgCompleteMigrateBucket is 1200
+	DefaultCompleteMigrateBucketGasLimit        = 1_000_000
 	DefaultCompleteMigrateBucketFeeAmount       = 6000000000000
-	DefaultUpdateSPPriceGasLimit                = 12000
+	DefaultUpdateSPPriceGasLimit                = 300_000
 	DefaultUpdateSPPriceFeeAmount               = 60000000000000
-	DefaultSwapOutGasLimit                      = 12000
+	DefaultSwapOutGasLimit                      = 300_000
 	DefaultSwapOutFeeAmount                     = 60000000000000
-	DefaultCompleteSwapOutGasLimit              = 12000
+	DefaultCompleteSwapOutGasLimit              = 500_000
 	DefaultCompleteSwapOutFeeAmount             = 60000000000000
-	DefaultSPExitGasLimit                       = 12000
+	DefaultSPExitGasLimit                       = 300_000
 	DefaultSPExitFeeAmount                      = 60000000000000
-	DefaultCompleteSPExitGasLimit               = 12000
+	DefaultCompleteSPExitGasLimit               = 300_000
 	DefaultCompleteSPExitFeeAmount              = 60000000000000
-	DefaultRejectMigrateBucketGasLimit          = 12000
+	DefaultRejectMigrateBucketGasLimit          = 500_000
 	DefaultRejectMigrateBucketFeeAmount         = 60000000000000
-	DefaultDepositGasLimit                      = 12000
+	DefaultDepositGasLimit                      = 300_000
 	DefaultDepositFeeAmount                     = 60000000000000
-	DefaultDeleteGlobalVirtualGroupGasLimit     = 12000
+	DefaultDeleteGlobalVirtualGroupGasLimit     = 500_000
 	DefaultDeleteGlobalVirtualGroupFeeAmount    = 60000000000000
-	DefaultDelegateCreateObjectGasLimit         = 12000
+	DefaultDelegateCreateObjectGasLimit         = 500_000
 	DefaultDelegateCreateObjectFeeAmount        = 60000000000000
-	DefaultDelegateUpdateObjectContentGasLimit  = 12000
+	DefaultDelegateUpdateObjectContentGasLimit  = 500_000
 	DefaultDelegateUpdateObjectContentFeeAmount = 60000000000000
-	DefaultReserveSwapInGasLimit                = 12000
+	DefaultReserveSwapInGasLimit                = 500_000
 	DefaultReserveSwapInFeeAmount               = 60000000000000
-	DefaultCompleteSwapInGasLimit               = 12000
+	DefaultCompleteSwapInGasLimit               = 500_000
 	DefaultCompleteSwapInFeeAmount              = 60000000000000
-	DefaultCancelSwapInGasLimit                 = 12000
+	DefaultCancelSwapInGasLimit                 = 500_000
 	DefaultCancelSwapInFeeAmount                = 60000000000000
 
 	// SpOperatorPrivKey defines env variable name for sp operator private key
@@ -80,6 +88,12 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	}
 	if cfg.Chain.MaxEvmGasPriceWei == 0 {
 		cfg.Chain.MaxEvmGasPriceWei = gfspconfig.DefaultMaxEvmGasPriceWei
+	}
+	if cfg.Chain.EvmGasMarginPercent == 0 {
+		cfg.Chain.EvmGasMarginPercent = gfspconfig.DefaultEvmGasMarginPercent
+	}
+	if cfg.Chain.EvmGasMarginPercent > gfspconfig.MaxEvmGasMarginPercent {
+		return fmt.Errorf("EvmGasMarginPercent %d is above %d", cfg.Chain.EvmGasMarginPercent, gfspconfig.MaxEvmGasMarginPercent)
 	}
 	if cfg.Chain.SealGasLimit == 0 {
 		cfg.Chain.SealGasLimit = DefaultSealGasLimit
@@ -293,7 +307,35 @@ func DefaultSignerOptions(signer *SignModular, cfg *gfspconfig.GfSpConfig) error
 	if err != nil {
 		return err
 	}
+	client.evmGasMarginPercent = cfg.Chain.EvmGasMarginPercent
+	if err = attachSignerEvmStore(client, cfg); err != nil {
+		return err
+	}
 	signer.client = client
 	client.signer = signer
+	return nil
+}
+
+// attachSignerEvmStore opens the signer's own connection to the SP DB for the
+// EVM state tables. The signer does not migrate them: 'signer-evm migrate'
+// does, with the migration account. Without the DB the signer does not start
+// (D1: EVM submission fails closed).
+func attachSignerEvmStore(client *MocaChainSignClient, cfg *gfspconfig.GfSpConfig) error {
+	dbCfg := cfg.SpDB
+	store, err := sqldb.NewSignerEvmStore(&dbCfg)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), evmStateWriteTimeout)
+	defer cancel()
+	if err = store.CheckSchema(ctx); err != nil {
+		_ = store.Close()
+		return err
+	}
+	if err = client.attachEvmState(newSQLEvmStateStore(store.DB()), cfg.Chain.ChainID, 0); err != nil {
+		_ = store.Close()
+		return err
+	}
+	client.evmCloser = store.Close
 	return nil
 }

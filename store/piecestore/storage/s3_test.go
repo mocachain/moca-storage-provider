@@ -279,6 +279,31 @@ func TestS3Store_GetObjectRangedRejectsCorruptedObject(t *testing.T) {
 	assert.Nil(t, data)
 }
 
+func TestS3Store_GetObjectRejectsInvalidChecksumMetadata(t *testing.T) {
+	store := setupS3Test(t)
+	reads := []struct {
+		name          string
+		offset, limit int64
+	}{
+		{name: "full", offset: 0, limit: -1},
+		{name: "ranged", offset: 3, limit: 3},
+	}
+	for _, invalid := range invalidChecksums {
+		for _, read := range reads {
+			t.Run(read.name+"/"+invalid.name, func(t *testing.T) {
+				store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{
+					Body: io.NopCloser(strings.NewReader("tampered body")),
+					Metadata: map[string]*string{
+						ChecksumAlgo: aws.String(invalid.checksum),
+					}}}
+				data, err := store.GetObject(context.TODO(), mockKey, read.offset, read.limit)
+				assert.Nil(t, data)
+				assert.ErrorIs(t, err, ErrInvalidChecksum)
+			})
+		}
+	}
+}
+
 func TestS3Store_GetObjectRangedRejectsOffsetPastEnd(t *testing.T) {
 	store := setupS3Test(t)
 	store.api = mockS3Client{getObjectResp: s3.GetObjectOutput{

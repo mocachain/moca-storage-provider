@@ -430,6 +430,23 @@ func (s *GfSpClient) SignSwapOut(ctx context.Context, swapOut *virtualgrouptypes
 	return resp.GetSignature(), nil
 }
 
+func (s *GfSpClient) SignPeerApprovalRequest(ctx context.Context, approval *gfspserver.GfSpSignPeerApprovalRequest) ([]byte, error) {
+	conn, err := s.SignerConn(ctx)
+	if err != nil {
+		return nil, ErrRPCUnknownWithDetail("client failed to connect to signer, error: ", err)
+	}
+	resp, err := gfspserver.NewGfSpSignServiceClient(conn).GfSpSign(ctx, &gfspserver.GfSpSignRequest{
+		Request: &gfspserver.GfSpSignRequest_PeerApprovalRequest{PeerApprovalRequest: approval},
+	})
+	if err != nil {
+		return nil, ErrRPCUnknownWithDetail("failed to sign peer approval request, error: ", err)
+	}
+	if resp.GetErr() != nil {
+		return nil, resp.GetErr()
+	}
+	return resp.GetSignature(), nil
+}
+
 func (s *GfSpClient) SwapOut(ctx context.Context, swapOut *virtualgrouptypes.MsgSwapOut) (string, error) {
 	conn, err := s.SignerConn(ctx)
 	if err != nil {

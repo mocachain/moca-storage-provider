@@ -31,6 +31,9 @@ type TQueue interface {
 	Pop() task.Task
 	// PopByKey pops the task by the task key, if the task does not exist , returns nil.
 	PopByKey(task.TKey) task.Task
+	// PopTask pops the task only if it is the very task queued under its key, not another task
+	// with the same key, and returns whether it was popped.
+	PopTask(task.Task) bool
 	// Has returns an indicator whether the task in queue.
 	Has(task.TKey) bool
 	// Push pushes the task in queue tail, if the queue len greater the capacity, returns error.
@@ -123,6 +126,7 @@ type NilQueue struct{}
 func (*NilQueue) Top() task.Task                             { return nil }
 func (*NilQueue) Pop() task.Task                             { return nil }
 func (*NilQueue) PopByKey(task.TKey) task.Task               { return nil }
+func (*NilQueue) PopTask(task.Task) bool                     { return false }
 func (*NilQueue) Has(task.TKey) bool                         { return false }
 func (*NilQueue) Push(task.Task) error                       { return nil }
 func (*NilQueue) Len() int                                   { return 0 }
