@@ -74,27 +74,26 @@ jobs:
             echo "stage.reset=${STAGE_RESET:-UNKNOWN}"
             echo "stage.run-test=${STAGE_RUN_TEST:-UNKNOWN}"
           } >> .github/action-logs/e2e-metadata.txt
-      # scrub keys from the logs before anything leaves the runner; when this
-      # step fails, nothing is uploaded
+      # copy this job's allowlisted logs into a static bundle and scrub keys
+      # from the copy before anything leaves the runner; when this step
+      # fails, no bundle exists and nothing is uploaded
       - name: Redact diagnostics
         id: redact
         if: always()
         run: |
-          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence
-      # Files are listed one by one on purpose: never add config.toml or the
-      # generated gRPC TLS keys.
+          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence bs-e2e
+      # Only the bundle built by the Redact diagnostics step is uploaded. Its
+      # allowlist (profile bs-e2e in e2e_test.sh) is the file list this step
+      # used to name; never add config files, keystores, account directories,
+      # SP data/ or sp.json (they hold test keys).
       - name: Upload BlockSyncer E2E diagnostics
         if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: bs-e2e-diagnostics
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
-          # the evidence and logs live under .github/ and .local/, which
-          # upload-artifact@v4 skips unless hidden files are enabled; only the
-          # files listed below are uploaded
+          # the bundle lives under .github/, which upload-artifact@v4 skips
+          # unless hidden files are enabled
           include-hidden-files: true
-          path: |
-            .github/action-logs/e2e-metadata.txt
-            .github/action-logs/bs-e2e-run-test.log
-            modular/blocksyncer/coverage.txt
+          path: .github/e2e-diagnostics/

@@ -21,8 +21,9 @@ DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
 # NOTE: this prints the per-run throwaway localup test key into every step log,
 # and the steps tee that output into .github/action-logs/*.log. The
-# --redactEvidence step scrubs keys from those files before they are uploaded;
-# do not add more key output, and never write keys into the evidence files.
+# --redactEvidence step uploads only redacted copies of those files (the logs
+# themselves are left as they are); do not add more key output, and never
+# write keys into the evidence files.
 # The evidence-only modes skip it so they add no key output of their own.
 case "$1" in
 --recordMetadata | --redactEvidence) ;;
@@ -296,43 +297,210 @@ function record_run_metadata() {
   record_go_mod_digest sp "${workspace}"
 }
 
-# Scrub keys and mnemonics from everything the e2e jobs upload, in place.
-# Runs as its own always() step after the test steps, so it never changes a
-# test step's exit status; the upload step only runs when this succeeds, so a
-# failed scrub uploads nothing. Known secrets (the per-run test key, the dev
-# key, the localup SP keys in sp.json and the suite's info/challenger_info
-# files) are replaced wherever they appear; long hex values and 12-24 word runs
-# on lines that name a key or mnemonic, and bare mnemonic lines, are replaced
-# too. An existing sp.json that cannot be parsed fails the step. Scrubbing a
-# *-prepare.diff changes it after its diff_sha256 was recorded; the patches
-# hold no keys, so a mismatch there means something was redacted.
-# Every scrubbed file is then re-read and the step fails if a secret is left.
-E2E_REDACT_PATHS=(
-  ".github/action-logs"
-  "deployment/localup/local_env"
-  "moca/deployment/localup/.local"
-  "modular/blocksyncer/coverage.txt"
-)
+# Build the upload bundle for one job profile. Runs as its own always() step
+# after the test steps, so it never changes a test step's exit status; the
+# upload step only runs when this succeeds and uploads only the published
+# bundle directory.
+#
+# Each profile names a fixed allowlist of files: the job's metadata, prepare
+# diffs and tee'd step logs, the SP log.txt files and the validator node.log
+# (BlockSyncer: metadata, its tee log and coverage.txt). Nothing else is ever
+# opened: there is no recursive walk of the run tree, so SP data/ (database
+# WAL), config files, keystores, account dirs and symlinks are never read, and
+# the run tree is never modified. Each listed file is opened once (regular
+# files inside the workspace only, symlinks refused) and exactly the bytes it
+# held at open time are copied into a fresh staging directory, so a file that
+# grows, rotates or is deleted afterwards cannot change the bundle.
+# The static copy is scrubbed and re-read; only a fully verified copy is
+# renamed to the published bundle, so a failed run leaves no bundle at all.
+#
+# Known secrets (the per-run test key, the dev key, the localup SP keys in
+# sp.json and the suite's info/challenger_info files) are replaced wherever
+# they appear; long hex values and 12-24 word runs on lines that name a key or
+# mnemonic, and bare mnemonic lines, are replaced too. A key source that exists
+# but cannot be read or parsed fails the step; one that was never generated is
+# recorded as unavailable. The metadata file and the tee'd log of every step
+# that ran are required; a missing required file fails the step. Any other
+# missing file (a step that did not run, or a log it never wrote) is recorded
+# as missing with evidence UNKNOWN and its step's outcome. Budget: 20 MiB per
+# file, 100 MiB in total, 120 seconds; over budget fails closed (nothing is
+# truncated). manifest.txt lists every file as captured, missing or failed,
+# with its stage outcome, size and sha256 after redaction.
 function redact_evidence() {
+  local profile=$1
+
   cd "${workspace}" || return 1
   E2E_REDACT_KEY_1="${TEST_ACCOUNT_PRIVATE_KEY}" E2E_REDACT_KEY_2="${DEV_ACCOUNT_PRIVATE_KEY}" \
-    python3 - "${E2E_REDACT_PATHS[@]}" <<'PY'
+    python3 -I - "${profile}" <<'PY'
+import errno
+import hashlib
 import json
 import os
 import re
+import shutil
+import signal
+import stat
 import sys
+import time
 from pathlib import Path
 
+MIB = 1024 * 1024
+
+ACTION_LOGS = ".github/action-logs"
+METADATA = f"{ACTION_LOGS}/e2e-metadata.txt"
+SP_LOGS = [f"deployment/localup/local_env/sp{i}/log.txt" for i in range(8)]
+NODE_LOG = "moca/deployment/localup/.local/validator0/logs/node.log"
+
+
+def chain_job(prefix, stages, diffs):
+    # (path, stage producing it or None, required once that stage ran)
+    files = [(METADATA, None, True)]
+    files += [(f"{ACTION_LOGS}/{name}-prepare.diff", stage, False) for name, stage in diffs]
+    files += [(f"{ACTION_LOGS}/{prefix}-{stage}.log", stage, True) for stage in stages]
+    files += [(path, "start-sp", False) for path in SP_LOGS]
+    files.append((NODE_LOG, "start-chain", False))
+    return files
+
+
+SP_STAGES = ["start-chain", "start-sp", "build-cmd", "run-test"]
+PROFILES = {
+    "sp-e2e": chain_job("sp-e2e", SP_STAGES, [("sdk", "build-cmd"), ("cmd", "build-cmd")]),
+    "sp-exit": chain_job("sp-exit", SP_STAGES, [("sdk", "build-cmd"), ("cmd", "build-cmd")]),
+    "sdk-e2e": chain_job("sdk-e2e", ["start-chain", "start-sp", "run-test"], [("sdk", "run-test")]),
+    "bs-e2e": [
+        (METADATA, None, True),
+        (f"{ACTION_LOGS}/bs-e2e-run-test.log", "run-test", True),
+        ("modular/blocksyncer/coverage.txt", "run-test", False),
+    ],
+}
+
 MARK = "[REDACTED]"
-# only files that are uploaded are scrubbed: logs, evidence text and coverage
-UPLOAD_NAME = re.compile(r"(\.log|\.txt|\.diff)$")
 KEY_WORD = re.compile(r"(?i)priv(ate)?[ _-]?key|mnemonic|seed[ _-]?phrase|secret[ _-]?key")
 LONG_HEX = re.compile(r"(?i)\b(0x)?[0-9a-f]{32,}\b")
 WORD_LINE = re.compile(r"^\s*([a-z]+\s+){11,23}[a-z]+\s*$")
 # a 12-24 word mnemonic inside a line that names a key or mnemonic
 WORD_RUN = re.compile(r"\b([a-z]+[ \t]+){11,23}[a-z]+\b")
 
+
+class Refused(Exception):
+    pass
+
+
+def fail(message):
+    print(f"evidence bundle not published: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+WORKSPACE = Path.cwd().resolve()
+# fixed location, not configurable: the cleanup below deletes it recursively
+BUNDLE = WORKSPACE / ".github/e2e-diagnostics"
+STAGING = BUNDLE.with_name(BUNDLE.name + ".staging")
+START = time.monotonic()
+
+
+def remove(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+# never leave an earlier bundle behind for the upload step to pick up, even
+# when the arguments or budgets below are rejected
+remove(BUNDLE)
+remove(STAGING)
+
+if len(sys.argv) != 2 or sys.argv[1] not in PROFILES:
+    fail(f"unknown profile {sys.argv[1:]!r}; expected one of {sorted(PROFILES)}")
+PROFILE = sys.argv[1]
+
+
+def budget(name, cap, kind):
+    """The environment can only tighten a budget (the offline fixtures do)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return cap
+    try:
+        value = kind(raw)
+    except ValueError:
+        fail(f"{name}={raw!r} is not a number")
+    if not value > 0:
+        fail(f"{name}={raw!r} must be positive")
+    return min(cap, value)
+
+
+FILE_LIMIT = budget("E2E_BUNDLE_FILE_LIMIT", 20 * MIB, int)
+TOTAL_LIMIT = budget("E2E_BUNDLE_TOTAL_LIMIT", 100 * MIB, int)
+TIME_LIMIT = budget("E2E_BUNDLE_TIME_LIMIT", 120.0, float)
+
+
+def budget_left(limit):
+    if limit < FILE_LIMIT:
+        return f"{TOTAL_LIMIT} byte total budget ({limit} bytes left)"
+    return f"{FILE_LIMIT} byte budget"
+
+
+def on_alarm(signum, frame):
+    remove(STAGING)
+    fail(f"over the {TIME_LIMIT:g}s time budget")
+
+
+signal.signal(signal.SIGALRM, on_alarm)
+signal.setitimer(signal.ITIMER_REAL, TIME_LIMIT)
+
+
+def snapshot(rel, limit):
+    """Bytes the allowlisted file held when it was opened; None if absent.
+
+    Every parent must be a real directory inside the workspace and the file a
+    regular file; symlinks are refused, never followed.
+    """
+    path = Path(rel)
+    if path.is_absolute() or ".." in path.parts:
+        raise Refused("path escapes the workspace")
+    current = WORKSPACE
+    for part in path.parts[:-1]:
+        current = current / part
+        try:
+            st = os.lstat(current)
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(st.st_mode):
+            raise Refused(f"symlinked directory {current.relative_to(WORKSPACE)}")
+        if not stat.S_ISDIR(st.st_mode):
+            raise Refused(f"{current.relative_to(WORKSPACE)} is not a directory")
+    try:
+        fd = os.open(WORKSPACE / path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        if err.errno == errno.ELOOP:
+            raise Refused("symlink")
+        raise Refused(f"cannot open ({errno.errorcode.get(err.errno, err.errno)})")
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise Refused("not a regular file")
+        size = st.st_size
+        if size > limit:
+            raise Refused(f"{size} bytes is over the {budget_left(limit)}")
+        chunks, remaining = [], size
+        while remaining:
+            try:
+                chunk = os.read(fd, min(remaining, MIB))
+            except OSError as err:
+                raise Refused(f"read failed ({errno.errorcode.get(err.errno, err.errno)})")
+            if not chunk:
+                raise Refused(f"shrank below {size} bytes while it was copied")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
 secrets = set()
+sources = {}
 
 
 def add_secret(value):
@@ -361,26 +529,38 @@ def is_secret_line(line):
     return bool(re.fullmatch(r"(?i)(0x)?[0-9a-f]{64}", line)) or bool(WORD_LINE.match(line))
 
 
+def read_key_source(rel):
+    # a key source we cannot read means we cannot know its keys: fail
+    try:
+        data = snapshot(rel, FILE_LIMIT)
+    except Refused as err:
+        fail(f"cannot read key source {rel}: {err}")
+    sources[rel] = "unavailable" if data is None else "read"
+    return None if data is None else data.decode("utf-8", errors="replace")
+
+
 add_secret(os.environ.get("E2E_REDACT_KEY_1", ""))
 add_secret(os.environ.get("E2E_REDACT_KEY_2", ""))
-for name in ("moca/sp.json", "moca/deployment/localup/.local/sp_export.json"):
-    path = Path(name)
-    if not path.exists():
+for rel in ("moca/sp.json", "moca/deployment/localup/.local/sp_export.json"):
+    text = read_key_source(rel)
+    if text is None:
         continue
     try:
-        walk_json(json.loads(path.read_text()))
-    except (OSError, ValueError) as err:
-        # an SP key file we cannot read means we cannot know its keys: fail
-        print(f"cannot read SP keys from {name}: {type(err).__name__}", file=sys.stderr)
-        sys.exit(1)
-local = Path("moca/deployment/localup/.local")
-for info in list(local.glob("*/info")) + list(local.glob("*/challenger_info")):
-    try:
-        for line in info.read_text(errors="replace").splitlines():
-            if is_secret_line(line):
-                add_secret(line)
-    except OSError:
-        pass
+        walk_json(json.loads(text))
+    except ValueError as err:
+        fail(f"cannot read SP keys from {rel}: {type(err).__name__}")
+LOCAL = "moca/deployment/localup/.local"
+local_dir = WORKSPACE / LOCAL
+if local_dir.is_symlink():
+    fail(f"cannot read key sources: {LOCAL} is a symlink")
+if local_dir.is_dir():
+    for child in sorted(local_dir.iterdir()):
+        for name in ("info", "challenger_info"):
+            if os.path.lexists(child / name):
+                text = read_key_source(f"{LOCAL}/{child.name}/{name}")
+                for line in (text or "").splitlines():
+                    if is_secret_line(line):
+                        add_secret(line)
 
 secret_patterns = [re.compile(r"(?i)(0x)?" + re.escape(s)) for s in sorted(secrets, key=len, reverse=True)]
 
@@ -408,28 +588,71 @@ def leftover(text):
     return None
 
 
-files = []
-for root in sys.argv[1:]:
-    path = Path(root)
-    if path.is_file():
-        files.append(path)
-    elif path.is_dir():
-        files.extend(p for p in sorted(path.rglob("*")) if p.is_file() and not p.is_symlink() and UPLOAD_NAME.search(p.name))
+# the job's own "Record stage results" step appends stage.<id>=<outcome>
+stages = {}
+try:
+    meta = snapshot(METADATA, FILE_LIMIT) or b""
+except Refused as err:
+    fail(f"{METADATA}: {err}")
+for line in meta.decode("latin-1").splitlines():
+    key, sep, value = line.partition("=")
+    if sep and key.startswith("stage."):
+        stages[key[len("stage."):]] = value.strip()
 
-failed = False
-for path in files:
-    raw = path.read_bytes().decode("latin-1")
-    scrubbed = "".join(scrub_line(line) for line in raw.splitlines(keepends=True))
-    if scrubbed != raw:
-        tmp = path.with_name(path.name + ".redact-tmp")
-        tmp.write_bytes(scrubbed.encode("latin-1"))
-        os.replace(tmp, path)
-    problem = leftover(path.read_bytes().decode("latin-1"))
-    if problem:
-        print(f"redaction check failed for {path}: {problem}", file=sys.stderr)
-        failed = True
-print(f"redacted {len(files)} file(s) against {len(secrets)} known secret(s)")
-sys.exit(1 if failed else 0)
+STAGING.mkdir(parents=True)
+manifest = [f"profile={PROFILE}", f"limits.file_bytes={FILE_LIMIT}", f"limits.total_bytes={TOTAL_LIMIT}",
+            f"limits.seconds={TIME_LIMIT:g}"]
+manifest += [f"stage.{key}={value}" for key, value in sorted(stages.items())]
+manifest += [f"key_source.{rel}={state}" for rel, state in sorted(sources.items())]
+problems = []
+total = captured = 0
+for rel, stage, at_start in PROFILES[PROFILE]:
+    outcome = "always" if stage is None else stages.get(stage, "UNKNOWN")
+    ran = stage is None or outcome in ("success", "failure")
+    required = stage is None or (at_start and ran)
+    entry = f"file.{rel}"
+    manifest += [f"{entry}.stage={outcome}", f"{entry}.required={'yes' if required else 'no'}"]
+    try:
+        data = snapshot(rel, min(FILE_LIMIT, TOTAL_LIMIT - total))
+    except Refused as err:
+        manifest += [f"{entry}.status=failed", f"{entry}.reason={err}"]
+        problems.append(f"{rel}: {err}")
+        continue
+    if data is None:
+        reason = "not produced" if ran else "step did not run"
+        manifest += [f"{entry}.status=missing", f"{entry}.reason={reason}",
+                     f"{entry}.evidence={'FAIL' if required else 'UNKNOWN'}"]
+        if required:
+            problems.append(f"{rel}: required but missing")
+        continue
+    total += len(data)
+    raw = data.decode("latin-1")
+    scrubbed = "".join(scrub_line(line) for line in raw.splitlines(keepends=True)).encode("latin-1")
+    target = STAGING / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(scrubbed)
+    written = target.read_bytes()
+    problem = leftover(written.decode("latin-1"))
+    if written != scrubbed or problem:
+        manifest += [f"{entry}.status=failed", f"{entry}.reason=redacted copy did not verify: {problem}"]
+        problems.append(f"{rel}: redacted copy did not verify: {problem}")
+        continue
+    captured += 1
+    manifest += [f"{entry}.status=captured", f"{entry}.redacted={'yes' if written != data else 'no'}",
+                 f"{entry}.bytes={len(written)}", f"{entry}.sha256={hashlib.sha256(written).hexdigest()}"]
+
+manifest += [f"files.captured={captured}", f"files.source_bytes={total}",
+             f"elapsed_seconds={time.monotonic() - START:.1f}"]
+if problems:
+    remove(STAGING)
+    print("\n".join(manifest))
+    fail("; ".join(problems))
+manifest.append("result=success")
+(STAGING / "manifest.txt").write_text("\n".join(manifest) + "\n")
+signal.setitimer(signal.ITIMER_REAL, 0)
+os.rename(STAGING, BUNDLE)
+print("\n".join(manifest))
+print(f"published {captured} redacted file(s) against {len(secrets)} known secret(s) to {BUNDLE}")
 PY
 }
 
@@ -944,7 +1167,7 @@ function main() {
     record_run_metadata
     ;;
   --redactEvidence)
-    redact_evidence
+    redact_evidence "$2"
     ;;
   esac
 }

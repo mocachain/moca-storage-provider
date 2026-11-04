@@ -111,40 +111,26 @@ jobs:
             echo "stage.build-cmd=${STAGE_BUILD_CMD:-UNKNOWN}"
             echo "stage.run-test=${STAGE_RUN_TEST:-UNKNOWN}"
           } >> .github/action-logs/e2e-metadata.txt
-      # scrub keys from the logs before anything leaves the runner; when this
-      # step fails, nothing is uploaded
+      # copy this job's allowlisted logs into a static bundle and scrub keys
+      # from the copy before anything leaves the runner; when this step
+      # fails, no bundle exists and nothing is uploaded
       - name: Redact diagnostics
         id: redact
         if: always()
         run: |
-          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence
-      # Files are listed one by one on purpose: never add config files,
-      # keystores, account directories or sp.json (they hold test keys).
+          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence sp-e2e
+      # Only the bundle built by the Redact diagnostics step is uploaded. Its
+      # allowlist (profile sp-e2e in e2e_test.sh) is the file list this step
+      # used to name; never add config files, keystores, account directories,
+      # SP data/ or sp.json (they hold test keys).
       - name: Upload SP E2E diagnostics
         if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: sp-e2e-diagnostics
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
-          # the evidence and logs live under .github/ and .local/, which
-          # upload-artifact@v4 skips unless hidden files are enabled; only the
-          # files listed below are uploaded
+          # the bundle lives under .github/, which upload-artifact@v4 skips
+          # unless hidden files are enabled
           include-hidden-files: true
-          path: |
-            .github/action-logs/e2e-metadata.txt
-            .github/action-logs/sdk-prepare.diff
-            .github/action-logs/cmd-prepare.diff
-            .github/action-logs/sp-e2e-start-chain.log
-            .github/action-logs/sp-e2e-start-sp.log
-            .github/action-logs/sp-e2e-build-cmd.log
-            .github/action-logs/sp-e2e-run-test.log
-            deployment/localup/local_env/sp0/log.txt
-            deployment/localup/local_env/sp1/log.txt
-            deployment/localup/local_env/sp2/log.txt
-            deployment/localup/local_env/sp3/log.txt
-            deployment/localup/local_env/sp4/log.txt
-            deployment/localup/local_env/sp5/log.txt
-            deployment/localup/local_env/sp6/log.txt
-            deployment/localup/local_env/sp7/log.txt
-            moca/deployment/localup/.local/validator0/logs/node.log
+          path: .github/e2e-diagnostics/

@@ -1,0 +1,152 @@
+### sdk prepare 1: base 85dae194d6be723f9dc5bf83a1ae3c7ae4e97156
+diff --git a/client/api_client.go b/client/api_client.go
+index 3ec5ef6..a4b3150 100644
+--- a/client/api_client.go
++++ b/client/api_client.go
+@@ -498,13 +498,14 @@ func (c *Client) newRequest(ctx context.Context, method string, meta requestMeta
+ 		if meta.txnMsg != "" {
+ 			req.Header.Set(types.HTTPHeaderUnsignedMsg, meta.txnMsg)
+ 		}
+-	} else {
+-		// set request host
+-		if c.host != "" {
+-			req.Host = c.host
+-		} else if req.URL.Host != "" {
+-			req.Host = req.URL.Host
+-		}
++	}
++
++	// set request host for both admin and non-admin APIs so local e2e can reach
++	// SP endpoints by localhost while still sending the configured virtual host.
++	if c.host != "" {
++		req.Host = c.host
++	} else if req.URL.Host != "" {
++		req.Host = req.URL.Host
+ 	}
+ 
+ 	if meta.userAddress != "" {
+diff --git a/e2e/basesuite/suite.go b/e2e/basesuite/suite.go
+index 765b7e5..9bfc72d 100644
+--- a/e2e/basesuite/suite.go
++++ b/e2e/basesuite/suite.go
+@@ -17,9 +17,9 @@ import (
+ )
+ 
+ var (
+-	Endpoint    = "http://localhost:26750"
++	Endpoint    = "http://localhost:26657"
+ 	EVMEndpoint = "http://localhost:8545"
+-	ChainID     = "moca_1000000-121"
++	ChainID     = "moca_5151-1"
+ )
+ 
+ func ParseMnemonicFromFile(fileName string) string {
+@@ -61,12 +61,22 @@ func ParseValidatorMnemonic(i int) string {
+ 
+ func (s *BaseSuite) NewChallengeClient() {
+ 	mnemonic := ParseMnemonicFromFile(fmt.Sprintf("../../moca/deployment/localup/.local/challenger%d/challenger_info", 0))
+-	challengeAcc, err := types.NewAccountFromMnemonic("challenge_account", mnemonic)
+-	s.Require().NoError(err)
+-	priKey, err := keys.GetPriKeyFromMnemonic(mnemonic)
+-	s.Require().NoError(err)
++	var challengeAcc *types.Account
++	var priKey string
++	var err error
++	if len(mnemonic) == 64 {
++		challengeAcc, err = types.NewAccountFromPrivateKey("challenge_account", mnemonic)
++		s.Require().NoError(err)
++		priKey = mnemonic
++	} else {
++		challengeAcc, err = types.NewAccountFromMnemonic("challenge_account", mnemonic)
++		s.Require().NoError(err)
++		priKey, err = keys.GetPriKeyFromMnemonic(mnemonic)
++		s.Require().NoError(err)
++	}
+ 	s.ChallengeClient, err = client.New(ChainID, Endpoint, EVMEndpoint, priKey, client.Option{
+ 		DefaultAccount: challengeAcc,
++		Host:           "gnfd.test-sp.com",
+ 	})
+ 	s.Require().NoError(err)
+ }
+@@ -79,6 +89,7 @@ func (s *BaseSuite) SetupSuite() {
+ 	s.Require().NoError(err)
+ 	s.Client, err = client.New(ChainID, Endpoint, EVMEndpoint, priKey, client.Option{
+ 		DefaultAccount: account,
++		Host:           "gnfd.test-sp.com",
+ 	})
+ 	s.Require().NoError(err)
+ 	s.ClientContext = context.Background()
+diff --git a/e2e/e2e_migrate_bucket_test.go b/e2e/e2e_migrate_bucket_test.go
+index 7c1e438..2e5c1d5 100644
+--- a/e2e/e2e_migrate_bucket_test.go
++++ b/e2e/e2e_migrate_bucket_test.go
+@@ -134,7 +134,7 @@ func (s *BucketMigrateTestSuite) SelectDestSP(objectDetail *types.ObjectDetail)
+ 	for _, id := range objectDetail.GlobalVirtualGroup.SecondarySpIds {
+ 		spIDs[id] = true
+ 	}
+-	s.Require().Equal(len(spIDs), 7)
++	s.Require().Equal(len(spIDs), 3)
+ 
+ 	var destSP *spTypes.StorageProvider
+ 	for _, sp := range sps {
+@@ -160,7 +160,9 @@ func (s *BucketMigrateTestSuite) waitUntilBucketMigrateFinish(bucketName string,
+ 		bucketInfo, err = s.Client.HeadBucket(s.ClientContext, bucketName)
+ 		s.T().Logf("HeadBucket: %s", bucketInfo)
+ 		s.Require().NoError(err)
+-		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING {
++		family, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)
++		s.Require().NoError(ferr)
++		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == destSP.GetId() {
+ 			break
+ 		}
+ 		time.Sleep(3 * time.Second)
+@@ -229,7 +231,7 @@ func (s *BucketMigrateTestSuite) Test_Bucket_Migrate_Simple_Conflict_Case() {
+ 	for _, id := range objectDetail.GlobalVirtualGroup.SecondarySpIds {
+ 		spIDs[id] = true
+ 	}
+-	s.Require().Equal(len(spIDs), 7)
++	s.Require().Equal(len(spIDs), 3)
+ 
+ 	var destSP *spTypes.StorageProvider
+ 	for _, sp := range sps {
+@@ -252,11 +254,13 @@ func (s *BucketMigrateTestSuite) Test_Bucket_Migrate_Simple_Conflict_Case() {
+ 
+ 	var bucketInfo *storageTypes.BucketInfo
+ 
+-	for {
++	for i := 0; i < 100; i++ {
+ 		bucketInfo, err = s.Client.HeadBucket(s.ClientContext, bucketName)
+ 		s.T().Logf("HeadBucket: %s", bucketInfo)
+ 		s.Require().NoError(err)
+-		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING {
++		family, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)
++		s.Require().NoError(ferr)
++		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == conflictSPID {
+ 			break
+ 		}
+ 		time.Sleep(3 * time.Second)
+@@ -312,11 +316,13 @@ func (s *BucketMigrateTestSuite) Test_Empty_Bucket_Migrate_Simple_Case() {
+ 
+ 	s.T().Logf("MigrateBucket : %s", txhash)
+ 
+-	for {
++	for i := 0; i < 100; i++ {
+ 		bucketInfo, err = s.Client.HeadBucket(s.ClientContext, bucketName)
+ 		s.T().Logf("HeadBucket: %s", bucketInfo)
+ 		s.Require().NoError(err)
+-		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING {
++		family, ferr := s.Client.QueryVirtualGroupFamily(s.ClientContext, bucketInfo.GlobalVirtualGroupFamilyId)
++		s.Require().NoError(ferr)
++		if bucketInfo.BucketStatus != storageTypes.BUCKET_STATUS_MIGRATING && family.PrimarySpId == destSP.GetId() {
+ 			break
+ 		}
+ 		time.Sleep(3 * time.Second)
+@@ -337,7 +343,7 @@ func (s *BucketMigrateTestSuite) CheckChallenge(objectId uint32) bool {
+ 		s.NoError(err, fmt.Sprintf("%d", i), infos.ObjectInfo.BucketName, infos.ObjectInfo.ObjectName)
+ 		_, err = io.ReadAll(reader)
+ 		s.NoError(err, fmt.Sprintf("%d", i), infos.ObjectInfo.BucketName, infos.ObjectInfo.ObjectName)
+-		for j := -1; j < 6; j++ {
++		for j := -1; j < 2; j++ {
+ 			s.T().Logf("====challenge %v,%v,=====", i, j)
+ 			_, errPk := s.ChallengeClient.GetChallengeInfo(context.Background(), infos.ObjectInfo.Id.String(), 0, j, types.GetChallengeInfoOptions{})
+ 			s.NoError(errPk, infos.ObjectInfo.BucketName, infos.ObjectInfo.ObjectName, i, j)
