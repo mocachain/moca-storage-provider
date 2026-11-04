@@ -96,7 +96,7 @@ def build_ws(root, keys):
     (local / "validator0/info").write_text("address: 0x01\n" + keys["mnemonic"] + "\n")
     (local / "challenger0/challenger_info").write_text(keys["challenger"] + "\n")
     (ws / "moca/sp.json").write_text(json.dumps({"sp0": {"OperatorPrivateKey": keys["sp_op"],
-                                                          "SealPrivateKey": "0x" + keys["sp_seal"],
+                                                          "SealPrivateKey": keys["sp_seal"],
                                                           "OperatorAddress": "0x02"}}))
     # localup/SP logs that leak keys (simulates a config dump / key output)
     (local / "validator0/logs/node.log").write_text(
@@ -701,9 +701,9 @@ def corrupt_key_source_cases():
     # SP JSON that parses but holds no private key field
     for text, why in (("{}", "no private key fields"), ("[]", "no private key fields"),
                       ('{"sp0": {"OperatorAddress": "0x02"}}', "no private key fields"),
-                      ('{"sp0": {"OperatorPrivateKey": ""}}', "OperatorPrivateKey holds no key"),
+                      ('{"sp0": {"OperatorPrivateKey": ""}}', "OperatorPrivateKey is not 64 hex digits"),
                       ('{"sp0": {"OperatorPrivateKey": "%s", "FundingPrivateKey": "", "SealPrivateKey": "x"}}' % hexkey(),
-                       "FundingPrivateKey holds no key")):
+                       "FundingPrivateKey is not 1 to 64 hex digits")):
         root, ws, keys = fresh()
         (ws / "moca/sp.json").write_text(text)
         r = run_collector(ws, "sp-e2e", keys)
@@ -711,6 +711,70 @@ def corrupt_key_source_cases():
               and why in r.stderr and not any(v in r.stdout + r.stderr for v in keys.values()))
         shutil.rmtree(root)
 
+    sp_key_field_cases()
+
+
+SP_EXPORT = "moca/deployment/localup/.local/sp_export.json"
+
+
+def sp_key_field_cases():
+    # one valid key field next to a corrupt one: the corrupt field's key would
+    # be missing from the redaction set, and the seal key in node.log ("loaded
+    # seal key ...") matches no generic rule, so publishing would leak it
+    skipped = {"start-chain": "skipped", "start-sp": "skipped", "build-cmd": "skipped", "run-test": "skipped"}
+    bad = {"null": None, "number": 123, "object": {}, "list": [hexkey()],
+           "long non-hex string": "broken-content-not-a-key",
+           "0x prefix": "0x" + hexkey(), "64 chars with a non-hex digit": hexkey()[:63] + "g"}
+    for rel in ("moca/sp.json", SP_EXPORT):
+        extra = {"moca/sp.json": {"63 hex digits": hexkey()[:63]},
+                 SP_EXPORT: {"65 hex digits": hexkey() + "a", "too short to redact": "ab12"}}[rel]
+        for name, value in {**bad, **extra}.items():
+            for how in ("collector", "entry point"):
+                root, ws, keys = fresh("sp-e2e", skipped)
+                (ws / "moca/sp.json").unlink()
+                (ws / rel).write_text(json.dumps({"sp0": {"OperatorPrivateKey": keys["sp_op"],
+                                                          "SealPrivateKey": value,
+                                                          "OperatorAddress": "0x02"}}))
+                r = run_collector(ws, "sp-e2e", keys) if how == "collector" else real_redact(ws, "sp-e2e", keys)
+                leaked = any(keys["sp_seal"].upper() in p.read_text(errors="replace")
+                             for p in (ws / BUNDLE).rglob("*") if p.is_file()) if (ws / BUNDLE).exists() else False
+                check(f"{how}: {rel} valid OperatorPrivateKey + SealPrivateKey {name} -> exit 1, nothing published",
+                      r.returncode == 1 and no_bundle(ws) and not leaked
+                      and f"cannot read SP keys from {rel}: SealPrivateKey" in r.stderr
+                      and not any(v in r.stdout + r.stderr for v in keys.values()))
+                shutil.rmtree(root)
+
+    # FundingPrivateKey, the one sp.json field left unpadded, is checked too
+    for value in (None, "broken-content-not-a-key", hexkey() + "a"):
+        root, ws, keys = fresh("sp-e2e", skipped)
+        (ws / "moca/sp.json").write_text(json.dumps({"sp0": {"OperatorPrivateKey": keys["sp_op"],
+                                                              "FundingPrivateKey": value}}))
+        r = real_redact(ws, "sp-e2e", keys)
+        check(f"entry point: moca/sp.json FundingPrivateKey {str(value)[:24]} -> exit 1, nothing published",
+              r.returncode == 1 and no_bundle(ws)
+              and "cannot read SP keys from moca/sp.json: FundingPrivateKey" in r.stderr)
+        shutil.rmtree(root)
+
+    # what each file really holds still publishes, and the seal key is redacted:
+    # export_sps output may drop leading zeros, sp.json is padded to 64 digits
+    for rel, seal in (("moca/sp.json", "00" + hexkey()[2:]), ("moca/sp.json", hexkey().upper()),
+                      (SP_EXPORT, hexkey()[2:]), (SP_EXPORT, hexkey())):
+        for how in ("collector", "entry point"):
+            root, ws, keys = fresh("sp-e2e", skipped)
+            (ws / "moca/sp.json").unlink()
+            # normalize_sp_private_keys does not pad FundingPrivateKey
+            (ws / rel).write_text(json.dumps({"sp0": {"OperatorPrivateKey": keys["sp_op"],
+                                                      "FundingPrivateKey": hexkey()[3:],
+                                                      "SealPrivateKey": seal, "BlsPrivateKey": hexkey()}}))
+            log = ws / "moca/deployment/localup/.local/validator0/logs/node.log"
+            log.write_text("node started height=1\nloaded seal key " + seal.upper() + "\n")
+            r = run_collector(ws, "sp-e2e", keys) if how == "collector" else real_redact(ws, "sp-e2e", keys)
+            m = manifest_of(ws)
+            texts = [p.read_text(errors="replace") for p in (ws / BUNDLE).rglob("*") if p.is_file()]
+            check(f"{how}: {rel} SealPrivateKey of {len(seal)} hex digits -> published, source read, key redacted",
+                  r.returncode == 0 and m.get(f"key_source.{rel}") == "read"
+                  and texts and not any(seal.upper() in t.upper() for t in texts))
+            shutil.rmtree(root)
 
 
 for wf in WORKFLOWS:

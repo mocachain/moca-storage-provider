@@ -527,19 +527,44 @@ def add_secret(value):
     return True
 
 
+# the two SP key files differ only in how a key is written: sp_export.json is
+# export_sps output, one `mocad keys export --unarmored-hex` value per field
+# (bare hex, leading zeros may be dropped); moca/sp.json is that file after
+# normalize_sp_private_keys, which pads the fields it lists to 64 bare hex
+# digits and leaves the rest (FundingPrivateKey) as exported
+EXPORTED_KEY = ("1 to 64 hex digits", re.compile(r"[0-9A-Fa-f]{1,64}"))
+PADDED_KEY = ("64 hex digits", re.compile(r"[0-9A-Fa-f]{64}"))
+PADDED_FIELDS = {"OperatorPrivateKey", "SealPrivateKey", "ApprovalPrivateKey", "GcPrivateKey",
+                 "MaintenancePrivateKey", "BlsPrivateKey"}
+
+
+def key_format(rel, field):
+    if rel == "moca/sp.json" and field in PADDED_FIELDS:
+        return PADDED_KEY
+    return EXPORTED_KEY
+
+
 def walk_json(node, rel):
     """Collect values under key-named fields; returns how many were keys.
 
-    A key-named string field that holds no usable key means the redaction set
-    would be missing that key, so it fails rather than being skipped.
+    Every key-named field must hold a key in the format its file is written
+    in. Anything else (null, a number, an object, a string that is not hex)
+    means the redaction set would be missing that key, so it fails rather
+    than being skipped.
     """
     found = 0
     if isinstance(node, dict):
         for key, value in node.items():
-            if KEY_WORD.search(str(key)) and isinstance(value, str):
+            if KEY_WORD.search(str(key)):
+                if not isinstance(value, str):
+                    fail(f"cannot read SP keys from {rel}: {key} holds a {type(value).__name__}, not a key")
+                what, pattern = key_format(rel, str(key))
+                if not pattern.fullmatch(value):
+                    fail(f"cannot read SP keys from {rel}: {key} is not {what}")
                 if not add_secret(value):
-                    fail(f"cannot read SP keys from {rel}: {key} holds no key")
+                    fail(f"cannot read SP keys from {rel}: {key} is too short to redact")
                 found += 1
+                continue
             found += walk_json(value, rel)
     elif isinstance(node, list):
         for value in node:
