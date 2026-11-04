@@ -780,6 +780,15 @@ for path in sorted(set(before) | set(after)):
   record_evidence "${label}.sonic_loader_selected" "${loader}"
   record_evidence "${label}.module_graph_before_sha256" "$(printf '%s\n' "${before}" | sha256sum | cut -d ' ' -f 1)"
   record_evidence "${label}.module_graph_sha256" "$(printf '%s\n' "${graph}" | sha256sum | cut -d ' ' -f 1)"
+  # the raw graph names cmd's local go-sdk replace by absolute path, so its
+  # hash changes with the runner's workspace; this one is comparable across
+  # runners (the workspace prefix is written as the literal ${GITHUB_WORKSPACE})
+  local portable=${graph}
+  if [ -n "${workspace}" ]; then
+    # shellcheck disable=SC2016 # the token is written literally
+    portable=${graph//"${workspace}"/'${GITHUB_WORKSPACE}'}
+  fi
+  record_evidence "${label}.module_graph_portable_sha256" "$(printf '%s\n' "${portable}" | sha256sum | cut -d ' ' -f 1)"
   local ok=1
   if [ "${sonic}" != "${E2E_SONIC_VERSION}" ] || [ "${loader}" != "${E2E_SONIC_LOADER_VERSION}" ]; then
     echo "${label}: selected sonic ${sonic} / loader ${loader}, expected ${E2E_SONIC_VERSION} / ${E2E_SONIC_LOADER_VERSION}" >&2

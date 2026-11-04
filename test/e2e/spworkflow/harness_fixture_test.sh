@@ -211,16 +211,24 @@ mkdir -p "${STUB}"
 cat >"${STUB}/go" <<'GO'
 #!/usr/bin/env bash
 echo "go $*" >>"${FX_LOG}"
+# like the real graphs, cmd's names the local go-sdk replace by absolute path
+cmd_replace_line() {
+  if [ "$(basename "${PWD}")" = moca-cmd ]; then echo "github.com/mocachain/moca-go-sdk v1.2.0-rc1 => ${GITHUB_WORKSPACE}/moca-go-sdk"; fi
+}
 case "$*" in
 "list -m -f {{.Version}} github.com/bytedance/sonic")
   if [ -n "${FX_CMD_SONIC}" ] && [ "$(basename "${PWD}")" = moca-cmd ]; then echo "${FX_CMD_SONIC}"; else echo "${FX_SONIC:-v1.15.1}"; fi ;;
 "list -m -f {{.Version}} github.com/bytedance/sonic/loader") echo "${FX_LOADER:-v0.5.1}" ;;
-"list -m all") printf 'fx\ngithub.com/bytedance/sonic %s\ngithub.com/stays/same v1.0.0\n%b' "${FX_SONIC:-v1.15.1}" "${FX_AFTER_EXTRA}" ;;
+"list -m all")
+  printf 'fx\ngithub.com/bytedance/sonic %s\ngithub.com/stays/same v1.0.0\n%b' "${FX_SONIC:-v1.15.1}" "${FX_AFTER_EXTRA}"
+  cmd_replace_line ;;
 "list -mod=mod -modfile="*" -m all")
   # the pre-pin graph: sonic v1.14.0 and a module only it pulled in
   case "$*" in *"/go.mod -m all") ;; *) exit 3 ;; esac
   [ "${3#-modfile=}" != "${PWD}/go.mod" ] || exit 4
-  printf 'fx\ngithub.com/bytedance/sonic v1.14.0\ngithub.com/cloudwego/iasm v0.2.0\ngithub.com/stays/same v1.0.0\n' ;;
+  printf 'fx\ngithub.com/bytedance/sonic v1.14.0\ngithub.com/cloudwego/iasm v0.2.0\ngithub.com/stays/same v1.0.0\n'
+  # cmd's replace is applied before its pre-pin graph is taken
+  cmd_replace_line ;;
 "env GOVERSION") echo go1.26.10 ;;
 "mod edit -json") echo '{"Replace":[{"Old":{"Path":"github.com/mocachain/moca-go-sdk"},"New":{"Path":"LOCAL"}}]}' ;;
 esac
@@ -316,6 +324,18 @@ MD=${WS}/.github/action-logs/e2e-metadata.txt
 check "cmd pin: exit 0, both prepares ran" "[ ${rc} -eq 0 ] && grep -qx 'sdk.go126_deps_check=PASS' ${MD} && grep -qx 'cmd.go126_deps_check=PASS' ${MD}"
 check "cmd pin: sdk base/pin/tidy/check, then cmd replace, base, pin, tidy, check, make build" "[ \"\$(calls_order ${WS})\" = base,pin,tidy,check,replace,base,pin,tidy,check,make ]"
 check "cmd pin: cmd check recorded before its prepare diff and binary" "[ \"\$(grep -n -E '^cmd\.(go126_deps_check|prepare\.1\.diff_sha256|moca-cmd\.binary)=' ${MD} | cut -d: -f2 | cut -d= -f1 | paste -sd,)\" = cmd.go126_deps_check,cmd.prepare.1.diff_sha256,cmd.moca-cmd.binary ]"
+
+# the raw cmd graph hash follows the workspace path; the portable one does not
+WS=${ROOT}/ws10d-other-path
+deps_run "${WS}" build_cmd_prefix; rc=$?
+MD2=${WS}/.github/action-logs/e2e-metadata.txt
+graph_hash() { grep "^$2=" "$1" | cut -d= -f2; }
+check "cmd graph: raw hash differs across workspace paths, portable hash equal" "[ ${rc} -eq 0 ] && [ -n \"\$(graph_hash ${MD} cmd.module_graph_portable_sha256)\" ] && [ \"\$(graph_hash ${MD} cmd.module_graph_sha256)\" != \"\$(graph_hash ${MD2} cmd.module_graph_sha256)\" ] && [ \"\$(graph_hash ${MD} cmd.module_graph_portable_sha256)\" = \"\$(graph_hash ${MD2} cmd.module_graph_portable_sha256)\" ]"
+# shellcheck disable=SC2016 # the token is written literally
+EXPECT=$(printf 'fx\ngithub.com/bytedance/sonic v1.15.1\ngithub.com/stays/same v1.0.0\ngithub.com/mocachain/moca-go-sdk v1.2.0-rc1 => ${GITHUB_WORKSPACE}/moca-go-sdk\n' | sha256sum | cut -d ' ' -f 1)
+# shellcheck disable=SC2016
+check "cmd graph: portable hash is the graph with the workspace written as \${GITHUB_WORKSPACE}" "[ \"\$(graph_hash ${MD} cmd.module_graph_portable_sha256)\" = ${EXPECT} ]"
+check "sdk graph: no workspace path, portable hash equals the raw one" "[ \"\$(graph_hash ${MD} sdk.module_graph_portable_sha256)\" = \"\$(graph_hash ${MD} sdk.module_graph_sha256)\" ]"
 
 WS=${ROOT}/ws10e
 deps_run "${WS}" build_cmd_prefix FX_CMD_SONIC=v1.16.0; rc=$?
