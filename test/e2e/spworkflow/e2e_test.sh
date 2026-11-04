@@ -656,6 +656,85 @@ print(f"published {captured} redacted file(s) against {len(secrets)} known secre
 PY
 }
 
+# moca-go-sdk and moca-cmd at their pinned 1.2.x refs require sonic v1.14.0,
+# which does not build with Go 1.26: its internal/rt/stubs.go uses
+# GoMapIterator, which only its pre-1.26 map files define. Pin the sonic
+# release that supports Go 1.26 (the SP module and the chain already select
+# these versions) in each consumer's own module graph, then check what the
+# graph actually selected. Exact versions only, never @latest or -u.
+E2E_SONIC_VERSION="v1.15.1"
+E2E_SONIC_LOADER_VERSION="v0.5.1"
+function pin_go126_deps() {
+  go mod edit \
+    -require="github.com/bytedance/sonic@${E2E_SONIC_VERSION}" \
+    -require="github.com/bytedance/sonic/loader@${E2E_SONIC_LOADER_VERSION}"
+}
+
+# The only modules the pin may move, with the version each must end at ("-":
+# the pin drops it): sonic and loader, the two modules sonic v1.15.1 requires
+# at a higher version, and the three that only sonic v1.14.0 pulled in. Every
+# other module in the graph must keep the version it had before the pin.
+E2E_GO126_ALLOWED_DRIFT="github.com/bytedance/sonic=${E2E_SONIC_VERSION} github.com/bytedance/sonic/loader=${E2E_SONIC_LOADER_VERSION} github.com/bytedance/gopkg=v0.1.3 github.com/cloudwego/base64x=v0.1.6 github.com/cloudwego/iasm=- github.com/knz/go-libedit=- nullprogram.com/x/optparse=-"
+
+# run in the module dir before the pin: print the module graph its current
+# requirements select, resolved through a throwaway copy of go.mod/go.sum so
+# the module's own files are left untouched
+function go126_graph_before() {
+  local tmp rc=0
+
+  tmp=$(mktemp -d)
+  cp go.mod "${tmp}/go.mod"
+  if [ -f go.sum ]; then cp go.sum "${tmp}/go.sum"; fi
+  go list -mod=mod -modfile="${tmp}/go.mod" -m all || rc=$?
+  rm -rf "${tmp}"
+  return "${rc}"
+}
+
+# run in the module dir after go mod tidy; fails when the graph did not
+# select exactly the pinned versions, or when any module outside
+# E2E_GO126_ALLOWED_DRIFT changed against the graph from before the pin
+function check_go126_deps() {
+  local label=$1 before=$2
+  local sonic loader graph drift
+
+  sonic=$(go list -m -f '{{.Version}}' github.com/bytedance/sonic) || return 1
+  loader=$(go list -m -f '{{.Version}}' github.com/bytedance/sonic/loader) || return 1
+  graph=$(go list -m all) || return 1
+  drift=$(E2E_GRAPH_BEFORE="${before}" E2E_GRAPH_AFTER="${graph}" E2E_GO126_ALLOWED_DRIFT="${E2E_GO126_ALLOWED_DRIFT}" python3 -I -c '
+import os
+def graph(name):
+    rows = (line.split() for line in os.environ[name].splitlines())
+    return {row[0]: row[1] if len(row) > 1 else "" for row in rows if row}
+before, after = graph("E2E_GRAPH_BEFORE"), graph("E2E_GRAPH_AFTER")
+allowed = dict(item.split("=", 1) for item in os.environ["E2E_GO126_ALLOWED_DRIFT"].split())
+for path in sorted(set(before) | set(after)):
+    old, new = before.get(path, "-"), after.get(path, "-")
+    if old != new and allowed.get(path) != new:
+        print("%s %s -> %s" % (path, old, new))
+') || return 1
+  record_evidence "${label}.go_version" "$(go env GOVERSION)"
+  record_evidence "${label}.sonic_selected" "${sonic}"
+  record_evidence "${label}.sonic_loader_selected" "${loader}"
+  record_evidence "${label}.module_graph_before_sha256" "$(printf '%s\n' "${before}" | sha256sum | cut -d ' ' -f 1)"
+  record_evidence "${label}.module_graph_sha256" "$(printf '%s\n' "${graph}" | sha256sum | cut -d ' ' -f 1)"
+  local ok=1
+  if [ "${sonic}" != "${E2E_SONIC_VERSION}" ] || [ "${loader}" != "${E2E_SONIC_LOADER_VERSION}" ]; then
+    echo "${label}: selected sonic ${sonic} / loader ${loader}, expected ${E2E_SONIC_VERSION} / ${E2E_SONIC_LOADER_VERSION}" >&2
+    ok=0
+  fi
+  if [ -n "${drift}" ]; then
+    echo "${label}: the sonic pin moved modules outside the allowed set:" >&2
+    printf '  %s\n' "${drift}" >&2
+    record_evidence "${label}.go126_unexpected_drift" "$(printf '%s\n' "${drift}" | wc -l)"
+    ok=0
+  fi
+  if [ "${ok}" -ne 1 ]; then
+    record_evidence "${label}.go126_deps_check" "FAIL"
+    return 1
+  fi
+  record_evidence "${label}.go126_deps_check" "PASS"
+}
+
 function prepare_moca_go_sdk() {
   set -e
   sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}" "${MOCA_GO_SDK_EXPECTED_SHA:-}" sdk
@@ -763,6 +842,11 @@ if migrate_test.exists():
         migrate_test.write_text(mt)
 PY
 
+  local graph_before
+  graph_before=$(go126_graph_before)
+  pin_go126_deps
+  go mod tidy
+  check_go126_deps sdk "${graph_before}"
   record_tree_diff sdk "${workspace}/moca-go-sdk"
   record_go_mod_digest sdk "${workspace}/moca-go-sdk"
   cd "${workspace}"
@@ -871,21 +955,32 @@ function moca_sp() {
 ############################################
 # build Moca cmd and set cmd config  #
 ############################################
-function build_cmd() {
+# check out moca-cmd against the prepared local go-sdk and build it
+function prepare_moca_cmd() {
   set -e
-  cd "${workspace}"
-  prepare_moca_go_sdk
-  # build sp
   sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}" "${MOCA_CMD_EXPECTED_SHA:-}" cmd
   cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
+  # the replaced go-sdk already requires the pinned versions; pin them in
+  # cmd's own go.mod too and check cmd's graph, which is the one make builds
+  local graph_before
+  graph_before=$(go126_graph_before)
+  pin_go126_deps
   go mod tidy
+  check_go126_deps cmd "${graph_before}"
   record_evidence "cmd.go_sdk_replace" "$(go mod edit -json | jq -r '.Replace[]? | select(.Old.Path == "github.com/mocachain/moca-go-sdk") | .New.Path')"
   record_tree_diff cmd "${workspace}/moca-cmd"
   record_go_mod_digest cmd "${workspace}/moca-cmd"
   make build
   record_binary cmd.moca-cmd "${workspace}/moca-cmd/build/moca-cmd"
-  cd build/
+}
+
+function build_cmd() {
+  set -e
+  cd "${workspace}"
+  prepare_moca_go_sdk
+  prepare_moca_cmd
+  cd "${workspace}"/moca-cmd/build/
 
   # generate a keystore file to manage private key information
   touch key.txt &
