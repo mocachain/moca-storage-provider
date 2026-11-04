@@ -405,6 +405,17 @@ def remove(path):
         shutil.rmtree(path)
 
 
+# the cleanup and every later write go through BUNDLE's parent, so it must be
+# a real directory inside the workspace before anything is deleted: a
+# symlinked .github would point the rmtree below at a directory elsewhere
+try:
+    st = os.lstat(BUNDLE.parent)
+except FileNotFoundError:
+    st = None
+if st is not None and not stat.S_ISDIR(st.st_mode):
+    kind = "a symlink" if stat.S_ISLNK(st.st_mode) else "not a directory"
+    fail(f"{BUNDLE.parent.relative_to(WORKSPACE)} is {kind}; nothing removed or written")
+
 # never leave an earlier bundle behind for the upload step to pick up, even
 # when the arguments or budgets below are rejected
 remove(BUNDLE)
@@ -504,29 +515,59 @@ sources = {}
 
 
 def add_secret(value):
+    """Remember a key value; True when it is long enough to be one."""
     if not isinstance(value, str):
-        return
+        return False
     value = value.strip()
     if value[:2].lower() == "0x":
         value = value[2:]
-    if len(value) >= 16:
-        secrets.add(value)
+    if len(value) < 16:
+        return False
+    secrets.add(value)
+    return True
 
 
-def walk_json(node):
+def walk_json(node, rel):
+    """Collect values under key-named fields; returns how many were keys.
+
+    A key-named string field that holds no usable key means the redaction set
+    would be missing that key, so it fails rather than being skipped.
+    """
+    found = 0
     if isinstance(node, dict):
         for key, value in node.items():
-            if KEY_WORD.search(str(key)):
-                add_secret(value)
-            walk_json(value)
+            if KEY_WORD.search(str(key)) and isinstance(value, str):
+                if not add_secret(value):
+                    fail(f"cannot read SP keys from {rel}: {key} holds no key")
+                found += 1
+            found += walk_json(value, rel)
     elif isinstance(node, list):
         for value in node:
-            walk_json(value)
+            found += walk_json(value, rel)
+    return found
+
+
+HEX_KEY = re.compile(r"(?i)(0x)?[0-9a-f]{64}")
+
+
+def is_hex_key(line):
+    return bool(HEX_KEY.fullmatch(line.strip()))
+
+
+def is_mnemonic(line):
+    return bool(WORD_LINE.match(line))
 
 
 def is_secret_line(line):
-    line = line.strip()
-    return bool(re.fullmatch(r"(?i)(0x)?[0-9a-f]{64}", line)) or bool(WORD_LINE.match(line))
+    return is_hex_key(line) or is_mnemonic(line)
+
+
+# what prepare_sdk_suite_accounts writes and the go-sdk suite reads (its last
+# non-empty line): validator0/info a `mocad keys mnemonic` line,
+# challenger0/challenger_info the exported hex key (the patched suite also
+# takes a mnemonic there)
+KEY_FILE_FORMATS = {"info": ("a mnemonic", is_mnemonic),
+                    "challenger_info": ("a hex key or mnemonic", is_secret_line)}
 
 
 def read_key_source(rel):
@@ -535,8 +576,15 @@ def read_key_source(rel):
         data = snapshot(rel, FILE_LIMIT)
     except Refused as err:
         fail(f"cannot read key source {rel}: {err}")
-    sources[rel] = "unavailable" if data is None else "read"
-    return None if data is None else data.decode("utf-8", errors="replace")
+    if data is None:
+        sources[rel] = "unavailable"
+        return None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        fail(f"cannot read key source {rel}: not valid UTF-8")
+    sources[rel] = "read"
+    return text
 
 
 add_secret(os.environ.get("E2E_REDACT_KEY_1", ""))
@@ -546,9 +594,13 @@ for rel in ("moca/sp.json", "moca/deployment/localup/.local/sp_export.json"):
     if text is None:
         continue
     try:
-        walk_json(json.loads(text))
+        parsed = json.loads(text)
     except ValueError as err:
         fail(f"cannot read SP keys from {rel}: {type(err).__name__}")
+    # both files are export_sps output with *PrivateKey fields; one that
+    # parses but holds no key cannot be the file we need to redact against
+    if not walk_json(parsed, rel):
+        fail(f"cannot read SP keys from {rel}: no private key fields")
 LOCAL = "moca/deployment/localup/.local"
 local_dir = WORKSPACE / LOCAL
 if local_dir.is_symlink():
@@ -557,10 +609,21 @@ if local_dir.is_dir():
     for child in sorted(local_dir.iterdir()):
         for name in ("info", "challenger_info"):
             if os.path.lexists(child / name):
-                text = read_key_source(f"{LOCAL}/{child.name}/{name}")
-                for line in (text or "").splitlines():
+                rel = f"{LOCAL}/{child.name}/{name}"
+                text = read_key_source(rel)
+                if text is None:
+                    continue
+                lines = [line for line in text.splitlines() if line.strip()]
+                what, valid = KEY_FILE_FORMATS[name]
+                if not lines or not valid(lines[-1]):
+                    fail(f"cannot read key source {rel}: last line is not {what}")
+                for line in lines:
                     if is_secret_line(line):
                         add_secret(line)
+# the two files prepare_sdk_suite_accounts writes: say so when a run never got
+# that far, instead of leaving them out of the manifest
+for rel in (f"{LOCAL}/validator0/info", f"{LOCAL}/challenger0/challenger_info"):
+    sources.setdefault(rel, "unavailable")
 
 secret_patterns = [re.compile(r"(?i)(0x)?" + re.escape(s)) for s in sorted(secrets, key=len, reverse=True)]
 

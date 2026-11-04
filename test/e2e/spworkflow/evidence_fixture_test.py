@@ -460,7 +460,9 @@ def collector_cases():
             m = manifest_of(ws)
             check("key sources never generated: recorded unavailable, bundle still published",
                   r.returncode == 0 and m.get("key_source.moca/sp.json") == "unavailable"
-                  and m.get("key_source.moca/deployment/localup/.local/sp_export.json") == "unavailable")
+                  and m.get("key_source.moca/deployment/localup/.local/sp_export.json") == "unavailable"
+                  and m.get("key_source.moca/deployment/localup/.local/validator0/info") == "unavailable"
+                  and m.get("key_source.moca/deployment/localup/.local/challenger0/challenger_info") == "unavailable")
         else:
             check(f"key source {case}: exit 1, no bundle, no secret printed",
                   r.returncode == 1 and no_bundle(ws) and not any(v in r.stdout + r.stderr for v in keys.values()))
@@ -606,6 +608,109 @@ def collector_cases():
     check("12-word mnemonic and named key redacted in the copy, unnamed sha kept",
           r.returncode == 0 and out.count("[REDACTED]") == 2 and re.search(r"plain sha [0-9a-f]{64}", out))
     shutil.rmtree(root)
+
+    output_parent_cases()
+    corrupt_key_source_cases()
+
+
+def real_redact(ws, profile, keys):
+    """The real entry point the workflows call: bash e2e_test.sh --redactEvidence."""
+    env = base_env(ws.parent, ws, keys)
+    return subprocess.run(["bash", HARNESS, "--redactEvidence", profile], cwd=ws, env=env,
+                          capture_output=True, text=True, timeout=200)
+
+
+def output_parent_cases():
+    # .github resolving outside the workspace: refuse before any cleanup, so a
+    # bundle/staging dir at the symlink target survives; for valid and invalid
+    # profiles, through the collector body and through the real entry point
+    for how in ("collector", "entry point"):
+        for profile in ("sp-e2e", "bs-e2e", "invalid"):
+            for kind in ("symlink", "file"):
+                root, ws, keys = fresh("bs-e2e" if profile == "bs-e2e" else "sp-e2e")
+                outside = root / "outside"
+                if kind == "symlink":
+                    shutil.move(str(ws / ".github"), str(outside))
+                    (ws / ".github").symlink_to(outside, target_is_directory=True)
+                    for d in ("e2e-diagnostics", "e2e-diagnostics.staging"):
+                        (outside / d).mkdir()
+                        (outside / d / "sentinel").write_text("keep\n")
+                else:
+                    shutil.rmtree(ws / ".github")
+                    (ws / ".github").write_text("not a dir\n")
+                r = (run_collector(ws, profile, keys) if how == "collector" else real_redact(ws, profile, keys))
+                if kind == "symlink":
+                    kept = all((outside / d / "sentinel").is_file()
+                               and sorted(x.name for x in (outside / d).iterdir()) == ["sentinel"]
+                               for d in ("e2e-diagnostics", "e2e-diagnostics.staging"))
+                else:
+                    kept = (ws / ".github").is_file() and (ws / ".github").read_text() == "not a dir\n"
+                check(f"{how} {profile}: .github is a {kind} -> exit 1, nothing outside removed or written",
+                      r.returncode == 1 and kept and ".github is" in r.stderr)
+                shutil.rmtree(root)
+
+    # a symlinked bundle dir itself is unlinked, never followed
+    root, ws, keys = fresh()
+    outside = root / "outside"
+    outside.mkdir()
+    (outside / "sentinel").write_text("keep\n")
+    (ws / BUNDLE).symlink_to(outside, target_is_directory=True)
+    (ws / (BUNDLE + ".staging")).symlink_to(outside, target_is_directory=True)
+    r = run_collector(ws, "sp-e2e", keys)
+    check("symlinked bundle/staging unlinked, target untouched, real bundle published",
+          r.returncode == 0 and sorted(x.name for x in outside.iterdir()) == ["sentinel"]
+          and not (ws / BUNDLE).is_symlink() and (ws / BUNDLE / "manifest.txt").is_file())
+    shutil.rmtree(root)
+
+
+def corrupt_key_source_cases():
+    local_rel = "moca/deployment/localup/.local"
+    bad = {"empty": b"", "blank lines": b"\n \n", "broken-content": b"broken-content\n",
+           "not utf-8": b"\xff\xfe" + mnemonic().encode() + b"\n"}
+    cases = [(f, name, data) for f in ("validator0/info", "challenger0/challenger_info") for name, data in bad.items()]
+    cases += [("validator0/info", "truncated mnemonic", mnemonic(5).encode() + b"\n"),
+              ("validator0/info", "hex key instead of mnemonic", hexkey().encode() + b"\n"),
+              ("validator0/info", "mnemonic then trailing garbage", mnemonic().encode() + b"\nbroken\n"),
+              ("challenger0/challenger_info", "63 hex digits", hexkey()[:63].encode() + b"\n")]
+    skipped = {"start-chain": "skipped", "start-sp": "skipped", "build-cmd": "skipped", "run-test": "skipped"}
+    for how in ("collector", "entry point"):
+        for rel, name, data in cases:
+            for profile, stages in (("sp-e2e", None), ("bs-e2e", {"run-test": "skipped"}), ("sdk-e2e", skipped)):
+                root, ws, keys = fresh(profile, stages)
+                (ws / local_rel / rel).write_bytes(data)
+                r = run_collector(ws, profile, keys) if how == "collector" else real_redact(ws, profile, keys)
+                check(f"{how} {profile}: {rel} {name} -> exit 1, nothing published",
+                      r.returncode == 1 and no_bundle(ws) and f"key source {local_rel}/{rel}" in r.stderr
+                      and not any(v in r.stdout + r.stderr for v in keys.values()))
+                shutil.rmtree(root)
+                if how == "entry point":
+                    break  # one profile through the real entry point is enough per case
+
+    # valid forms still publish: mnemonic challenger_info, 0x hex, CRLF lines
+    for rel, data in (("challenger0/challenger_info", mnemonic(12).encode() + b"\n"),
+                      ("challenger0/challenger_info", ("0x" + hexkey()).encode() + b"\r\n"),
+                      ("validator0/info", mnemonic().encode() + b"\r\n\r\n")):
+        root, ws, keys = fresh()
+        (ws / local_rel / rel).write_bytes(data)
+        r = run_collector(ws, "sp-e2e", keys)
+        m = manifest_of(ws)
+        check(f"valid {rel} {data[:6]!r}... -> published, source read",
+              r.returncode == 0 and m.get(f"key_source.{local_rel}/{rel}") == "read")
+        shutil.rmtree(root)
+
+    # SP JSON that parses but holds no private key field
+    for text, why in (("{}", "no private key fields"), ("[]", "no private key fields"),
+                      ('{"sp0": {"OperatorAddress": "0x02"}}', "no private key fields"),
+                      ('{"sp0": {"OperatorPrivateKey": ""}}', "OperatorPrivateKey holds no key"),
+                      ('{"sp0": {"OperatorPrivateKey": "%s", "FundingPrivateKey": "", "SealPrivateKey": "x"}}' % hexkey(),
+                       "FundingPrivateKey holds no key")):
+        root, ws, keys = fresh()
+        (ws / "moca/sp.json").write_text(text)
+        r = run_collector(ws, "sp-e2e", keys)
+        check(f"sp.json {text[:60]} -> exit 1 ({why}), nothing published", r.returncode == 1 and no_bundle(ws)
+              and why in r.stderr and not any(v in r.stdout + r.stderr for v in keys.values()))
+        shutil.rmtree(root)
+
 
 
 for wf in WORKFLOWS:
