@@ -7,10 +7,13 @@ const privateKey = ethers.Wallet.createRandom().privateKey;
 // Create a wallet instance from the private key
 const wallet = new ethers.Wallet(privateKey);
 
-// Print the private key and account address
-console.log(`Random Ethereum private key: ${privateKey}`);
-console.log(`Account address: ${wallet.address}`);
 const privateKeyString = `${privateKey}`.substring(2)
+
+// Mask both forms before publishing the key. The output and the later steps use the
+// bare hex, so masking only the 0x form would not cover them.
+console.log(`::add-mask::${privateKey}`);
+console.log(`::add-mask::${privateKeyString}`);
+console.log(`Account address: ${wallet.address}`);
 
 if (process.env.GITHUB_OUTPUT) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `private_key=${privateKeyString}\n`);
