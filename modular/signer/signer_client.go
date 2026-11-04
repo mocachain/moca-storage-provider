@@ -164,6 +164,9 @@ type MocaChainSignClient struct {
 	// transaction.
 	evm       *evmState
 	evmCloser func() error
+	// autoChain is what the automatic disposition of EVM state reads
+	// (evm_state_auto.go); nil turns it off.
+	autoChain *evmAutoChain
 }
 
 // NewMocaChainSignClient return the MocaChainSignClient instance
@@ -268,6 +271,15 @@ func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[Gas
 		SignGc:       gcClient,
 	}
 
+	// The automatic disposition reads Cosmos transactions through the same
+	// CometBFT RPC; without it, it only reads the EVM side.
+	autoChain := &evmAutoChain{evm: NewEvmDisposeChain(evmClient)}
+	if cosmosChain, err := NewCosmosDisposeChain(rpcAddr); err != nil {
+		log.Warnw("failed to create the CometBFT client for EVM state checks", "address", rpcAddr, "error", err)
+	} else {
+		autoChain.cosmos = cosmosChain
+	}
+
 	return &MocaChainSignClient{
 		gasInfo:          gasInfo,
 		maxEvmGasPrice:   new(big.Int).SetUint64(maxEvmGasPrice),
@@ -278,6 +290,7 @@ func NewMocaChainSignClient(rpcAddr, evmRpcAddr, chainID string, gasInfo map[Gas
 		operatorAccNonce: operatorAccNonce,
 		blsKm:            blsKM,
 		evmClient:        evmClient,
+		autoChain:        autoChain,
 	}, nil
 }
 
@@ -426,9 +439,9 @@ func (client *MocaChainSignClient) SealObjectEvm(ctx context.Context, scope Sign
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrSealObjectOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrSealObjectOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -576,9 +589,9 @@ func (client *MocaChainSignClient) RejectUnSealObjectEvm(ctx context.Context, sc
 			rejectObject.GetObjectName(),
 		)
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrRejectUnSealObjectOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrRejectUnSealObjectOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -863,9 +876,9 @@ func (client *MocaChainSignClient) CreateGlobalVirtualGroupEvm(ctx context.Conte
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCreateGVGOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCreateGVGOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1017,9 +1030,9 @@ func (client *MocaChainSignClient) CompleteMigrateBucketEvm(ctx context.Context,
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCompleteMigrateBucketOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCompleteMigrateBucketOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1341,9 +1354,9 @@ func (client *MocaChainSignClient) SwapOutEvm(ctx context.Context, scope SignTyp
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrSwapOutOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrSwapOutOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1489,9 +1502,9 @@ func (client *MocaChainSignClient) CompleteSwapOutEvm(ctx context.Context, scope
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCompleteSwapOutOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCompleteSwapOutOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1631,9 +1644,9 @@ func (client *MocaChainSignClient) SPExitEvm(ctx context.Context, scope SignType
 		signedTx, err := session.SpExit()
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrSPExitOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrSPExitOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1771,9 +1784,9 @@ func (client *MocaChainSignClient) CompleteSPExitEvm(ctx context.Context, scope 
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCompleteSPExitOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCompleteSPExitOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -1907,9 +1920,9 @@ func (client *MocaChainSignClient) RejectMigrateBucketEvm(ctx context.Context, s
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrRejectMigrateBucketOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrRejectMigrateBucketOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -2049,9 +2062,9 @@ func (client *MocaChainSignClient) DepositEvm(ctx context.Context, scope SignTyp
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrDepositOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrDepositOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -2186,9 +2199,9 @@ func (client *MocaChainSignClient) DeleteGlobalVirtualGroupEvm(ctx context.Conte
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrDeleteGVGOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrDeleteGVGOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -2332,9 +2345,9 @@ func (client *MocaChainSignClient) DelegateCreateObjectEvm(ctx context.Context, 
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrDelegateCreateObjectOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrDelegateCreateObjectOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -2476,9 +2489,9 @@ func (client *MocaChainSignClient) DelegateUpdateObjectContentEvm(ctx context.Co
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrDelegateUpdateObjectContentOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrDelegateUpdateObjectContentOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -2911,9 +2924,9 @@ func (client *MocaChainSignClient) ReserveSwapInEvm(ctx context.Context, scope S
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrReserveSwapIn.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrReserveSwapIn
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -3049,9 +3062,9 @@ func (client *MocaChainSignClient) CompleteSwapInEvm(ctx context.Context, scope 
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCompleteSwapIn.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCompleteSwapIn
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -3187,9 +3200,9 @@ func (client *MocaChainSignClient) CancelSwapInEvm(ctx context.Context, scope Si
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrCancelSwapIn.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrCancelSwapIn
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {
@@ -3348,9 +3361,9 @@ func (client *MocaChainSignClient) SealObjectV2Evm(ctx context.Context, scope Si
 		)
 
 		if err != nil {
-			log.CtxErrorw(ctx, "failed to sign EVM tx", "retry_number", i, "error", err)
-			broadcastErr = err
-			continue
+			log.CtxErrorw(ctx, "failed to sign EVM tx", "error", err)
+			ErrSealObjectOnChain.SetError(fmt.Errorf("failed to sign EVM tx: %w", err))
+			return "", ErrSealObjectOnChain
 		}
 		txHash, err = client.submitEvmTx(ctx, scope, operation, nonce, signedTx)
 		if txHash == "" && err != nil {

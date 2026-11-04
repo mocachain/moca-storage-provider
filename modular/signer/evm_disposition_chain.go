@@ -119,18 +119,31 @@ func (c *cometCosmosDisposeChain) SearchAccSeq(ctx context.Context, accSeq strin
 	}
 }
 
+func (c *cometCosmosDisposeChain) SearchEthereumTx(ctx context.Context, hash ethcmn.Hash, maxHeight uint64) (*CosmosTxView, error) {
+	query := fmt.Sprintf("ethereum_tx.ethereumTxHash='%s' AND tx.height<=%d", hash.Hex(), maxHeight)
+	page, perPage := 1, 1
+	result, err := c.client.TxSearch(ctx, query, false, &page, &perPage, "asc")
+	if err != nil {
+		return nil, cometIndexError(err)
+	}
+	if len(result.Txs) == 0 {
+		return nil, nil
+	}
+	return c.view(result.Txs[0]), nil
+}
+
 func (c *cometCosmosDisposeChain) view(result *coretypes.ResultTx) *CosmosTxView {
 	view := &CosmosTxView{Hash: strings.ToUpper(hex.EncodeToString(result.Hash)), Code: result.TxResult.Code}
 	if result.Height > 0 {
 		view.Height = uint64(result.Height)
 	}
 	for _, event := range result.TxResult.Events {
-		if event.Type != "tx" {
-			continue
-		}
 		for _, attr := range event.Attributes {
-			if attr.Key == "acc_seq" {
+			switch {
+			case event.Type == "tx" && attr.Key == "acc_seq":
 				view.AccSeqs = append(view.AccSeqs, attr.Value)
+			case event.Type == "ethereum_tx" && attr.Key == "ethereumTxHash":
+				view.EthTxHashes = append(view.EthTxHashes, attr.Value)
 			}
 		}
 	}
