@@ -5,8 +5,8 @@ Usage: python3 test/e2e/spworkflow/evidence_fixture_test.py [repo-root]
 
 For every e2e workflow it builds a throwaway workspace with planted fake keys,
 runs each tee'd test step's own `run:` text (the harness call swapped for the
-real harness in an unknown no-op mode, so its top-level key echo is the leak
-source) under GitHub's bash -eo pipefail, once passing and once failing, then
+real harness in an unknown no-op mode, plus echoed lines that plant the keys as
+tool output) under GitHub's bash -eo pipefail, once passing and once failing, then
 the workflow's own Record stage results and Redact steps, and scans the bundle
 its Upload step publishes. Further cases drive the collector through races,
 budgets, symlinks, unreadable key sources and stale bundles; those hook os
@@ -186,7 +186,10 @@ def one_workflow(name, fail_rc):
             outcomes[s["id"]] = "success"
     for n, i in enumerate(tee_steps):
         rc = fail_rc if (fail_rc and n == 0) else 0
-        body = CALL.sub(f"( bash ./{HARNESS} --fixtureNoop; echo 'tail: private key {keys['other']}'; exit {rc} )",
+        # the harness no longer prints the test key; a tool's output still could,
+        # and the scrub must catch it
+        body = CALL.sub(f"( bash ./{HARNESS} --fixtureNoop; echo 'tool: test key 0x{keys['test']}'; "
+                        f"echo 'tail: private key {keys['other']}'; exit {rc} )",
                         steps[i]["run"])
         r = run(body, ws, env)
         check(f"{tag}: step '{steps[i]['name']}' exit {r.returncode} == {rc} through tee/pipefail", r.returncode == rc)
@@ -194,7 +197,7 @@ def one_workflow(name, fail_rc):
         if fail_rc:
             break  # later steps are skipped by GitHub after a failure
     logs = list((ws / ".github/action-logs").glob("*.log"))
-    check(f"{tag}: raw tee log carries the fake key before redaction (leak path is real)",
+    check(f"{tag}: raw tee log carries the planted test key before redaction (the scrub has work to do)",
           any(keys["test"] in p.read_text() for p in logs))
 
     stage_env = dict(env)

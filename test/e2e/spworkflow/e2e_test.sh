@@ -19,16 +19,9 @@ TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
 TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
 DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
-# NOTE: this prints the per-run throwaway localup test key into every step log,
-# and the steps tee that output into .github/action-logs/*.log. The
-# --redactEvidence step uploads only redacted copies of those files (the logs
-# themselves are left as they are); do not add more key output, and never
-# write keys into the evidence files.
-# The evidence-only modes skip it so they add no key output of their own.
-case "$1" in
---recordMetadata | --redactEvidence) ;;
-*) echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY" ;;
-esac
+# NOTE: do not print the test key: step output goes to the public step log and
+# is tee'd into .github/action-logs/*.log, of which --redactEvidence uploads only
+# redacted copies. key_log_fixture_test.py covers this script's own output.
 
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
