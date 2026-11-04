@@ -110,7 +110,10 @@ func (r *RequestContext) enforceSingleUse() error {
 	return r.claimAuthNonce(nonce, expiryStr)
 }
 
-// claimAuthNonce uses only values covered by the verified authentication path.
+// claimAuthNonce claims nonce for the request account until expiryStr, using
+// only values covered by the verified authentication path. The expiry must lie
+// within the next MaxExpiryAgeInSec seconds: a claim stored already expired
+// would be freed by the hourly cleanup or replaced by a later claim.
 func (r *RequestContext) claimAuthNonce(nonce, expiryStr string) error {
 	if nonce == "" {
 		if r.g.requireAuthNonce {
@@ -127,6 +130,9 @@ func (r *RequestContext) claimAuthNonce(nonce, expiryStr string) error {
 	}
 	expiry, parseErr := time.Parse(ExpiryDateFormat, expiryStr)
 	if parseErr != nil {
+		return ErrInvalidExpiryDateHeader
+	}
+	if untilExpiry := time.Until(expiry); untilExpiry <= 0 || untilExpiry > time.Duration(MaxExpiryAgeInSec)*time.Second {
 		return ErrInvalidExpiryDateHeader
 	}
 	if r.g == nil || r.g.baseApp == nil || r.g.baseApp.GfSpDB() == nil {

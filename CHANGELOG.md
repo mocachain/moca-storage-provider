@@ -15,6 +15,10 @@ BUGFIXES
 * [#217](https://github.com/mocachain/moca-storage-provider/pull/217)  fix(downloader): report the piece store read error on object download
 * [#193](https://github.com/mocachain/moca-storage-provider/pull/193)  fix(blocksyncer): keep the block prefetch bounded after a restart so a block that repeatedly fails to export cannot exhaust memory
 
+FEATURES
+
+* [#175](https://github.com/mocachain/moca-storage-provider/pull/175)  feat(gater): a signed request carrying `X-Gnfd-Nonce` (32 hexadecimal characters) is accepted once until its signed expiry, across all gateway instances: the gateway claims the account/nonce pair in the new SPDB table `auth_nonce_claims` (created at startup, expired claims removed hourly), claims nothing for an expiry that has passed or lies more than 7 days ahead, and fails closed when SPDB is unavailable, with gateway errors 50046-50049. `[Gateway] RequireAuthNonce` (default false) rejects signed requests without a nonce; enable it only after every signed client sends one. Pre-signed GET URLs without a nonce keep working; one with a nonce is single-use and takes its nonce and expiry from the signed query only. Pins moca-common with the nonce header in request signing (MOCA-881)
+
 IMPROVEMENTS
 
 * [#235](https://github.com/mocachain/moca-storage-provider/pull/235)  build(deps): depend on moca v2.0.0-rc1 (a plain require of the tag; the moca/v2 self-replace and the placeholder `v2.0.0` require are dropped) and align the shared replaces with moca v2.0.0-rc1's go.mod: mocachain/cosmos-evm v0.6.3-moca.0 (the tagged snapshotmulti fix, replacing the 5127a378 pseudo-version), the moca-cosmos-sdk api, client/v2, math, x/circuit and x/nft modules at 176ec71f8cf4, cosmos/keyring v1.2.0 for 99designs/keyring, gin v1.9.1 and cosmos/ics23 v0.10.0; the go directive becomes 1.26.10, and grpc (v1.84.0), otel (v1.45.0) and golang.org/x/* move up to the versions moca v2.0.0-rc1 requires

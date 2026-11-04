@@ -99,6 +99,20 @@ func TestEnforceSingleUseFailsClosedOnStoreError(t *testing.T) {
 	assert.ErrorIs(t, reqCtx.enforceSingleUse(), ErrAuthNonceStore)
 }
 
+func TestClaimAuthNonceRejectsExpiryOutsideWindowWithoutClaiming(t *testing.T) {
+	for name, expiry := range map[string]string{
+		"malformed":      "tomorrow",
+		"expired":        time.Now().Add(-time.Second).UTC().Format(ExpiryDateFormat),
+		"beyond max age": time.Now().Add(time.Duration(MaxExpiryAgeInSec)*time.Second + time.Minute).UTC().Format(ExpiryDateFormat),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// the mock store expects no call, so a claim attempt fails the test
+			reqCtx, _ := authNonceRequestContext(t, validAuthNonce)
+			assert.ErrorIs(t, reqCtx.claimAuthNonce(validAuthNonce, expiry), ErrInvalidExpiryDateHeader)
+		})
+	}
+}
+
 func TestCleanupAuthNoncesRunsUntilContextCancellation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db := spdb.NewMockSPDB(ctrl)
