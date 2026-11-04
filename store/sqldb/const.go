@@ -26,6 +26,8 @@ const (
 	OffChainAuthKeyTableName = "off_chain_auth_key"
 	// OffChainAuthKeyV2TableName defines the off chain auth key table name v2 version.
 	OffChainAuthKeyV2TableName = "off_chain_auth_key_v2"
+	// AuthNonceClaimTableName stores shared signed-request nonce claims.
+	AuthNonceClaimTableName = "auth_nonce_claims"
 	// PutObjectSuccessTableName  defines the event of successfully putting object
 	PutObjectSuccessTableName = "put_object_success_event_log"
 	// PutObjectEventTableName defines the event of putting object

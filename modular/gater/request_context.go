@@ -3,6 +3,7 @@ package gater
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -89,7 +90,118 @@ func NewRequestContext(r *http.Request, g *GateModular) (*RequestContext, error)
 		return reqCtx, err
 	}
 	reqCtx.account = account
+	if err = reqCtx.enforceSingleUse(); err != nil {
+		reqCtx.account = "" // the nonce gate refused the request, so it carries no account
+		return reqCtx, err
+	}
 	return reqCtx, nil
+}
+
+// isAuthNonceRefusal reports whether err is the nonce gate refusing a request
+// whose signature verified.
+func isAuthNonceRefusal(err error) bool {
+	return errors.Is(err, ErrReusedAuthRequest) || errors.Is(err, ErrMissingAuthNonce) ||
+		errors.Is(err, ErrInvalidAuthNonce) || errors.Is(err, ErrAuthNonceStore)
+}
+
+// enforceSingleUse honors a signed request carrying a nonce exactly once
+// within its expiry; requests without a nonce pass until the gateway is
+// configured to require one.
+func (r *RequestContext) enforceSingleUse() error {
+	nonce := r.request.Header.Get(commonhttp.HTTPHeaderNonce)
+	if nonce == "" {
+		nonce = r.request.URL.Query().Get(commonhttp.HTTPHeaderNonce)
+	}
+	expiryStr := r.request.Header.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	if expiryStr == "" {
+		expiryStr = r.request.URL.Query().Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	}
+	return r.claimAuthNonce(nonce, expiryStr)
+}
+
+// claimAuthNonce claims nonce for the request account until expiryStr, using
+// only values covered by the verified authentication path. The expiry must lie
+// within the next MaxExpiryAgeInSec seconds: a claim stored already expired
+// would be freed by the hourly cleanup or replaced by a later claim.
+func (r *RequestContext) claimAuthNonce(nonce, expiryStr string) error {
+	if nonce == "" {
+		if r.g.requireAuthNonce {
+			return ErrMissingAuthNonce
+		}
+		return nil
+	}
+	if len(nonce) != 32 {
+		return ErrInvalidAuthNonce
+	}
+	decoded, err := hex.DecodeString(nonce)
+	if err != nil || len(decoded) != 16 {
+		return ErrInvalidAuthNonce
+	}
+	expiry, parseErr := time.Parse(ExpiryDateFormat, expiryStr)
+	if parseErr != nil {
+		return ErrInvalidExpiryDateHeader
+	}
+	if untilExpiry := time.Until(expiry); untilExpiry <= 0 || untilExpiry > time.Duration(MaxExpiryAgeInSec)*time.Second {
+		return ErrInvalidExpiryDateHeader
+	}
+	if r.g == nil || r.g.baseApp == nil || r.g.baseApp.GfSpDB() == nil {
+		return ErrAuthNonceStore
+	}
+	claimed, claimErr := r.g.baseApp.GfSpDB().ClaimAuthNonce(r.account, nonce, expiry)
+	if claimErr != nil {
+		log.CtxErrorw(r.ctx, "failed to claim auth nonce", "error", claimErr)
+		return ErrAuthNonceStore
+	}
+	if !claimed {
+		return ErrReusedAuthRequest
+	}
+	return nil
+}
+
+// verifyPreSignedURL verifies the GNFD1-EDDSA or GNFD2-EDDSA signature a
+// pre-signed URL carries in its query and sets the request account on success.
+// Otherwise it returns the verification error, or headerErr, the header
+// authentication failure, when the query holds no complete authentication of
+// its own. A nonce the URL carries is claimed separately by the caller.
+func (r *RequestContext) verifyPreSignedURL(headerErr error) error {
+	queryParams := r.request.URL.Query()
+	gnfdUserParam := queryParams.Get(GnfdUserAddressHeader)
+	gnfdOffChainAuthAppDomainParam := queryParams.Get(GnfdOffChainAuthAppDomainHeader)
+	gnfdOffChainAuthAppExpiryTimestampParam := queryParams.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	gnfdOffChainAuthPublicKeyParam := queryParams.Get(GnfdOffChainAuthAppRegPublicKeyHeader)
+	gnfdAuthorizationParam := queryParams.Get(GnfdAuthorizationHeader)
+
+	// GNFD1-EDDSA
+	gnfd1EddsaSignaturePrefix := commonhttp.Gnfd1Eddsa + ","
+	// GNFD2-EDDSA
+	gnfd2EddsaSignaturePrefix := commonhttp.Gnfd2Eddsa + ","
+	if !strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix) && !strings.HasPrefix(gnfdAuthorizationParam, gnfd2EddsaSignaturePrefix) {
+		return ErrUnsupportedSignType
+	}
+	// all required off-chain auth headers must be passed in as query params
+	if gnfdUserParam == "" || gnfdOffChainAuthAppDomainParam == "" || gnfdOffChainAuthAppExpiryTimestampParam == "" {
+		return headerErr
+	}
+	var (
+		account sdk.AccAddress
+		err     error
+	)
+	switch {
+	case strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix):
+		account, err = r.verifyGNFD1EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd1EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam)
+	case gnfdOffChainAuthPublicKeyParam != "":
+		account, err = r.verifyGNFD2EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd2EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam, gnfdOffChainAuthPublicKeyParam)
+	default:
+		return headerErr
+	}
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return headerErr
+	}
+	r.account = account.String()
+	return nil
 }
 
 // Context returns the RequestContext runtime context.

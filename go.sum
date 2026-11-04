@@ -911,8 +911,8 @@ github.com/mocachain/cosmos-evm v0.6.3-moca.0 h1:Vs9EtZrWPAxcUEk1rnjtISmmXSCVc4a
 github.com/mocachain/cosmos-evm v0.6.3-moca.0/go.mod h1:QnaJDtxqon2mywiYqxM8VwW8FKeFazi0au0qzVpFAG8=
 github.com/mocachain/moca-cometbft v1.3.0-rc1 h1:6xSRlLiH2f425p48uoL4h5szQLGK18taHy2nC1D10SU=
 github.com/mocachain/moca-cometbft v1.3.0-rc1/go.mod h1:SKfrdeoojPLDk+rRyBtyRpaCW8jjHK3R6YMtgq7PJdc=
-github.com/mocachain/moca-common/go v1.3.0-rc0 h1:F12cTsS5rP949XaywN80MPPuBzavPdR5DyUUNlbl3p4=
-github.com/mocachain/moca-common/go v1.3.0-rc0/go.mod h1:FaCscE6h5NT09nRroyFgmuJhq13XKE34ImhAKAtU8Hg=
+github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260907100522-a762ad965466 h1:bLBBAQjkjJ8N2VCoFe5e8fme8ZhlvXsUJRkZOF8tpuE=
+github.com/mocachain/moca-common/go v1.2.0-rc1.0.20260907100522-a762ad965466/go.mod h1:FaCscE6h5NT09nRroyFgmuJhq13XKE34ImhAKAtU8Hg=
 github.com/mocachain/moca-cosmos-sdk v1.4.0-rc1 h1:ZYHKOUYBU01+NJ0CnXzZ78yGD0iC+B4UXQBSHRP6/Uw=
 github.com/mocachain/moca-cosmos-sdk v1.4.0-rc1/go.mod h1:Bix519F1H+pE41C5MqZQLO3UFklAfKFgVWOrSUncvGo=
 github.com/mocachain/moca-cosmos-sdk/api v1.4.0-rc0.0.20261029124406-176ec71f8cf4 h1:iRHyycGueViIEeoWFAcGm7WUKvsbi8R+XbBW3Gc4KLo=

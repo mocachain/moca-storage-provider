@@ -23,6 +23,7 @@ import (
 type MockSPDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSPDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSPDBMockRecorder is the mock recorder for MockSPDB.
@@ -69,6 +70,21 @@ func (m *MockSPDB) CheckQuotaAndAddReadRecord(record *ReadRecord, quota *BucketQ
 func (mr *MockSPDBMockRecorder) CheckQuotaAndAddReadRecord(record, quota any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckQuotaAndAddReadRecord", reflect.TypeOf((*MockSPDB)(nil).CheckQuotaAndAddReadRecord), record, quota)
+}
+
+// ClaimAuthNonce mocks base method.
+func (m *MockSPDB) ClaimAuthNonce(account, nonce string, expiresAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimAuthNonce", account, nonce, expiresAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimAuthNonce indicates an expected call of ClaimAuthNonce.
+func (mr *MockSPDBMockRecorder) ClaimAuthNonce(account, nonce, expiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimAuthNonce", reflect.TypeOf((*MockSPDB)(nil).ClaimAuthNonce), account, nonce, expiresAt)
 }
 
 // ClearExpiredOffChainAuthKeys mocks base method.
@@ -141,6 +157,20 @@ func (m *MockSPDB) DeleteAuthKeysV2(userAddress, domain string, publicKey []stri
 func (mr *MockSPDBMockRecorder) DeleteAuthKeysV2(userAddress, domain, publicKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAuthKeysV2", reflect.TypeOf((*MockSPDB)(nil).DeleteAuthKeysV2), userAddress, domain, publicKey)
+}
+
+// DeleteExpiredAuthNonces mocks base method.
+func (m *MockSPDB) DeleteExpiredAuthNonces(expiredBefore time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredAuthNonces", expiredBefore)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExpiredAuthNonces indicates an expected call of DeleteExpiredAuthNonces.
+func (mr *MockSPDBMockRecorder) DeleteExpiredAuthNonces(expiredBefore any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredAuthNonces", reflect.TypeOf((*MockSPDB)(nil).DeleteExpiredAuthNonces), expiredBefore)
 }
 
 // DeleteExpiredBucketTraffic mocks base method.
@@ -870,17 +900,17 @@ func (mr *MockSPDBMockRecorder) InsertMigrateGVGUnit(meta any) *gomock.Call {
 }
 
 // InsertPutEvent mocks base method.
-func (m *MockSPDB) InsertPutEvent(task task.Task) error {
+func (m *MockSPDB) InsertPutEvent(arg0 task.Task) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertPutEvent", task)
+	ret := m.ctrl.Call(m, "InsertPutEvent", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // InsertPutEvent indicates an expected call of InsertPutEvent.
-func (mr *MockSPDBMockRecorder) InsertPutEvent(task any) *gomock.Call {
+func (mr *MockSPDBMockRecorder) InsertPutEvent(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockSPDB)(nil).InsertPutEvent), task)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockSPDB)(nil).InsertPutEvent), arg0)
 }
 
 // InsertRecoverFailedObject mocks base method.
@@ -1598,10 +1628,64 @@ func (mr *MockSPDBMockRecorder) UpdateUploadProgress(uploadMeta any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUploadProgress", reflect.TypeOf((*MockSPDB)(nil).UpdateUploadProgress), uploadMeta)
 }
 
+// MockAuthNonceDB is a mock of AuthNonceDB interface.
+type MockAuthNonceDB struct {
+	ctrl     *gomock.Controller
+	recorder *MockAuthNonceDBMockRecorder
+	isgomock struct{}
+}
+
+// MockAuthNonceDBMockRecorder is the mock recorder for MockAuthNonceDB.
+type MockAuthNonceDBMockRecorder struct {
+	mock *MockAuthNonceDB
+}
+
+// NewMockAuthNonceDB creates a new mock instance.
+func NewMockAuthNonceDB(ctrl *gomock.Controller) *MockAuthNonceDB {
+	mock := &MockAuthNonceDB{ctrl: ctrl}
+	mock.recorder = &MockAuthNonceDBMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAuthNonceDB) EXPECT() *MockAuthNonceDBMockRecorder {
+	return m.recorder
+}
+
+// ClaimAuthNonce mocks base method.
+func (m *MockAuthNonceDB) ClaimAuthNonce(account, nonce string, expiresAt time.Time) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimAuthNonce", account, nonce, expiresAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimAuthNonce indicates an expected call of ClaimAuthNonce.
+func (mr *MockAuthNonceDBMockRecorder) ClaimAuthNonce(account, nonce, expiresAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimAuthNonce", reflect.TypeOf((*MockAuthNonceDB)(nil).ClaimAuthNonce), account, nonce, expiresAt)
+}
+
+// DeleteExpiredAuthNonces mocks base method.
+func (m *MockAuthNonceDB) DeleteExpiredAuthNonces(expiredBefore time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredAuthNonces", expiredBefore)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExpiredAuthNonces indicates an expected call of DeleteExpiredAuthNonces.
+func (mr *MockAuthNonceDBMockRecorder) DeleteExpiredAuthNonces(expiredBefore any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredAuthNonces", reflect.TypeOf((*MockAuthNonceDB)(nil).DeleteExpiredAuthNonces), expiredBefore)
+}
+
 // MockUploadObjectProgressDB is a mock of UploadObjectProgressDB interface.
 type MockUploadObjectProgressDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockUploadObjectProgressDBMockRecorder
+	isgomock struct{}
 }
 
 // MockUploadObjectProgressDBMockRecorder is the mock recorder for MockUploadObjectProgressDB.
@@ -1727,17 +1811,17 @@ func (mr *MockUploadObjectProgressDBMockRecorder) GetUploadState(objectID any) *
 }
 
 // InsertPutEvent mocks base method.
-func (m *MockUploadObjectProgressDB) InsertPutEvent(task task.Task) error {
+func (m *MockUploadObjectProgressDB) InsertPutEvent(arg0 task.Task) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertPutEvent", task)
+	ret := m.ctrl.Call(m, "InsertPutEvent", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // InsertPutEvent indicates an expected call of InsertPutEvent.
-func (mr *MockUploadObjectProgressDBMockRecorder) InsertPutEvent(task any) *gomock.Call {
+func (mr *MockUploadObjectProgressDBMockRecorder) InsertPutEvent(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockUploadObjectProgressDB)(nil).InsertPutEvent), task)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPutEvent", reflect.TypeOf((*MockUploadObjectProgressDB)(nil).InsertPutEvent), arg0)
 }
 
 // InsertUploadProgress mocks base method.
@@ -1772,6 +1856,7 @@ func (mr *MockUploadObjectProgressDBMockRecorder) UpdateUploadProgress(uploadMet
 type MockGCObjectProgressDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCObjectProgressDBMockRecorder
+	isgomock struct{}
 }
 
 // MockGCObjectProgressDBMockRecorder is the mock recorder for MockGCObjectProgressDB.
@@ -1852,6 +1937,7 @@ func (mr *MockGCObjectProgressDBMockRecorder) UpdateGCObjectProgress(gcMeta any)
 type MockSignatureDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSignatureDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSignatureDBMockRecorder is the mock recorder for MockSignatureDB.
@@ -2191,6 +2277,7 @@ func (mr *MockSignatureDBMockRecorder) UpdateShadowPieceChecksum(objectID, redun
 type MockTrafficDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockTrafficDBMockRecorder
+	isgomock struct{}
 }
 
 // MockTrafficDBMockRecorder is the mock recorder for MockTrafficDB.
@@ -2418,6 +2505,7 @@ func (mr *MockTrafficDBMockRecorder) UpdateExtraQuota(bucketID, extraQuota, year
 type MockSPInfoDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockSPInfoDBMockRecorder
+	isgomock struct{}
 }
 
 // MockSPInfoDBMockRecorder is the mock recorder for MockSPInfoDB.
@@ -2567,6 +2655,7 @@ func (mr *MockSPInfoDBMockRecorder) UpdateAllSp(spList any) *gomock.Call {
 type MockOffChainAuthKeyDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockOffChainAuthKeyDBMockRecorder
+	isgomock struct{}
 }
 
 // MockOffChainAuthKeyDBMockRecorder is the mock recorder for MockOffChainAuthKeyDB.
@@ -2633,6 +2722,7 @@ func (mr *MockOffChainAuthKeyDBMockRecorder) UpdateAuthKey(userAddress, domain, 
 type MockOffChainAuthKeyV2DB struct {
 	ctrl     *gomock.Controller
 	recorder *MockOffChainAuthKeyV2DBMockRecorder
+	isgomock struct{}
 }
 
 // MockOffChainAuthKeyV2DBMockRecorder is the mock recorder for MockOffChainAuthKeyV2DB.
@@ -2729,6 +2819,7 @@ func (mr *MockOffChainAuthKeyV2DBMockRecorder) ListAuthKeysV2(userAddress, domai
 type MockMigrateDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockMigrateDBMockRecorder
+	isgomock struct{}
 }
 
 // MockMigrateDBMockRecorder is the mock recorder for MockMigrateDB.
@@ -3168,6 +3259,7 @@ func (mr *MockMigrateDBMockRecorder) UpdateSwapOutUnitCompletedGVGList(swapOutKe
 type MockExitRecoverDB struct {
 	ctrl     *gomock.Controller
 	recorder *MockExitRecoverDBMockRecorder
+	isgomock struct{}
 }
 
 // MockExitRecoverDBMockRecorder is the mock recorder for MockExitRecoverDB.

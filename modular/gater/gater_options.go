@@ -43,6 +43,7 @@ func defaultGaterOptions(gater *GateModular, cfg *gfspconfig.GfSpConfig) error {
 	gater.httpAddress = cfg.Gateway.HTTPAddress
 	gater.maxListReadQuota = cfg.Bucket.MaxListReadQuotaNumber
 	gater.statusAllowedAccounts = makeStatusAllowlist(cfg.Gateway.StatusAllowedAccounts)
+	gater.requireAuthNonce = cfg.Gateway.RequireAuthNonce
 	gater.peerApprovalAuthMode = cfg.Gateway.PeerApprovalAuthMode
 	if gater.peerApprovalAuthMode == "" {
 		gater.peerApprovalAuthMode = "required"

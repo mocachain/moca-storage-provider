@@ -240,7 +240,10 @@ type GatewayConfig struct {
 	// and anyone can create an account, so the endpoint stays closed until this is
 	// populated.
 	StatusAllowedAccounts []string `comment:"optional"`
-	PeerApprovalAuthMode  string   `comment:"optional, default: required"`
+	// RequireAuthNonce rejects authenticated requests that do not carry the
+	// signed nonce header once all clients send it.
+	RequireAuthNonce     bool   `comment:"optional"`
+	PeerApprovalAuthMode string `comment:"optional, default: required"`
 }
 
 type ExecutorConfig struct {

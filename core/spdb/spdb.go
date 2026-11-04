@@ -19,8 +19,17 @@ type SPDB interface {
 	SPInfoDB
 	OffChainAuthKeyDB
 	OffChainAuthKeyV2DB
+	AuthNonceDB
 	MigrateDB
 	ExitRecoverDB
+}
+
+// AuthNonceDB stores nonce claims shared by all gateway instances.
+type AuthNonceDB interface {
+	// ClaimAuthNonce atomically claims an account/nonce pair until expiresAt.
+	ClaimAuthNonce(account, nonce string, expiresAt time.Time) (bool, error)
+	// DeleteExpiredAuthNonces removes nonce claims whose expiry is before expiredBefore.
+	DeleteExpiredAuthNonces(expiredBefore time.Time) error
 }
 
 // UploadObjectProgressDB interface which records upload object related progress(includes foreground and background) and state.
