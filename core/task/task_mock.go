@@ -23,6 +23,7 @@ import (
 type MockTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockTaskMockRecorder is the mock recorder for MockTask.
@@ -428,6 +429,7 @@ func (mr *MockTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalTaskMockRecorder is the mock recorder for MockApprovalTask.
@@ -859,6 +861,7 @@ func (mr *MockApprovalTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalCreateBucketTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalCreateBucketTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalCreateBucketTaskMockRecorder is the mock recorder for MockApprovalCreateBucketTask.
@@ -1328,6 +1331,7 @@ func (mr *MockApprovalCreateBucketTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalMigrateBucketTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalMigrateBucketTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalMigrateBucketTaskMockRecorder is the mock recorder for MockApprovalMigrateBucketTask.
@@ -1797,6 +1801,7 @@ func (mr *MockApprovalMigrateBucketTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalCreateObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalCreateObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalCreateObjectTaskMockRecorder is the mock recorder for MockApprovalCreateObjectTask.
@@ -2266,6 +2271,7 @@ func (mr *MockApprovalCreateObjectTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalReplicatePieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalReplicatePieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalReplicatePieceTaskMockRecorder is the mock recorder for MockApprovalReplicatePieceTask.
@@ -2931,6 +2937,7 @@ func (mr *MockApprovalReplicatePieceTaskMockRecorder) Type() *gomock.Call {
 type MockObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockObjectTaskMockRecorder is the mock recorder for MockObjectTask.
@@ -3388,6 +3395,7 @@ func (mr *MockObjectTaskMockRecorder) Type() *gomock.Call {
 type MockUploadObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockUploadObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockUploadObjectTaskMockRecorder is the mock recorder for MockUploadObjectTask.
@@ -3885,6 +3893,7 @@ func (mr *MockUploadObjectTaskMockRecorder) Type() *gomock.Call {
 type MockResumableUploadObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockResumableUploadObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockResumableUploadObjectTaskMockRecorder is the mock recorder for MockResumableUploadObjectTask.
@@ -4434,6 +4443,7 @@ func (mr *MockResumableUploadObjectTaskMockRecorder) Type() *gomock.Call {
 type MockReplicatePieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockReplicatePieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockReplicatePieceTaskMockRecorder is the mock recorder for MockReplicatePieceTask.
@@ -5049,6 +5059,7 @@ func (mr *MockReplicatePieceTaskMockRecorder) Type() *gomock.Call {
 type MockReceivePieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockReceivePieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockReceivePieceTaskMockRecorder is the mock recorder for MockReceivePieceTask.
@@ -5780,6 +5791,7 @@ func (mr *MockReceivePieceTaskMockRecorder) Type() *gomock.Call {
 type MockSealObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockSealObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockSealObjectTaskMockRecorder is the mock recorder for MockSealObjectTask.
@@ -6305,6 +6317,7 @@ func (mr *MockSealObjectTaskMockRecorder) Type() *gomock.Call {
 type MockDownloadObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockDownloadObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockDownloadObjectTaskMockRecorder is the mock recorder for MockDownloadObjectTask.
@@ -6842,6 +6855,7 @@ func (mr *MockDownloadObjectTaskMockRecorder) Type() *gomock.Call {
 type MockDownloadPieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockDownloadPieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockDownloadPieceTaskMockRecorder is the mock recorder for MockDownloadPieceTask.
@@ -7421,6 +7435,7 @@ func (mr *MockDownloadPieceTaskMockRecorder) Type() *gomock.Call {
 type MockChallengePieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockChallengePieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockChallengePieceTaskMockRecorder is the mock recorder for MockChallengePieceTask.
@@ -8046,6 +8061,7 @@ func (mr *MockChallengePieceTaskMockRecorder) Type() *gomock.Call {
 type MockGCTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCTaskMockRecorder is the mock recorder for MockGCTask.
@@ -8451,6 +8467,7 @@ func (mr *MockGCTaskMockRecorder) Type() *gomock.Call {
 type MockGCObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCObjectTaskMockRecorder is the mock recorder for MockGCObjectTask.
@@ -8999,6 +9016,7 @@ func (mr *MockGCObjectTaskMockRecorder) Type() *gomock.Call {
 type MockGCZombiePieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCZombiePieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCZombiePieceTaskMockRecorder is the mock recorder for MockGCZombiePieceTask.
@@ -9468,6 +9486,7 @@ func (mr *MockGCZombiePieceTaskMockRecorder) Type() *gomock.Call {
 type MockGCStaleVersionObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCStaleVersionObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCStaleVersionObjectTaskMockRecorder is the mock recorder for MockGCStaleVersionObjectTask.
@@ -10041,6 +10060,7 @@ func (mr *MockGCStaleVersionObjectTaskMockRecorder) Type() *gomock.Call {
 type MockGCMetaTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCMetaTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCMetaTaskMockRecorder is the mock recorder for MockGCMetaTask.
@@ -10473,6 +10493,7 @@ func (mr *MockGCMetaTaskMockRecorder) Type() *gomock.Call {
 type MockRecoveryPieceTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockRecoveryPieceTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockRecoveryPieceTaskMockRecorder is the mock recorder for MockRecoveryPieceTask.
@@ -10712,6 +10733,20 @@ func (m *MockRecoveryPieceTask) GetRecovered() bool {
 func (mr *MockRecoveryPieceTaskMockRecorder) GetRecovered() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRecovered", reflect.TypeOf((*MockRecoveryPieceTask)(nil).GetRecovered))
+}
+
+// GetRecoveryFence mocks base method.
+func (m *MockRecoveryPieceTask) GetRecoveryFence() []byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRecoveryFence")
+	ret0, _ := ret[0].([]byte)
+	return ret0
+}
+
+// GetRecoveryFence indicates an expected call of GetRecoveryFence.
+func (mr *MockRecoveryPieceTaskMockRecorder) GetRecoveryFence() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRecoveryFence", reflect.TypeOf((*MockRecoveryPieceTask)(nil).GetRecoveryFence))
 }
 
 // GetRetry mocks base method.
@@ -10974,6 +11009,18 @@ func (mr *MockRecoveryPieceTaskMockRecorder) SetRecoverDone() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRecoverDone", reflect.TypeOf((*MockRecoveryPieceTask)(nil).SetRecoverDone))
 }
 
+// SetRecoveryFence mocks base method.
+func (m *MockRecoveryPieceTask) SetRecoveryFence(arg0 []byte) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetRecoveryFence", arg0)
+}
+
+// SetRecoveryFence indicates an expected call of SetRecoveryFence.
+func (mr *MockRecoveryPieceTaskMockRecorder) SetRecoveryFence(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRecoveryFence", reflect.TypeOf((*MockRecoveryPieceTask)(nil).SetRecoveryFence), arg0)
+}
+
 // SetRetry mocks base method.
 func (m *MockRecoveryPieceTask) SetRetry(arg0 int64) {
 	m.ctrl.T.Helper()
@@ -11064,6 +11111,7 @@ func (mr *MockRecoveryPieceTaskMockRecorder) Type() *gomock.Call {
 type MockMigrateGVGTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockMigrateGVGTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockMigrateGVGTaskMockRecorder is the mock recorder for MockMigrateGVGTask.
@@ -11715,6 +11763,7 @@ func (mr *MockMigrateGVGTaskMockRecorder) Type() *gomock.Call {
 type MockGCBucketMigrationTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockGCBucketMigrationTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockGCBucketMigrationTaskMockRecorder is the mock recorder for MockGCBucketMigrationTask.
@@ -12288,6 +12337,7 @@ func (mr *MockGCBucketMigrationTaskMockRecorder) Type() *gomock.Call {
 type MockApprovalDelegateCreateObjectTask struct {
 	ctrl     *gomock.Controller
 	recorder *MockApprovalDelegateCreateObjectTaskMockRecorder
+	isgomock struct{}
 }
 
 // MockApprovalDelegateCreateObjectTaskMockRecorder is the mock recorder for MockApprovalDelegateCreateObjectTask.

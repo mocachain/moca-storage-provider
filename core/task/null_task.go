@@ -208,3 +208,6 @@ func (t *NullTask) GetIsAgentUpload() bool                                      
 func (t *NullTask) InitReplicatePieceTask(object *storagetypes.ObjectInfo, params *storagetypes.Params, priority TPriority, timeout int64, retry int64, isAgentUpload bool) {
 }
 func (t *NullTask) GetIsAgentUploadTask() bool { return false }
+
+func (t *NullTask) GetRecoveryFence() []byte { return nil }
+func (t *NullTask) SetRecoveryFence([]byte)  {}

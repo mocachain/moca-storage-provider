@@ -30,13 +30,17 @@ func (m *GfSpRecoverPieceTask) InitRecoverPieceTask(object *storagetypes.ObjectI
 }
 
 func (m *GfSpRecoverPieceTask) Key() coretask.TKey {
-	return GfSpRecoverPieceTaskKey(
+	key := GfSpRecoverPieceTaskKey(
 		m.GetObjectInfo().GetBucketName(),
 		m.GetObjectInfo().GetObjectName(),
 		m.GetObjectInfo().Id.String(),
 		m.GetSegmentIdx(),
 		m.GetEcIdx(),
 	)
+	if len(m.RecoveryFence) == 0 {
+		return key
+	}
+	return coretask.TKey(fmt.Sprintf("%s-version:%d-fence:%x", key, m.ObjectInfo.Version, m.RecoveryFence))
 }
 
 func (m *GfSpRecoverPieceTask) Type() coretask.TType {
@@ -211,4 +215,10 @@ func (m *GfSpRecoverPieceTask) GetSignBytes() []byte {
 	}
 	bz := ModuleCdc.MustMarshalJSON(fakeMsg)
 	return sdk.MustSortJSON(bz)
+}
+
+// SetRecoveryFence binds this internal dispatch to its manager registration.
+// It is deliberately excluded from cross-SP GetSignBytes.
+func (m *GfSpRecoverPieceTask) SetRecoveryFence(fence []byte) {
+	m.RecoveryFence = append([]byte(nil), fence...)
 }

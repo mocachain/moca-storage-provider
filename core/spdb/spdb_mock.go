@@ -1075,6 +1075,20 @@ func (mr *MockSPDBMockRecorder) ListShadowIntegrityMeta() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListShadowIntegrityMeta", reflect.TypeOf((*MockSPDB)(nil).ListShadowIntegrityMeta))
 }
 
+// PublishRecoveryIntegrity mocks base method.
+func (m *MockSPDB) PublishRecoveryIntegrity(integrity *IntegrityMeta) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishRecoveryIntegrity", integrity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishRecoveryIntegrity indicates an expected call of PublishRecoveryIntegrity.
+func (mr *MockSPDBMockRecorder) PublishRecoveryIntegrity(integrity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishRecoveryIntegrity", reflect.TypeOf((*MockSPDB)(nil).PublishRecoveryIntegrity), integrity)
+}
+
 // QueryBucketMigrateSubscribeProgress mocks base method.
 func (m *MockSPDB) QueryBucketMigrateSubscribeProgress() (uint64, error) {
 	m.ctrl.T.Helper()
@@ -2159,6 +2173,20 @@ func (m *MockSignatureDB) ListShadowIntegrityMeta() ([]*ShadowIntegrityMeta, err
 func (mr *MockSignatureDBMockRecorder) ListShadowIntegrityMeta() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListShadowIntegrityMeta", reflect.TypeOf((*MockSignatureDB)(nil).ListShadowIntegrityMeta))
+}
+
+// PublishRecoveryIntegrity mocks base method.
+func (m *MockSignatureDB) PublishRecoveryIntegrity(integrity *IntegrityMeta) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishRecoveryIntegrity", integrity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishRecoveryIntegrity indicates an expected call of PublishRecoveryIntegrity.
+func (mr *MockSignatureDBMockRecorder) PublishRecoveryIntegrity(integrity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishRecoveryIntegrity", reflect.TypeOf((*MockSignatureDB)(nil).PublishRecoveryIntegrity), integrity)
 }
 
 // SetObjectIntegrity mocks base method.

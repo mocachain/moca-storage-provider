@@ -621,3 +621,17 @@ func (s *SpDBImpl) ListReplicatePieceChecksumByObjectIDRange(startObjectID int64
 
 	return pieceMetas, nil
 }
+
+// PublishRecoveryIntegrity keeps the existing insert-only upload/replication contract
+// intact while publishing one complete verified recovery row in a single statement.
+func (s *SpDBImpl) PublishRecoveryIntegrity(meta *corespdb.IntegrityMeta) error {
+	if meta == nil {
+		return fmt.Errorf("nil recovery integrity")
+	}
+	row := &IntegrityMetaTable{ObjectID: meta.ObjectID, RedundancyIndex: meta.RedundancyIndex,
+		PieceChecksumList: util.BytesSliceToString(meta.PieceChecksumList), IntegrityChecksum: hex.EncodeToString(meta.IntegrityChecksum), ObjectSize: meta.ObjectSize}
+	return s.db.Table(GetIntegrityMetasTableName(meta.ObjectID)).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "object_id"}, {Name: "redundancy_index"}},
+		DoUpdates: clause.AssignmentColumns([]string{"piece_checksum_list", "integrity_checksum", "object_size"}),
+	}).Create(row).Error
+}
