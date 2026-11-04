@@ -440,7 +440,7 @@ func (g *GateModular) getObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// GNFD1-ECDSA or GNFD1-EDDSA authentication, by checking the headers.
 	reqCtx, reqCtxErr = NewRequestContext(r, g)
 	// a verified signature the nonce gate refused is final: neither the public read
-	// nor the pre-signed URL fallback below may serve the request
+	// nor the pre-signed URL below may serve the request
 	if isAuthNonceRefusal(reqCtxErr) {
 		err = reqCtxErr
 		return
@@ -457,6 +457,26 @@ func (g *GateModular) getObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GNFD1-EDDSA or GNFD2-EDDSA authentication, by checking the query of a
+	// pre-signed URL. It runs before the public read so that a nonce the URL
+	// carries is honored exactly once, whatever the object's visibility.
+	preSigned := false
+	if reqCtxErr != nil {
+		if reqCtxErr = reqCtx.verifyPreSignedURL(reqCtxErr); reqCtxErr == nil {
+			preSigned = true
+			// Nonce-less URLs remain reusable. Only signed query values may claim a
+			// nonce; headers must not override the URL values. The nonce gate's
+			// answer is final: the public read below may not override it.
+			queryParams := r.URL.Query()
+			if nonce := queryParams.Get(commonhttp.HTTPHeaderNonce); nonce != "" {
+				if err = reqCtx.claimAuthNonce(nonce, queryParams.Get(commonhttp.HTTPHeaderExpiryTimestamp)); err != nil {
+					reqCtx.account = "" // the nonce gate refused the request, so it carries no account
+					return
+				}
+			}
+		}
+	}
+
 	// check the object permission whether allow public read.
 	verifyObjectPermissionTime := time.Now()
 	var permission *permissiontypes.Effect
@@ -471,60 +491,20 @@ func (g *GateModular) getObjectHandler(w http.ResponseWriter, r *http.Request) {
 	metrics.PerfGetObjectTimeHistogram.WithLabelValues("get_object_verify_object_permission_time").Observe(time.Since(verifyObjectPermissionTime).Seconds())
 
 	if !authenticated {
-		// if not passed, then check authentication parameters
-		if reqCtxErr != nil {
-			queryParams := r.URL.Query()
-			gnfdUserParam := queryParams.Get(GnfdUserAddressHeader)
-			gnfdOffChainAuthAppDomainParam := queryParams.Get(GnfdOffChainAuthAppDomainHeader)
-			gnfdOffChainAuthAppExpiryTimestampParam := queryParams.Get(commonhttp.HTTPHeaderExpiryTimestamp)
-			gnfdOffChainAuthPublicKeyParam := queryParams.Get(GnfdOffChainAuthAppRegPublicKeyHeader)
-			gnfdAuthorizationParam := queryParams.Get(GnfdAuthorizationHeader)
-
-			// GNFD1-EDDSA
-			gnfd1EddsaSignaturePrefix := commonhttp.Gnfd1Eddsa + ","
-			// GNFD2-EDDSA
-			gnfd2EddsaSignaturePrefix := commonhttp.Gnfd2Eddsa + ","
-			if !strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix) && !strings.HasPrefix(gnfdAuthorizationParam, gnfd2EddsaSignaturePrefix) {
-				err = ErrUnsupportedSignType
-				return
-			}
-
-			// if all required off-chain auth headers are passed in as query params, we fill corresponding headers
-			if gnfdUserParam != "" && gnfdOffChainAuthAppDomainParam != "" && gnfdAuthorizationParam != "" && gnfdOffChainAuthAppExpiryTimestampParam != "" {
-				var preSignedURLErr error
-				var account sdk.AccAddress
-				if strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix) {
-					account, preSignedURLErr = reqCtx.verifyGNFD1EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd1EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam)
-				} else if strings.HasPrefix(gnfdAuthorizationParam, gnfd2EddsaSignaturePrefix) && gnfdOffChainAuthPublicKeyParam != "" {
-					account, preSignedURLErr = reqCtx.verifyGNFD2EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd1EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam, gnfdOffChainAuthPublicKeyParam)
-				}
-				if preSignedURLErr != nil {
-					reqCtxErr = preSignedURLErr
-				}
-
-				if account != nil {
-					reqCtx.account = account.String()
-					reqCtxErr = nil
-					// Nonce-less URLs remain reusable. Only signed query values may
-					// claim a nonce; headers must not override the URL values.
-					if nonce := queryParams.Get(commonhttp.HTTPHeaderNonce); nonce != "" {
-						reqCtxErr = reqCtx.claimAuthNonce(nonce, gnfdOffChainAuthAppExpiryTimestampParam)
-					}
-					// default set content-disposition to download, if specified in query param as view, then set to view
-					w.Header().Set(ContentDispositionHeader, ContentDispositionAttachmentValue+"; filename=\""+url.QueryEscape(reqCtx.objectName)+"\"")
-					offChainAuthViewParam := queryParams.Get(OffChainAuthViewQuery)
-					isView, _ := strconv.ParseBool(offChainAuthViewParam)
-					if isView {
-						w.Header().Set(ContentDispositionHeader, ContentDispositionInlineValue)
-					}
-				}
-			}
-		}
-
+		// if not passed, the request must have authenticated itself
 		if reqCtxErr != nil {
 			err = reqCtxErr
 			log.CtxErrorw(reqCtx.Context(), "no permission to operate, object is not public", "error", err)
 			return
+		}
+		if preSigned {
+			// default set content-disposition to download, if specified in query param as view, then set to view
+			w.Header().Set(ContentDispositionHeader, ContentDispositionAttachmentValue+"; filename=\""+url.QueryEscape(reqCtx.objectName)+"\"")
+			offChainAuthViewParam := r.URL.Query().Get(OffChainAuthViewQuery)
+			isView, _ := strconv.ParseBool(offChainAuthViewParam)
+			if isView {
+				w.Header().Set(ContentDispositionHeader, ContentDispositionInlineValue)
+			}
 		}
 		// check permission
 		authTime := time.Now()

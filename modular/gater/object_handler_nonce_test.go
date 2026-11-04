@@ -68,15 +68,22 @@ func (s *memNonceStore) DeleteExpiredAuthNonces(expiredBefore time.Time) error {
 }
 
 func TestGetObjectPresignedNonce(t *testing.T) {
-	const expiryError = "expiry date is expected to be within"
+	const (
+		expiryError     = "expiry date is expected to be within"
+		downloadReached = "download reached"
+		badSignature    = "signature does not verify"
+	)
 	cases := []struct {
 		name           string
+		public         bool // the anonymous permission check allows the read
 		nonce          string
 		queryExpiryIn  time.Duration // zero means one hour
 		headerExpiryIn time.Duration // zero leaves the header unset
 		headerNonces   []string      // one request each, "" sends no header nonce
 		requireNonce   bool
-		cleanup        bool // delete expired claims after each request
+		unverified     bool  // the query signature does not verify
+		claimErr       error // returned by every claim
+		cleanup        bool  // delete expired claims after each request
 		wantAuthCalls  int
 		wantErrors     []string
 		wantClaim      bool // the query nonce is claimed until the query expiry
@@ -117,6 +124,36 @@ func TestGetObjectPresignedNonce(t *testing.T) {
 			nonce: validAuthNonce, queryExpiryIn: 8 * 24 * time.Hour, headerNonces: []string{""},
 			wantErrors: []string{expiryError},
 		},
+		{
+			name:  "unverified URL is refused without a claim",
+			nonce: validAuthNonce, unverified: true, headerNonces: []string{""},
+			wantErrors: []string{badSignature},
+		},
+		{
+			name:   "public object: fresh query nonce then replay",
+			public: true, nonce: validAuthNonce, headerNonces: []string{"", ""},
+			wantErrors: []string{downloadReached, "already used"}, wantClaim: true,
+		},
+		{
+			name:   "public object: nonce-less URL remains reusable when nonce required",
+			public: true, headerNonces: []string{"", ""}, requireNonce: true,
+			wantErrors: []string{downloadReached, downloadReached},
+		},
+		{
+			name:   "public object: expired query expiry claims nothing before or after cleanup",
+			public: true, nonce: validAuthNonce, queryExpiryIn: -time.Hour, headerNonces: []string{"", ""}, cleanup: true,
+			wantErrors: []string{expiryError, expiryError},
+		},
+		{
+			name:   "public object: unverified URL is read anonymously without a claim",
+			public: true, nonce: validAuthNonce, unverified: true, headerNonces: []string{"", ""},
+			wantErrors: []string{downloadReached, downloadReached},
+		},
+		{
+			name:   "public object: nonce store failure fails closed",
+			public: true, nonce: validAuthNonce, claimErr: errors.New("database unavailable"), headerNonces: []string{""},
+			wantErrors: []string{"unable to claim the signed request nonce"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,10 +167,17 @@ func TestGetObjectPresignedNonce(t *testing.T) {
 			queryExpiry := time.Now().Add(queryExpiryIn).UTC().Truncate(time.Second)
 			client := gfspclient.NewMockGfSpClientAPI(ctrl)
 			effect := permissiontypes.EFFECT_DENY
+			if tc.public {
+				effect = permissiontypes.EFFECT_ALLOW
+			}
 			client.EXPECT().VerifyPermission(gomock.Any(), gomock.Any(), mockBucketName, mockObjectName, gomock.Any()).
-				Return(&effect, nil).Times(len(tc.headerNonces))
+				Return(&effect, nil).AnyTimes()
+			var verifyErr error
+			if tc.unverified {
+				verifyErr = errors.New(badSignature)
+			}
 			client.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), testAccount, SampleDAppDomain, gomock.Any(), gomock.Any()).
-				Return(true, nil).Times(len(tc.headerNonces))
+				Return(verifyErr == nil, verifyErr).Times(len(tc.headerNonces))
 			authCalls := 0
 			client.EXPECT().VerifyAuthentication(gomock.Any(), gomock.Any(), gomock.Any(), mockBucketName, mockObjectName).
 				DoAndReturn(func(_ context.Context, _ module.AuthOpType, _ string, _ string, _ string, _ ...grpc.DialOption) (bool, error) {
@@ -141,7 +185,12 @@ func TestGetObjectPresignedNonce(t *testing.T) {
 					return false, errors.New("nonce gate passed")
 				}).AnyTimes()
 			g.baseApp.SetGfSpClient(client)
+			consensusMock := consensus.NewMockConsensus(ctrl)
+			consensusMock.EXPECT().QueryObjectInfo(gomock.Any(), mockBucketName, mockObjectName).
+				Return(nil, errors.New(downloadReached)).AnyTimes()
+			g.baseApp.SetConsensus(consensusMock)
 			store := newMemNonceStore(ctrl)
+			store.claimErr = tc.claimErr
 			g.baseApp.SetGfSpDB(store)
 			router := mux.NewRouter().SkipClean(true)
 			router.Host("{bucket:.+}." + g.domain).Subrouter().NewRoute().Name(getObjectRouterName).

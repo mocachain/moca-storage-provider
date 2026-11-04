@@ -158,6 +158,52 @@ func (r *RequestContext) claimAuthNonce(nonce, expiryStr string) error {
 	return nil
 }
 
+// verifyPreSignedURL verifies the GNFD1-EDDSA or GNFD2-EDDSA signature a
+// pre-signed URL carries in its query and sets the request account on success.
+// Otherwise it returns the verification error, or headerErr, the header
+// authentication failure, when the query holds no complete authentication of
+// its own. A nonce the URL carries is claimed separately by the caller.
+func (r *RequestContext) verifyPreSignedURL(headerErr error) error {
+	queryParams := r.request.URL.Query()
+	gnfdUserParam := queryParams.Get(GnfdUserAddressHeader)
+	gnfdOffChainAuthAppDomainParam := queryParams.Get(GnfdOffChainAuthAppDomainHeader)
+	gnfdOffChainAuthAppExpiryTimestampParam := queryParams.Get(commonhttp.HTTPHeaderExpiryTimestamp)
+	gnfdOffChainAuthPublicKeyParam := queryParams.Get(GnfdOffChainAuthAppRegPublicKeyHeader)
+	gnfdAuthorizationParam := queryParams.Get(GnfdAuthorizationHeader)
+
+	// GNFD1-EDDSA
+	gnfd1EddsaSignaturePrefix := commonhttp.Gnfd1Eddsa + ","
+	// GNFD2-EDDSA
+	gnfd2EddsaSignaturePrefix := commonhttp.Gnfd2Eddsa + ","
+	if !strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix) && !strings.HasPrefix(gnfdAuthorizationParam, gnfd2EddsaSignaturePrefix) {
+		return ErrUnsupportedSignType
+	}
+	// all required off-chain auth headers must be passed in as query params
+	if gnfdUserParam == "" || gnfdOffChainAuthAppDomainParam == "" || gnfdOffChainAuthAppExpiryTimestampParam == "" {
+		return headerErr
+	}
+	var (
+		account sdk.AccAddress
+		err     error
+	)
+	switch {
+	case strings.HasPrefix(gnfdAuthorizationParam, gnfd1EddsaSignaturePrefix):
+		account, err = r.verifyGNFD1EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd1EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam)
+	case gnfdOffChainAuthPublicKeyParam != "":
+		account, err = r.verifyGNFD2EddsaSignatureFromPreSignedURL(gnfdAuthorizationParam[len(gnfd2EddsaSignaturePrefix):], gnfdUserParam, gnfdOffChainAuthAppDomainParam, gnfdOffChainAuthPublicKeyParam)
+	default:
+		return headerErr
+	}
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return headerErr
+	}
+	r.account = account.String()
+	return nil
+}
+
 // Context returns the RequestContext runtime context.
 func (r *RequestContext) Context() context.Context {
 	return r.ctx
