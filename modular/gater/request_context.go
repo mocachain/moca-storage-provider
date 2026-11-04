@@ -3,6 +3,7 @@ package gater
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -90,9 +91,17 @@ func NewRequestContext(r *http.Request, g *GateModular) (*RequestContext, error)
 	}
 	reqCtx.account = account
 	if err = reqCtx.enforceSingleUse(); err != nil {
+		reqCtx.account = "" // the nonce gate refused the request, so it carries no account
 		return reqCtx, err
 	}
 	return reqCtx, nil
+}
+
+// isAuthNonceRefusal reports whether err is the nonce gate refusing a request
+// whose signature verified.
+func isAuthNonceRefusal(err error) bool {
+	return errors.Is(err, ErrReusedAuthRequest) || errors.Is(err, ErrMissingAuthNonce) ||
+		errors.Is(err, ErrInvalidAuthNonce) || errors.Is(err, ErrAuthNonceStore)
 }
 
 // enforceSingleUse honors a signed request carrying a nonce exactly once

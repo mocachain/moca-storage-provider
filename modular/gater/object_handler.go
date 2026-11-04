@@ -439,6 +439,12 @@ func (g *GateModular) getObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	// GNFD1-ECDSA or GNFD1-EDDSA authentication, by checking the headers.
 	reqCtx, reqCtxErr = NewRequestContext(r, g)
+	// a verified signature the nonce gate refused is final: neither the public read
+	// nor the pre-signed URL fallback below may serve the request
+	if isAuthNonceRefusal(reqCtxErr) {
+		err = reqCtxErr
+		return
+	}
 
 	if err = s3util.CheckValidBucketName(reqCtx.bucketName); err != nil {
 		log.Errorw("failed to check bucket name", "bucket_name", reqCtx.bucketName, "error", err)

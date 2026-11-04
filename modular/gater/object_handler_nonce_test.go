@@ -20,6 +20,7 @@ import (
 
 	commonhttp "github.com/mocachain/moca-common/go/http"
 	"github.com/mocachain/moca-storage-provider/base/gfspclient"
+	"github.com/mocachain/moca-storage-provider/core/consensus"
 	"github.com/mocachain/moca-storage-provider/core/module"
 	"github.com/mocachain/moca-storage-provider/core/spdb"
 	permissiontypes "github.com/mocachain/moca/v2/x/permission/types"
@@ -30,8 +31,9 @@ import (
 // hourly cleanup between requests. Other SPDB calls fail on the embedded mock.
 type memNonceStore struct {
 	spdb.SPDB
-	mu     sync.Mutex
-	claims map[string]int64 // normalized account|nonce -> expiry in Unix seconds
+	mu       sync.Mutex
+	claims   map[string]int64 // normalized account|nonce -> expiry in Unix seconds
+	claimErr error            // returned by every claim when set
 }
 
 func newMemNonceStore(ctrl *gomock.Controller) *memNonceStore {
@@ -41,6 +43,9 @@ func newMemNonceStore(ctrl *gomock.Controller) *memNonceStore {
 func (s *memNonceStore) ClaimAuthNonce(account, nonce string, expiresAt time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.claimErr != nil {
+		return false, s.claimErr
+	}
 	key := strings.ToLower(strings.TrimSpace(account)) + "|" + strings.ToLower(strings.TrimSpace(nonce))
 	// like the upsert, a live claim stays and an expired one is replaced only
 	// by a different expiry, since MySQL reports an unchanged row as unaffected
@@ -171,6 +176,74 @@ func TestGetObjectPresignedNonce(t *testing.T) {
 				wantClaims[strings.ToLower(testAccount)+"|"+tc.nonce] = queryExpiry.Unix()
 			}
 			assert.Equal(t, wantClaims, store.claims)
+		})
+	}
+}
+
+func TestGetObjectHeaderSignedNonce(t *testing.T) {
+	const downloadReached = "download reached"
+	cases := []struct {
+		name         string
+		public       bool
+		withoutNonce bool
+		requireNonce bool
+		claimErr     error
+		wantErrors   []string // one request each
+	}{
+		{
+			name:       "private object replay gets the replay error",
+			wantErrors: []string{"nonce gate passed", "already used"},
+		},
+		{
+			name: "public object replay gets the replay error", public: true,
+			wantErrors: []string{downloadReached, "already used"},
+		},
+		{
+			name: "public object read without a required nonce", public: true, withoutNonce: true, requireNonce: true,
+			wantErrors: []string{"is required by this gateway"},
+		},
+		{
+			name: "public object read while the nonce store fails", public: true, claimErr: errors.New("database unavailable"),
+			wantErrors: []string{"unable to claim the signed request nonce"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := setup(t)
+			g.requireAuthNonce = tc.requireNonce
+			ctrl := gomock.NewController(t)
+			client := gfspclient.NewMockGfSpClientAPI(ctrl)
+			effect := permissiontypes.EFFECT_DENY
+			if tc.public {
+				effect = permissiontypes.EFFECT_ALLOW
+			}
+			client.EXPECT().VerifyGNFD1EddsaSignature(gomock.Any(), testAccount, SampleDAppDomain, gomock.Any(), gomock.Any()).
+				Return(true, nil).Times(len(tc.wantErrors))
+			client.EXPECT().VerifyPermission(gomock.Any(), gomock.Any(), mockBucketName, mockObjectName, gomock.Any()).
+				Return(&effect, nil).AnyTimes()
+			client.EXPECT().VerifyAuthentication(gomock.Any(), gomock.Any(), gomock.Any(), mockBucketName, mockObjectName).
+				Return(false, errors.New("nonce gate passed")).AnyTimes()
+			g.baseApp.SetGfSpClient(client)
+			consensusMock := consensus.NewMockConsensus(ctrl)
+			consensusMock.EXPECT().QueryObjectInfo(gomock.Any(), mockBucketName, mockObjectName).
+				Return(nil, errors.New(downloadReached)).AnyTimes()
+			g.baseApp.SetConsensus(consensusMock)
+			store := newMemNonceStore(ctrl)
+			store.claimErr = tc.claimErr
+			g.baseApp.SetGfSpDB(store)
+			router := mux.NewRouter().SkipClean(true)
+			router.Host("{bucket:.+}." + g.domain).Subrouter().NewRoute().Name(getObjectRouterName).
+				Methods(http.MethodGet).Path("/{object:.+}").HandlerFunc(g.getObjectHandler)
+			expiry := time.Now().Add(time.Hour)
+			for _, wantError := range tc.wantErrors {
+				req := replayedRequest(expiry)
+				if tc.withoutNonce {
+					req.Header.Del(commonhttp.HTTPHeaderNonce)
+				}
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, req)
+				assert.Contains(t, response.Body.String(), wantError)
+			}
 		})
 	}
 }

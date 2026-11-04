@@ -52,16 +52,18 @@ func TestNewRequestContextRejectsReplayedOffChainSignature(t *testing.T) {
 
 	expiry := time.Now().Add(6 * 24 * time.Hour)
 	var firstErr, replayErr error
-	var firstAccount string
+	var firstAccount, replayAccount string
 	routeAs(g, replayedRequest(expiry), func(r *http.Request) {
 		reqCtx, err := NewRequestContext(r, g)
 		firstErr, firstAccount = err, reqCtx.Account()
 	})
 	routeAs(g, replayedRequest(expiry), func(r *http.Request) {
-		_, replayErr = NewRequestContext(r, g)
+		reqCtx, err := NewRequestContext(r, g)
+		replayErr, replayAccount = err, reqCtx.Account()
 	})
 
 	require.NoError(t, firstErr)
 	require.NotEmpty(t, firstAccount)
 	assert.ErrorIs(t, replayErr, ErrReusedAuthRequest)
+	assert.Empty(t, replayAccount, "a request the nonce gate refused carries no account")
 }
