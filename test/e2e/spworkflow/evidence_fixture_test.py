@@ -19,6 +19,7 @@ when any check fails.
 import hashlib
 import json
 import os
+import random
 import re
 import secrets
 import shutil
@@ -26,6 +27,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import yaml
@@ -780,10 +782,244 @@ def sp_key_field_cases():
             shutil.rmtree(root)
 
 
+# ---- known-secret redaction: exact output, overlaps, budgets --------------
+
+RUN_LOG = ".github/action-logs/sp-e2e-run-test.log"
+BLOCK_BEGIN = "# ---- known secrets: cover every occurrence, then replace (begin) ----\n"
+BLOCK_END = "# ---- known secrets (end) ----\n"
+
+
+def redact_text(content, env1="", env2="", export=None, hook="", extra_env=None, timeout=200):
+    """Collector run with RUN_LOG holding content; (result, published copy or None)."""
+    root, ws, keys = fresh()
+    if export is not None:
+        (ws / SP_EXPORT).write_text(json.dumps({"sp0": export}))
+    (ws / RUN_LOG).write_bytes(content)
+    env = {"E2E_REDACT_KEY_1": env1, "E2E_REDACT_KEY_2": env2, **(extra_env or {})}
+    r = run_collector(ws, "sp-e2e", keys, hook, env, timeout)
+    copy = ws / BUNDLE / RUN_LOG
+    staged = (ws / (BUNDLE + ".staging")).exists()
+    out = copy.read_bytes() if r.returncode == 0 and copy.is_file() and not staged else None
+    shutil.rmtree(root)
+    return r, out
+
+
+OX_EXCEPTION = "            if s[0] == 0x78 and j >= 1 and canon[j - 1] == 0x30"
+
+
+def cover_block(without_0x_exception=False):
+    """The collector's cover/replace code, run on its own; None if absent.
+
+    without_0x_exception drops the 0x check done before the skips, to show
+    the random comparison below reaches it."""
+    text = (REPO / HARNESS).read_text()
+    if BLOCK_BEGIN not in text or BLOCK_END not in text:
+        return None
+    block = text[text.index(BLOCK_BEGIN):text.index(BLOCK_END)]
+    if without_0x_exception:
+        if OX_EXCEPTION not in block:
+            return None
+        block = block.replace(OX_EXCEPTION, "            if False")
+    ns = {"re": re, "MARK": "[REDACTED]"}
+    exec(block, ns)
+    return ns
+
+
+def reference_edge(canon, keys):
+    """Every occurrence, checked at every offset (with a 0x right before it)."""
+    edge = bytearray(len(canon) + 1)
+    for s in keys:
+        for j in range(len(canon) - len(s) + 1):
+            if canon.startswith(s, j):
+                a = j - 2 if j >= 2 and canon[j - 2:j] == b"0x" else j
+                edge[a + 1:j + len(s)] = b"\x01" * (j + len(s) - a - 1)
+    return edge
+
+
+def cover_cases():
+    ns = cover_block()
+    check("collector has a separable cover/replace block", ns is not None)
+    if ns is None:
+        return
+    hits = {"subsumed": 0}
+    real_subsumed = ns["subsumed"]
+
+    def counted(*a):
+        found = real_subsumed(*a)
+        hits["subsumed"] += found
+        return found
+    ns["subsumed"] = counted
+
+    def same_as_reference(text, keys, block=ns):
+        canon = text.translate(block["FOLD"])
+        keys = sorted({k.translate(block["FOLD"]) for k in keys}, key=len, reverse=True)
+        edge = bytearray(len(canon) + 1)
+        block["cover"](canon, keys, edge)
+        return edge == reference_edge(canon, keys)
+
+    # C1: the longer key covers the short one, whose occurrence at offset 2
+    # carries a 0x that reaches byte 0
+    check("C1 cover table equals the reference", same_as_reference(b"0" + b"x" * 17 + b"y", [b"x" * 17 + b"y", b"x" * 16]))
+    # C2: containment skip must not fire in any of these
+    before = hits["subsumed"]
+    for name, text, keys in (("inner key overlaps itself", b"xabaxabay ababa", [b"xabay", b"aba"]),
+                             ("outer key overlaps itself", b"abxabxab", [b"abxab", b"bx"]),
+                             ("inner key also outside the outer", b"abcd bc", [b"abcd", b"bc"]),
+                             ("outer starts with x, inner at offset 1 behind 0", b"0xab", [b"xab", b"ab"])):
+        check(f"C2 {name}: cover table equals the reference", same_as_reference(text, keys))
+    check("C2 containment skip did not fire on the counter-examples", hits["subsumed"] == before)
+    check("C2 containment skip fires when it holds and matches the reference",
+          same_as_reference(b"abcd abcd", [b"abcd", b"bc"]) and hits["subsumed"] == before + 1)
+
+    # bounded random comparison, fixed seed; the same inputs against the
+    # block without the 0x check must disagree somewhere, or the inputs never
+    # reach it
+    mutant = cover_block(without_0x_exception=True)
+    check("cover block has the 0x check done before the skips", mutant is not None)
+    rnd = random.Random(237)
+    alphabet = b"abx0X"
+    cases = bad = mutant_bad = ox_inputs = 0
+    hits["subsumed"] = 0
+    # a fixed number of cases, so the result does not depend on runner speed
+    start = time.monotonic()
+    for cases in range(1, 20001):
+        keys = [bytes(rnd.choice(alphabet) for _ in range(rnd.randint(2, 6))) for _ in range(rnd.randint(1, 4))]
+        text = bytes(rnd.choice(alphabet) for _ in range(rnd.randint(0, 80)))
+        bad += not same_as_reference(text, keys)
+        if mutant is not None:
+            mutant_bad += not same_as_reference(text, keys, mutant)
+        # inputs where the 0x check applies: a key starting with x occurs
+        # right after a 0 and once more one byte later
+        canon = text.translate(ns["FOLD"])
+        ox_inputs += any(s[:1] == b"x" and canon.startswith(s, j) and canon.startswith(s, j + 1)
+                         for s in {k.translate(ns["FOLD"]) for k in keys}
+                         for j in range(1, len(canon)) if canon[j - 1] == 0x30)
+    seconds = time.monotonic() - start
+    print(f"INFO: random cover comparison seed=237 cases={cases} seconds={seconds:.1f} mismatches={bad} "
+          f"containment_skips={hits['subsumed']} inputs_reaching_0x_check={ox_inputs} "
+          f"mismatches_without_0x_check={mutant_bad}")
+    check("random cover tables equal the reference (containment skip and 0x check both reached)",
+          seconds <= 10 and bad == 0 and hits["subsumed"] > 0 and ox_inputs > 0 and mutant_bad > 0)
+
+
+def exact_output_cases():
+    key = hexkey()
+    mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(key))
+    inner = key[8:40]
+    for name, text, want in (
+            ("lower", f"a {key} b\n", "a [REDACTED] b\n"),
+            ("upper", f"a {key.upper()} b\n", "a [REDACTED] b\n"),
+            ("mixed case", f"a {mixed} b\n", "a [REDACTED] b\n"),
+            ("0x", f"a 0x{key} b\n", "a [REDACTED] b\n"),
+            ("0X", f"a 0X{key} b\n", "a [REDACTED] b\n"),
+            ("0x0x", f"a 0x0x{key} b\n", "a 0x[REDACTED] b\n"),
+            ("adjacent", f"a {key}{key} b\n", "a [REDACTED][REDACTED] b\n"),
+            ("nested key alone", f"a {inner} b\n", "a [REDACTED] b\n"),
+            ("nested inside the outer", f"a {key} b\n", "a [REDACTED] b\n"),
+            ("line start, CRLF, end of file", f"{key}\r\nx\r\n{key}", "[REDACTED]\r\nx\r\n[REDACTED]")):
+        r, out = redact_text(text.encode(), key, inner)
+        check(f"exact output: {name}", r.returncode == 0 and out == want.encode())
+
+    # R2: two SP keys overlap (A's tail is B's head); the old per-pattern
+    # replacement left B's tail behind and the full-key check let it through
+    a, b = "0123456789abcdef0123", "0123fedcba987654"
+    r, out = redact_text(b"x 0X0123456789ABcdef0123fedcba987654 y\n",
+                         export={"OperatorPrivateKey": a, "SealPrivateKey": b})
+    check("R2 overlapping keys: the union is one MARK, no fragment published",
+          r.returncode == 0 and out == b"x [REDACTED] y\n")
+
+    # C1 through the collector: the old output kept the 0 in front
+    r, out = redact_text(b"0" + b"x" * 17 + b"y", "x" * 17 + "y", "x" * 16)
+    check("C1 collector: short key's 0x reaches byte 0 -> exactly one MARK", r.returncode == 0 and out == b"[REDACTED]")
+
+    # environment keys are taken as they are: brackets, newlines, non-ASCII
+    hex32 = "0123456789abcdef0123456789abcdef"
+    r, out = redact_text(f"foo{hex32}bar\n".encode(), hex32, "foo[REDACTED]bar")
+    check("E1 key holding a MARK: replaced until nothing is left", r.returncode == 0 and out == b"[REDACTED]\n")
+    r, out = redact_text(f"a{hex32}{'z' * 16}\n".encode(), hex32, "ED]" + "z" * 16)
+    check("E2 key meeting a MARK's tail", r.returncode == 0 and out == b"a[REDACT[REDACTED]\n")
+    nl = "abcdefgh\nijklmnopq"
+    r, out = redact_text(f"x {nl} y\n".encode(), nl)
+    check("E3 key with a newline across two lines: covered and published",
+          r.returncode == 0 and out == b"x [REDACTED] y\n")
+    latin = "café-secret-Kvalue-0001"
+    r, out = redact_text("A CAFÉ-SECRET-kVALUE-0001 B\n".encode("latin-1"), latin)
+    check("E4 latin-1 and Kelvin sign key in another case", r.returncode == 0 and out == b"A [REDACTED] B\n")
+    han = "测试密钥-abcdefghijklmnop"
+    text = f"x {han} y\n".encode()
+    r, out = redact_text(text, han)
+    check("E5 key that cannot occur in latin-1 text: copy unchanged, published", r.returncode == 0 and out == text)
+
+
+def resource_cases():
+    # D1-D4 scaled to 1 MiB; every key goes through the unchanged sp_export.json reader
+    mib = 1024 * 1024
+    k = hexkey()
+    unit = ("0x" + k + " ").encode()
+    for name, export, text, want in (
+            ("D1 self-overlapping key", {"P64PrivateKey": "a" * 64}, b"a" * mib, b"[REDACTED]"),
+            ("D2 49 keys all hitting", {f"P{n}PrivateKey": "a" * n for n in range(16, 65)}, b"A" * mib, b"[REDACTED]"),
+            ("D3 16 rotations", {f"P{n}PrivateKey": ("0123456789abcdef" * 2)[n:n + 16] for n in range(16)},
+             b"0123456789abcdef" * (mib // 16), b"[REDACTED]"),
+            ("D4 49 nested prefixes", {f"P{n}PrivateKey": k[:n] for n in range(16, 65)},
+             unit * (mib // len(unit)), b"[REDACTED] " * (mib // len(unit)))):
+        start = time.monotonic()
+        r, out = redact_text(text, export=export)
+        print(f"INFO: {name} 1 MiB {time.monotonic() - start:.1f}s rc={r.returncode}")
+        check(f"{name}: published with the exact expected copy", r.returncode == 0 and out == want)
+
+    # R1: the bundle the e2e jobs could not publish in time: every SP log and
+    # node.log near the per-file and total budgets (11.4 MiB each so the
+    # metadata, step logs and diff still fit in 100 MiB), ~60 known keys
+    root, ws, keys = fresh()
+    planted = [hexkey() for _ in range(58)]
+    (ws / SP_EXPORT).write_text(json.dumps({"sp0": {f"K{i}PrivateKey": v for i, v in enumerate(planted)}}))
+    planted += [keys["test"], DEV_KEY]
+    rnd = random.Random(1)
+    line = ("2026-11-04T00:00:00.000Z INFO gfspapp/app.go:123 handled request object=bucket/obj%06d "
+            "size=1048576 duration=12ms peer=12D3KooWAbCdEfGh\n")
+
+    def log(size):
+        out, n = [], 0
+        while sum(map(len, out)) < size:
+            chunk = [line % (n + i) for i in range(5000)]
+            v = rnd.choice(planted)
+            chunk[rnd.randrange(5000)] = rnd.choice(["key 0X" + v.upper() + "\n", "seen " + v + " ok\n",
+                                                     "m " + "".join(c.upper() if rnd.random() < .5 else c for c in v) + "\n"])
+            out.append("".join(chunk))
+            n += 5000
+        return "".join(out).encode()[:size]
+    sp = log(int(11.4 * mib))
+    for i in range(8):
+        (ws / f"deployment/localup/local_env/sp{i}/log.txt").write_bytes(sp)
+    (ws / "moca/deployment/localup/.local/validator0/logs/node.log").write_bytes(log(int(7.5 * mib)))
+    r = run_collector(ws, "sp-e2e", keys, timeout=200)
+    m = manifest_of(ws)
+    blobs = [p.read_bytes().lower() for p in (ws / BUNDLE).rglob("*") if p.is_file()] if (ws / BUNDLE).is_dir() else []
+    print(f"INFO: R1 rc={r.returncode} elapsed_seconds={m.get('elapsed_seconds')} source_bytes={m.get('files.source_bytes')}")
+    check("R1 near-budget bundle with ~60 keys: published well inside the time budget",
+          r.returncode == 0 and m.get("result") == "success" and float(m.get("elapsed_seconds", "999")) < 60
+          and blobs and not any(v.lower().encode() in b for v in planted for b in blobs))
+    shutil.rmtree(root)
+
+    # R3: a timeout says how far it got, and never a key value
+    root, ws, keys = fresh()
+    r = run_collector(ws, "sp-e2e", keys, AFTER_FSTAT % ("sp-e2e-run-test.log", "sleep"),
+                      extra_env={"E2E_BUNDLE_TIME_LIMIT": "1"})
+    check("R3 timeout prints progress and result=timeout, no bundle, no key value",
+          r.returncode == 1 and no_bundle(ws) and "result=timeout" in r.stdout
+          and "progress.phase=" in r.stdout and "progress.files_done=" in r.stdout
+          and not any(v in r.stdout + r.stderr for v in keys.values()) and DEV_KEY not in r.stdout + r.stderr)
+    shutil.rmtree(root)
+
+
 for wf in WORKFLOWS:
     one_workflow(wf, 0)
     one_workflow(wf, 2)
     one_workflow(wf, 3)
 collector_cases()
+cover_cases()
+exact_output_cases()
+resource_cases()
 print(f"TOTAL PASS={PASS} FAIL={FAIL}")
 sys.exit(1 if FAIL else 0)

@@ -317,8 +317,10 @@ function record_run_metadata() {
 # missing file (a step that did not run, or a log it never wrote) is recorded
 # as missing with evidence UNKNOWN and its step's outcome. Budget: 20 MiB per
 # file, 100 MiB in total, 120 seconds; over budget fails closed (nothing is
-# truncated). manifest.txt lists every file as captured, missing or failed,
-# with its stage outcome, size and sha256 after redaction.
+# truncated); over the time budget it prints how far it got (counts, paths
+# and the manifest so far, never a secret value) before failing. manifest.txt
+# lists every file as captured, missing or failed, with its stage outcome,
+# size and sha256 after redaction.
 function redact_evidence() {
   local profile=$1
 
@@ -446,6 +448,13 @@ def budget_left(limit):
 
 def on_alarm(signum, frame):
     remove(STAGING)
+    # what was done so far, with no secret value: manifest lines hold paths,
+    # outcomes, sizes and hashes of verified copies only, progress counts
+    state = globals().get("progress", {"phase": "key_sources"})
+    lines = [line for line in globals().get("manifest", []) if not line.startswith("result=")]
+    lines += [f"progress.{key}={value}" for key, value in state.items()]
+    lines += [f"elapsed_seconds={time.monotonic() - START:.1f}", "result=timeout"]
+    print("\n".join(lines), flush=True)
     fail(f"over the {TIME_LIMIT:g}s time budget")
 
 
@@ -643,12 +652,165 @@ if local_dir.is_dir():
 for rel in (f"{LOCAL}/validator0/info", f"{LOCAL}/challenger0/challenger_info"):
     sources.setdefault(rel, "unavailable")
 
-secret_patterns = [re.compile(r"(?i)(0x)?" + re.escape(s)) for s in sorted(secrets, key=len, reverse=True)]
+# ---- known secrets: cover every occurrence, then replace (begin) ----
+# Each known secret s is redacted where the old per-line (?i)(0x)?<s> pattern
+# would match it, but the file is searched as a whole, once per secret, at C
+# speed. Bytes are compared after folding case the way re's IGNORECASE does;
+# every occurrence (overlapping ones too, and an optional 0x in front) marks
+# the edges inside it in a one-byte-per-offset table, and each run of marked
+# edges becomes one MARK. Memory is a few copies of the file, however many
+# occurrences there are.
+FOLD = bytes(ord(chr(b).lower()) if len(chr(b).lower()) == 1 and ord(chr(b).lower()) < 256 else b
+             for b in range(256))
+LATIN1 = "".join(map(chr, range(256)))
+OX = b"0x"
+
+
+def canon_key(secret):
+    """Folded bytes of a secret; None if it cannot occur in latin-1 text,
+    "fallback" if re matches one of its characters against a set of bytes
+    that is not one FOLD class (then the secret is searched with re itself).
+    Asked of the running interpreter's re, so it holds on any Python."""
+    out = bytearray()
+    for c in secret:
+        matched = {ord(m.group()) for m in re.finditer("(?i)" + re.escape(c), LATIN1)}
+        if not matched:
+            return None
+        folds = {FOLD[b] for b in matched}
+        if len(folds) != 1 or {b for b in range(256) if FOLD[b] in folds} != matched:
+            return "fallback"
+        out.append(folds.pop())
+    return bytes(out)
+
+
+def mark(edge, canon, j, size):
+    start = j - 2 if j >= 2 and canon[j - 2:j] == OX else j
+    edge[start + 1:j + size] = b"\x01" * (j + size - start - 1)
+
+
+def has_border(s):
+    # a proper prefix that is also a suffix: s can overlap itself
+    return any(s[:i] == s[-i:] for i in range(1, len(s)))
+
+
+def subsumed(canon, s, done, counts):
+    """Every occurrence of s lies inside one of an already covered longer key
+    K, so it cannot mark a new edge. Neither may overlap itself: count() then
+    finds every occurrence and K's occurrences are disjoint. An occurrence of
+    s at offset 1 of K may carry a 0x that K does not when K starts with x."""
+    if has_border(s):
+        return False
+    for key in done:
+        if len(key) <= len(s) or s not in key or has_border(key):
+            continue
+        offsets = [o for o in range(len(key) - len(s) + 1) if key.startswith(s, o)]
+        if 1 in offsets and key[0] == 0x78:
+            continue
+        if s not in counts:
+            counts[s] = canon.count(s)
+        if key not in counts:
+            counts[key] = canon.count(key)
+        if counts[s] == len(offsets) * counts[key]:
+            return True
+    return False
+
+
+def cover(canon, keys, edge):
+    """Mark the edges inside every occurrence of keys (folded, longest first)."""
+    done, counts = [], {}
+    for s in keys:
+        size = len(s)
+        skip = subsumed(canon, s, done, counts)
+        done.append(s)
+        if skip:
+            continue
+        j = canon.find(s)
+        while j != -1:
+            mark(edge, canon, j, size)
+            # before any skip: an occurrence at j+1 behind "0x" also covers
+            # edge j, which the skips below do not account for
+            if s[0] == 0x78 and j >= 1 and canon[j - 1] == 0x30 and canon.startswith(s, j + 1):
+                j += 1
+                mark(edge, canon, j, size)
+            # occurrences starting at j+2 or later carry their 0x inside the
+            # covered run; skip the ones whose edges are all covered already
+            gap = edge.find(0, j + 1)
+            if gap > j + size:
+                j = canon.find(s, gap - size + 1)
+                continue
+            # the farthest occurrence overlapping j covers all between them
+            k = canon.rfind(s, j + 1, j + 2 * size - 1)
+            j = k if k != -1 else canon.find(s, j + size)
+
+
+def cover_fallback(text, patterns, edge, canon):
+    for pattern in patterns:
+        m = pattern.search(text)
+        while m:
+            mark(edge, canon, m.start(), m.end() - m.start())
+            m = pattern.search(text, m.start() + 1)
+
+
+RUN = re.compile(rb"\x01+")
+
+
+def replace_covered(data, edge):
+    out, pos, mark_bytes = bytearray(), 0, MARK.encode()
+    for m in RUN.finditer(edge):
+        out += data[pos:m.start() - 1]
+        out += mark_bytes
+        pos = m.end()
+    out += data[pos:]
+    return bytes(out)
+
+
+def prepare_secrets(values):
+    keys, fallback = [], []
+    for value in sorted(values, key=len, reverse=True):
+        folded = canon_key(value)
+        if folded is None:
+            continue
+        if folded == "fallback":
+            fallback.append(re.compile("(?i)" + re.escape(value)))
+        else:
+            keys.append(folded)
+    keys = sorted(set(keys), key=len, reverse=True)
+    # only a secret holding [ or ] can meet a MARK just written
+    bracketed = any("[" in value or "]" in value for value in values)
+    return keys, fallback, bracketed
+
+
+def scrub_known(data, prepared, on_pass=None):
+    keys, fallback, bracketed = prepared
+    while True:
+        canon = data.translate(FOLD)
+        edge = bytearray(len(data) + 1)
+        cover(canon, keys, edge)
+        if fallback:
+            cover_fallback(data.decode("latin-1"), fallback, edge, canon)
+        if 1 not in edge:
+            return data
+        data = replace_covered(data, edge)
+        if on_pass:
+            on_pass()
+        # each pass replaces 16 or more bytes (the shortest secret) with
+        # the 10 of a MARK, so this ends
+        if not bracketed:
+            return data
+# ---- known secrets (end) ----
+
+
+progress = {"phase": "prepare", "file": "", "files_done": 0, "files_verified": 0, "source_bytes": 0,
+            "known_secrets": len(secrets), "passes": 0}
+PREPARED = prepare_secrets(secrets)
+progress["phase"] = "files"
+
+
+def count_pass():
+    progress["passes"] += 1
 
 
 def scrub_line(line):
-    for pattern in secret_patterns:
-        line = pattern.sub(MARK, line)
     body = line.rstrip("\r\n")
     if WORD_LINE.match(body):
         return MARK + line[len(body):]
@@ -657,8 +819,21 @@ def scrub_line(line):
     return line
 
 
-def leftover(text):
-    for pattern in secret_patterns:
+def scrub(data):
+    known = scrub_known(data, PREPARED, count_pass).decode("latin-1")
+    return "".join(scrub_line(line) for line in known.splitlines(keepends=True)).encode("latin-1")
+
+
+def leftover(written):
+    # a plain substring test per folded secret: shares the folding with the
+    # code above, not its search, skips or replacement
+    keys, fallback, _ = PREPARED
+    folded = written.translate(FOLD)
+    for s in keys:
+        if s in folded:
+            return "known secret"
+    text = written.decode("latin-1")
+    for pattern in fallback:
         if pattern.search(text):
             return "known secret"
     for line in text.splitlines():
@@ -707,18 +882,21 @@ for rel, stage, at_start in PROFILES[PROFILE]:
             problems.append(f"{rel}: required but missing")
         continue
     total += len(data)
-    raw = data.decode("latin-1")
-    scrubbed = "".join(scrub_line(line) for line in raw.splitlines(keepends=True)).encode("latin-1")
+    progress.update(phase="files", file=rel, source_bytes=total, passes=0)
+    scrubbed = scrub(data)
     target = STAGING / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(scrubbed)
     written = target.read_bytes()
-    problem = leftover(written.decode("latin-1"))
+    progress["phase"] = "verify"
+    problem = leftover(written)
+    progress["files_done"] += 1
     if written != scrubbed or problem:
         manifest += [f"{entry}.status=failed", f"{entry}.reason=redacted copy did not verify: {problem}"]
         problems.append(f"{rel}: redacted copy did not verify: {problem}")
         continue
     captured += 1
+    progress["files_verified"] += 1
     manifest += [f"{entry}.status=captured", f"{entry}.redacted={'yes' if written != data else 'no'}",
                  f"{entry}.bytes={len(written)}", f"{entry}.sha256={hashlib.sha256(written).hexdigest()}"]
 
