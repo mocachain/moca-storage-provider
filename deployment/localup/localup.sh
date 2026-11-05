@@ -56,6 +56,8 @@ function display_help() {
   echo "   rebuild          rebuild sp code"
   echo "   print            print sp local env work directory"
   echo
+  echo "SKIP_SP_BUILD=true makes generate, reset and rebuild deploy the moca-sp already in build/ instead of building it"
+  echo
   exit 0
 }
 
@@ -67,7 +69,9 @@ function generate_sp_db_info() {
     echo "failed to generate sp.info and db.info, please check args by help info"
     exit 1
   fi
-  bash "${workspace}"/../../build.sh
+  if [ "${SKIP_SP_BUILD:-false}" != "true" ]; then
+    bash "${workspace}"/../../build.sh
+  fi
   mkdir -p "${workspace}"/"${SP_DEPLOY_DIR}"
 
   sp_json_file=$1
@@ -279,7 +283,9 @@ function wait_for_grpc_port() {
 function start_sp() {
   local success_count=0
   local failed_count=0
+  local -a start_pids=()
 
+  # sp0 starts first as the p2p bootstrap node of the others, which then start together
   for ((index = 0; index < ${SP_NUM}; index++)); do
     sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
     if [ ! -d "${sp_dir}" ]; then
@@ -307,20 +313,30 @@ function start_sp() {
 
     # Start process
     nohup ./${sp_bin_name}${index} --config config.toml </dev/null >log.txt 2>&1 &
-    local start_pid=$!
+    start_pids[index]=$!
+    if [ "${index}" -eq 0 ]; then
+      wait_for_grpc_port "${start_pids[index]}" "${SP_START_PORT}" 30
+    fi
+
+    cd - >/dev/null || exit
+  done
+
+  for ((index = 0; index < ${SP_NUM}; index++)); do
+    if [ -z "${start_pids[index]:-}" ]; then
+      continue
+    fi
+    sp_dir="${workspace}/${SP_DEPLOY_DIR}/sp${index}"
     local grpc_port=$((SP_START_PORT + 1000 * index))
 
-    if wait_for_grpc_port "${start_pid}" "${grpc_port}" 30; then
-      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pid}, gRPC: 127.0.0.1:${grpc_port})"
+    if wait_for_grpc_port "${start_pids[index]}" "${grpc_port}" 60; then
+      echo "succeed to start sp in ""${sp_dir}"" (PID: ${start_pids[index]}, gRPC: 127.0.0.1:${grpc_port})"
       ((success_count++))
     else
       echo "ERROR: Failed to start sp in ""${sp_dir}"" - gRPC 127.0.0.1:${grpc_port} not ready"
       echo "Last few lines of log:"
-      tail -20 log.txt 2>/dev/null || echo "No log available"
+      tail -20 "${sp_dir}/log.txt" 2>/dev/null || echo "No log available"
       ((failed_count++))
     fi
-
-    cd - >/dev/null || exit
   done
 
   echo ""
@@ -412,7 +428,9 @@ function print_work_dir() {
 # rebuild sp #
 ##############
 function rebuild() {
-  bash "${workspace}"/../../build.sh
+  if [ "${SKIP_SP_BUILD:-false}" != "true" ]; then
+    bash "${workspace}"/../../build.sh
+  fi
   mkdir -p "${workspace}"/"${SP_DEPLOY_DIR}"
   for ((i = 0; i < ${SP_NUM}; i++)); do
     mkdir -p "${workspace}"/"${SP_DEPLOY_DIR}"/sp${i}

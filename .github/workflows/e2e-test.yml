@@ -13,23 +13,116 @@ on:
 permissions:
   contents: read
 
-jobs:
-  e2e-test:
-    name: SP E2E
-    strategy:
-      matrix:
-        go-version: [ 1.26.10 ]
-        os: [ ubuntu-latest ]
-    runs-on: ubuntu-latest
+env:
+  GO_VERSION: 1.26.10
+  E2E_BIN_DIR: e2e-bin
 
+jobs:
+  build:
+    name: Build SP and fetch mocad
+    runs-on: ubuntu-latest
     steps:
+      - name: Checkout Moca-SP
+        uses: actions/checkout@v4
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      # the module and build cache the Build Test workflow saves
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build Moca SP
+        run: bash ./test/e2e/spworkflow/e2e_test.sh --buildSP
+      - name: Fetch mocad
+        run: bash ./test/e2e/spworkflow/e2e_test.sh --buildChain
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-build
+          path: e2e-bin/
+          retention-days: 1
+          if-no-files-found: error
+
+  clients:
+    name: Build moca-cmd and go-sdk e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Moca-SP
+        uses: actions/checkout@v4
+      # the cached binaries follow the moca-cmd and moca-go-sdk commits and the functions that build them
+      - name: Resolve moca-cmd and moca-go-sdk
+        id: clients
+        run: |
+          cmd=$(git ls-remote https://github.com/mocachain/moca-cmd.git refs/heads/main | cut -f1)
+          sdk=$(git ls-remote https://github.com/mocachain/moca-go-sdk.git refs/heads/main | cut -f1)
+          test -n "${cmd}" && test -n "${sdk}"
+          recipe=$(sed -n '/^function \(sync_repo_ref\|prepare_moca_go_sdk\|prebuilt\|keep_binary\|build_moca_cmd_binary\|build_go_sdk_e2e_binary\|build_clients\)() {/,/^}/p' \
+            test/e2e/spworkflow/e2e_test.sh | sha256sum | cut -c1-16)
+          echo "MOCA_CMD_TAG=${cmd}" >> "${GITHUB_ENV}"
+          echo "MOCA_GO_SDK_TAG=${sdk}" >> "${GITHUB_ENV}"
+          echo "key=sp-e2e-clients-go${GO_VERSION}-${cmd}-${sdk}-${recipe}" >> "${GITHUB_OUTPUT}"
+      - name: Restore clients
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: e2e-bin
+          key: ${{ steps.clients.outputs.key }}
+      - name: Install Go
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Build moca-cmd and the go-sdk e2e test binary
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bash ./test/e2e/spworkflow/e2e_test.sh --buildClients
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-clients
+          path: e2e-bin/
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e:
+    name: SP E2E (${{ matrix.case }})
+    needs: [build, clients]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: storage
+            run: --runStorage
+          - case: fee-reclaim
+            run: --runFeeReclaim
+          - case: delegated
+            run: --runDelegated
+          - case: sp-exit
+            run: --runSPExit
+          - case: go-sdk
+            run: --runSDKE2E
+
+    steps:
       # Checkout Moca-SP
       - name: Checkout Moca-SP
         uses: actions/checkout@v4
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-*
+          path: e2e-bin
+          merge-multiple: true
+      - name: Make the binaries executable
+        run: chmod +x e2e-bin/*
       # Run MySQL
       - name: Run MySQL
         run: |
@@ -50,35 +143,35 @@ jobs:
           echo "Account address: ${{ steps.generate-private-key.outputs.account_address }}"
           echo "PRIVATE_KEY=${{ steps.generate-private-key.outputs.private_key }}" >> "$GITHUB_ENV"
           echo "ACCOUNT_ADDR=${{ steps.generate-private-key.outputs.account_address }}" >> "$GITHUB_ENV"
-      # Build and Start Moca Blockchain
-      - name: Build and Start Moca Blockchain
+      # Start Moca Blockchain
+      - name: Start Moca Blockchain
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
-          bash ./test/e2e/spworkflow/e2e_test.sh --startChain 2>&1 | tee .github/action-logs/sp-e2e-start-chain.log
-      # Build and Start Moca SP
-      - name: Build and Start Moca SP
+          bash ./test/e2e/spworkflow/e2e_test.sh --startChain 2>&1 | tee .github/action-logs/start-chain.log
+      # Start Moca SP
+      - name: Start Moca SP
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
-          bash ./test/e2e/spworkflow/e2e_test.sh --startSP 2>&1 | tee .github/action-logs/sp-e2e-start-sp.log
-      # Build Moca Cmd
-      - name: Build Moca Cmd
+          bash ./test/e2e/spworkflow/e2e_test.sh --startSP 2>&1 | tee .github/action-logs/start-sp.log
+      # Set up Moca Cmd
+      - name: Set up Moca Cmd
+        if: matrix.case != 'go-sdk'
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
-          bash ./test/e2e/spworkflow/e2e_test.sh --buildCmd 2>&1 | tee .github/action-logs/sp-e2e-build-cmd.log
-      # Use Moca Cmd Running SP E2E Test
-      - name: Run Moca SP E2E Test
+          bash ./test/e2e/spworkflow/e2e_test.sh --buildCmd 2>&1 | tee .github/action-logs/build-cmd.log
+      - name: Run the ${{ matrix.case }} E2E Test
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
-          bash ./test/e2e/spworkflow/e2e_test.sh --runTest 2>&1 | tee .github/action-logs/sp-e2e-run-test.log
+          bash ./test/e2e/spworkflow/e2e_test.sh ${{ matrix.run }} 2>&1 | tee .github/action-logs/run-test.log
       - name: Upload SP E2E diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: sp-e2e-diagnostics
+          name: sp-e2e-diagnostics-${{ matrix.case }}
           if-no-files-found: ignore
           path: |
             .github/action-logs/
