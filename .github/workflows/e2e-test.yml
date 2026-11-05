@@ -29,13 +29,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
-      # the module and build cache the Build Test workflow saves
+      # the module and build cache the Build Test workflow saves, with the same path list
       - name: Restore Go cache
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
+            ~/Library/Caches/go-build
+            %LocalAppData%\go-build
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
