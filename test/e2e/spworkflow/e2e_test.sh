@@ -19,7 +19,9 @@ TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR}
 TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY}
 DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
 echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
-echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
+# NOTE: do not print the test key: step output goes to the public step log and
+# is tee'd into .github/action-logs/*.log, of which --redactEvidence uploads only
+# redacted copies. key_log_fixture_test.py covers this script's own output.
 
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
@@ -127,24 +129,883 @@ function select_exit_sp_dir() {
   return 1
 }
 
+#########################################
+# e2e evidence (non-sensitive only)     #
+#########################################
+# Records what was actually tested: refs, resolved SHAs, local patch diffs,
+# go.mod/go.sum digests and binary hashes. Only write values that are safe to
+# publish as a CI artifact: never keys, mnemonics, keystores, passwords,
+# config files or environment dumps.
+E2E_EVIDENCE_DIR="${E2E_EVIDENCE_DIR:-${workspace}/.github/action-logs}"
+E2E_METADATA_FILE="${E2E_EVIDENCE_DIR}/e2e-metadata.txt"
+
+# evidence is best effort: a failed write warns and never aborts the test
+function record_evidence() {
+  if ! { mkdir -p "${E2E_EVIDENCE_DIR}" && printf '%s=%s\n' "$1" "$2" >>"${E2E_METADATA_FILE}"; } 2>/dev/null; then
+    echo "warning: could not record e2e evidence $1" >&2
+  fi
+  return 0
+}
+
+function is_full_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]]
+}
+
+function file_sha256() {
+  if [ -f "$1" ]; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  else
+    echo "UNKNOWN"
+  fi
+}
+
+function record_go_mod_digest() {
+  local label=$1
+  local mod_dir=$2
+
+  record_evidence "${label}.go_mod_sha256" "$(file_sha256 "${mod_dir}/go.mod")"
+  record_evidence "${label}.go_sum_sha256" "$(file_sha256 "${mod_dir}/go.sum")"
+}
+
+# record the tracked local changes the harness applied on top of a checkout
+# (appended per call, so a repeated prepare is recorded every time)
+function record_tree_diff() {
+  local label=$1
+  local repo_dir=$2
+  local diff_file="${E2E_EVIDENCE_DIR}/${label}-prepare.diff"
+  local count base_sha diff_tmp diff_sha="UNKNOWN" files="UNKNOWN"
+
+  mkdir -p "${E2E_EVIDENCE_DIR}" 2>/dev/null || true
+  count=$(grep -c "^${label}\.prepare\.[0-9]*\.diff_sha256=" "${E2E_METADATA_FILE}" 2>/dev/null || true)
+  count=$((${count:-0} + 1))
+  base_sha=$(git -C "${repo_dir}" rev-parse HEAD 2>/dev/null || echo UNKNOWN)
+  if ! diff_tmp=$(mktemp 2>/dev/null); then
+    echo "warning: could not create a temp file for the ${label} diff" >&2
+    record_evidence "${label}.prepare.${count}.base_sha" "${base_sha}"
+    record_evidence "${label}.prepare.${count}.diff_sha256" "UNKNOWN"
+    return 0
+  fi
+  if git -C "${repo_dir}" diff --binary HEAD >"${diff_tmp}"; then
+    diff_sha=$(sha256sum "${diff_tmp}" | cut -d ' ' -f 1)
+    files=$(git -C "${repo_dir}" diff --name-only HEAD | paste -sd ',' -)
+  fi
+  {
+    echo "### ${label} prepare ${count}: base ${base_sha}"
+    cat "${diff_tmp}"
+  } >>"${diff_file}" 2>/dev/null || echo "warning: could not write ${diff_file}" >&2
+  rm -f "${diff_tmp}"
+  record_evidence "${label}.prepare.${count}.base_sha" "${base_sha}"
+  record_evidence "${label}.prepare.${count}.files" "${files}"
+  record_evidence "${label}.prepare.${count}.diff_sha256" "${diff_sha}"
+  record_evidence "${label}.prepare.${count}.untracked_count" "$(git -C "${repo_dir}" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
+}
+
+# record a built binary's sha256 and the vcs stamp Go embedded, if any
+function record_binary() {
+  local label=$1
+  local bin=$2
+  local buildinfo go_version revision modified
+
+  if [ ! -f "${bin}" ]; then
+    record_evidence "${label}.binary" "MISSING"
+    return 0
+  fi
+  buildinfo=$(go version -m "${bin}" 2>/dev/null || true)
+  go_version=$(printf '%s\n' "${buildinfo}" | head -n 1 | awk '{ print $2 }')
+  revision=$(printf '%s\n' "${buildinfo}" | awk '$1 == "build" && $2 ~ /^vcs\.revision=/ { sub(/^vcs\.revision=/, "", $2); print $2 }')
+  modified=$(printf '%s\n' "${buildinfo}" | awk '$1 == "build" && $2 ~ /^vcs\.modified=/ { sub(/^vcs\.modified=/, "", $2); print $2 }')
+  record_evidence "${label}.binary_sha256" "$(file_sha256 "${bin}")"
+  record_evidence "${label}.binary_go_version" "${go_version:-UNKNOWN}"
+  record_evidence "${label}.binary_vcs_revision" "${revision:-UNKNOWN}"
+  record_evidence "${label}.binary_vcs_modified" "${modified:-UNKNOWN}"
+}
+
+# check out repo_ref and fail before anything is built when the checkout does
+# not match the expected commit. The expected commit is expected_sha, or
+# repo_ref itself when it is a full 40-char SHA. Pass a tag/branch together
+# with expected_sha when a server refuses to fetch by SHA.
 function sync_repo_ref() {
   local repo_url=$1
   local repo_dir=$2
   local repo_ref=$3
+  local expected_sha=${4:-}
+  local label=${5:-$(basename "${repo_dir}")}
+  local resolved_sha
 
-  cd "${workspace}"
-  if [ ! -d "${repo_dir}/.git" ]; then
-    git clone "${repo_url}" "${repo_dir}"
+  if [ -z "${expected_sha}" ] && is_full_sha "${repo_ref}"; then
+    expected_sha=${repo_ref}
   fi
 
-  cd "${repo_dir}"
-  git fetch --tags --prune origin "${repo_ref}"
-  git checkout -B codex-ci-ref FETCH_HEAD
+  cd "${workspace}" || return 1
+  if [ ! -d "${repo_dir}/.git" ]; then
+    git clone "${repo_url}" "${repo_dir}" || return 1
+  fi
+
+  cd "${repo_dir}" || return 1
+  git fetch --tags --prune origin "${repo_ref}" || return 1
+  git checkout -B codex-ci-ref FETCH_HEAD || return 1
+  resolved_sha=$(git rev-parse HEAD) || return 1
+
+  record_evidence "${label}.repo" "${repo_url}"
+  record_evidence "${label}.ref" "${repo_ref}"
+  record_evidence "${label}.expected_sha" "${expected_sha:-UNPINNED}"
+  record_evidence "${label}.resolved_sha" "${resolved_sha}"
+  if [ -n "${expected_sha}" ] && [ "${resolved_sha}" != "${expected_sha}" ]; then
+    echo "${label}: ${repo_ref} resolved to ${resolved_sha}, expected ${expected_sha}" >&2
+    record_evidence "${label}.ref_check" "FAIL"
+    return 1
+  fi
+  record_evidence "${label}.ref_check" "$([ -n "${expected_sha}" ] && echo PASS || echo UNPINNED)"
+}
+
+# job-level facts: which SP commit the runner actually tested (for PRs this is
+# GitHub's synthetic merge; check its parents against the frozen base/head via
+# the GitHub commit API) and which runner image ran it
+function record_run_metadata() {
+  local parent index=0
+
+  cd "${workspace}" || return 1
+  record_evidence "run.repository" "${GITHUB_REPOSITORY:-UNKNOWN}"
+  record_evidence "run.workflow" "${GITHUB_WORKFLOW:-UNKNOWN}"
+  record_evidence "run.job" "${GITHUB_JOB:-UNKNOWN}"
+  record_evidence "run.id" "${GITHUB_RUN_ID:-UNKNOWN}"
+  record_evidence "run.attempt" "${GITHUB_RUN_ATTEMPT:-UNKNOWN}"
+  record_evidence "run.event" "${GITHUB_EVENT_NAME:-UNKNOWN}"
+  record_evidence "run.github_sha" "${GITHUB_SHA:-UNKNOWN}"
+  record_evidence "run.pr_number" "${E2E_PR_NUMBER:-UNKNOWN}"
+  record_evidence "run.pr_head_sha" "${E2E_PR_HEAD_SHA:-UNKNOWN}"
+  record_evidence "run.pr_base_sha" "${E2E_PR_BASE_SHA:-UNKNOWN}"
+  record_evidence "runner.os" "${RUNNER_OS:-UNKNOWN}"
+  record_evidence "runner.image_os" "${ImageOS:-UNKNOWN}"
+  record_evidence "runner.image_version" "${ImageVersion:-UNKNOWN}"
+  record_evidence "sp.checkout_sha" "$(git rev-parse HEAD 2>/dev/null || echo UNKNOWN)"
+  record_evidence "sp.checkout_tree" "$(git rev-parse 'HEAD^{tree}' 2>/dev/null || echo UNKNOWN)"
+  # read parents from the raw commit object: a depth-1 checkout has no parent
+  # objects, so HEAD^2 and git log cannot be used here
+  while read -r parent; do
+    index=$((index + 1))
+    record_evidence "sp.checkout_parent.${index}" "${parent}"
+  done < <(git cat-file -p HEAD 2>/dev/null | awk '$1 == "parent" { print $2 } /^$/ { exit }')
+  record_evidence "sp.checkout_parent_count" "${index}"
+  record_go_mod_digest sp "${workspace}"
+}
+
+# Build the upload bundle for one job profile. Runs as its own always() step
+# after the test steps, so it never changes a test step's exit status; the
+# upload step only runs when this succeeds and uploads only the published
+# bundle directory.
+#
+# Each profile names a fixed allowlist of files: the job's metadata, prepare
+# diffs and tee'd step logs, the SP log.txt files and the validator node.log
+# (BlockSyncer: metadata, its tee log and coverage.txt). Nothing else is ever
+# opened: there is no recursive walk of the run tree, so SP data/ (database
+# WAL), config files, keystores, account dirs and symlinks are never read, and
+# the run tree is never modified. Each listed file is opened once (regular
+# files inside the workspace only, symlinks refused) and exactly the bytes it
+# held at open time are copied into a fresh staging directory, so a file that
+# grows, rotates or is deleted afterwards cannot change the bundle.
+# The static copy is scrubbed and re-read; only a fully verified copy is
+# renamed to the published bundle, so a failed run leaves no bundle at all.
+#
+# Known secrets (the per-run test key, the dev key, the localup SP keys in
+# sp.json and the suite's info/challenger_info files) are replaced wherever
+# they appear; long hex values and 12-24 word runs on lines that name a key or
+# mnemonic, and bare mnemonic lines, are replaced too. A key source that exists
+# but cannot be read or parsed fails the step; one that was never generated is
+# recorded as unavailable. The metadata file and the tee'd log of every step
+# that ran are required; a missing required file fails the step. Any other
+# missing file (a step that did not run, or a log it never wrote) is recorded
+# as missing with evidence UNKNOWN and its step's outcome. Budget: 20 MiB per
+# file, 100 MiB in total, 120 seconds; over budget fails closed (nothing is
+# truncated); over the time budget it prints how far it got (counts, paths
+# and the manifest so far, never a secret value) before failing. manifest.txt
+# lists every file as captured, missing or failed, with its stage outcome,
+# size and sha256 after redaction.
+function redact_evidence() {
+  local profile=$1
+
+  cd "${workspace}" || return 1
+  E2E_REDACT_KEY_1="${TEST_ACCOUNT_PRIVATE_KEY}" E2E_REDACT_KEY_2="${DEV_ACCOUNT_PRIVATE_KEY}" \
+    python3 -I - "${profile}" <<'PY'
+import errno
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import stat
+import sys
+import time
+from pathlib import Path
+
+MIB = 1024 * 1024
+
+ACTION_LOGS = ".github/action-logs"
+METADATA = f"{ACTION_LOGS}/e2e-metadata.txt"
+SP_LOGS = [f"deployment/localup/local_env/sp{i}/log.txt" for i in range(8)]
+NODE_LOG = "moca/deployment/localup/.local/validator0/logs/node.log"
+
+
+def chain_job(prefix, stages, diffs):
+    # (path, stage producing it or None, required once that stage ran)
+    files = [(METADATA, None, True)]
+    files += [(f"{ACTION_LOGS}/{name}-prepare.diff", stage, False) for name, stage in diffs]
+    files += [(f"{ACTION_LOGS}/{prefix}-{stage}.log", stage, True) for stage in stages]
+    files += [(path, "start-sp", False) for path in SP_LOGS]
+    files.append((NODE_LOG, "start-chain", False))
+    return files
+
+
+SP_STAGES = ["start-chain", "start-sp", "build-cmd", "run-test"]
+PROFILES = {
+    "sp-e2e": chain_job("sp-e2e", SP_STAGES, [("sdk", "build-cmd"), ("cmd", "build-cmd")]),
+    "sp-exit": chain_job("sp-exit", SP_STAGES, [("sdk", "build-cmd"), ("cmd", "build-cmd")]),
+    "sdk-e2e": chain_job("sdk-e2e", ["start-chain", "start-sp", "run-test"], [("sdk", "run-test")]),
+    "bs-e2e": [
+        (METADATA, None, True),
+        (f"{ACTION_LOGS}/bs-e2e-run-test.log", "run-test", True),
+        ("modular/blocksyncer/coverage.txt", "run-test", False),
+    ],
+}
+
+MARK = "[REDACTED]"
+KEY_WORD = re.compile(r"(?i)priv(ate)?[ _-]?key|mnemonic|seed[ _-]?phrase|secret[ _-]?key")
+LONG_HEX = re.compile(r"(?i)\b(0x)?[0-9a-f]{32,}\b")
+WORD_LINE = re.compile(r"^\s*([a-z]+\s+){11,23}[a-z]+\s*$")
+# a 12-24 word mnemonic inside a line that names a key or mnemonic
+WORD_RUN = re.compile(r"\b([a-z]+[ \t]+){11,23}[a-z]+\b")
+
+
+class Refused(Exception):
+    pass
+
+
+def fail(message):
+    print(f"evidence bundle not published: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+WORKSPACE = Path.cwd().resolve()
+# fixed location, not configurable: the cleanup below deletes it recursively
+BUNDLE = WORKSPACE / ".github/e2e-diagnostics"
+STAGING = BUNDLE.with_name(BUNDLE.name + ".staging")
+START = time.monotonic()
+
+
+def remove(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+# the cleanup and every later write go through BUNDLE's parent, so it must be
+# a real directory inside the workspace before anything is deleted: a
+# symlinked .github would point the rmtree below at a directory elsewhere
+try:
+    st = os.lstat(BUNDLE.parent)
+except FileNotFoundError:
+    st = None
+if st is not None and not stat.S_ISDIR(st.st_mode):
+    kind = "a symlink" if stat.S_ISLNK(st.st_mode) else "not a directory"
+    fail(f"{BUNDLE.parent.relative_to(WORKSPACE)} is {kind}; nothing removed or written")
+
+# never leave an earlier bundle behind for the upload step to pick up, even
+# when the arguments or budgets below are rejected
+remove(BUNDLE)
+remove(STAGING)
+
+if len(sys.argv) != 2 or sys.argv[1] not in PROFILES:
+    fail(f"unknown profile {sys.argv[1:]!r}; expected one of {sorted(PROFILES)}")
+PROFILE = sys.argv[1]
+
+
+def budget(name, cap, kind):
+    """The environment can only tighten a budget (the offline fixtures do)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return cap
+    try:
+        value = kind(raw)
+    except ValueError:
+        fail(f"{name}={raw!r} is not a number")
+    if not value > 0:
+        fail(f"{name}={raw!r} must be positive")
+    return min(cap, value)
+
+
+FILE_LIMIT = budget("E2E_BUNDLE_FILE_LIMIT", 20 * MIB, int)
+TOTAL_LIMIT = budget("E2E_BUNDLE_TOTAL_LIMIT", 100 * MIB, int)
+TIME_LIMIT = budget("E2E_BUNDLE_TIME_LIMIT", 120.0, float)
+
+
+def budget_left(limit):
+    if limit < FILE_LIMIT:
+        return f"{TOTAL_LIMIT} byte total budget ({limit} bytes left)"
+    return f"{FILE_LIMIT} byte budget"
+
+
+def on_alarm(signum, frame):
+    remove(STAGING)
+    # what was done so far, with no secret value: manifest lines hold paths,
+    # outcomes, sizes and hashes of verified copies only, progress counts
+    state = globals().get("progress", {"phase": "key_sources"})
+    lines = [line for line in globals().get("manifest", []) if not line.startswith("result=")]
+    lines += [f"progress.{key}={value}" for key, value in state.items()]
+    lines += [f"elapsed_seconds={time.monotonic() - START:.1f}", "result=timeout"]
+    print("\n".join(lines), flush=True)
+    fail(f"over the {TIME_LIMIT:g}s time budget")
+
+
+signal.signal(signal.SIGALRM, on_alarm)
+signal.setitimer(signal.ITIMER_REAL, TIME_LIMIT)
+
+
+def snapshot(rel, limit):
+    """Bytes the allowlisted file held when it was opened; None if absent.
+
+    Every parent must be a real directory inside the workspace and the file a
+    regular file; symlinks are refused, never followed.
+    """
+    path = Path(rel)
+    if path.is_absolute() or ".." in path.parts:
+        raise Refused("path escapes the workspace")
+    current = WORKSPACE
+    for part in path.parts[:-1]:
+        current = current / part
+        try:
+            st = os.lstat(current)
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(st.st_mode):
+            raise Refused(f"symlinked directory {current.relative_to(WORKSPACE)}")
+        if not stat.S_ISDIR(st.st_mode):
+            raise Refused(f"{current.relative_to(WORKSPACE)} is not a directory")
+    try:
+        fd = os.open(WORKSPACE / path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        if err.errno == errno.ELOOP:
+            raise Refused("symlink")
+        raise Refused(f"cannot open ({errno.errorcode.get(err.errno, err.errno)})")
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise Refused("not a regular file")
+        size = st.st_size
+        if size > limit:
+            raise Refused(f"{size} bytes is over the {budget_left(limit)}")
+        chunks, remaining = [], size
+        while remaining:
+            try:
+                chunk = os.read(fd, min(remaining, MIB))
+            except OSError as err:
+                raise Refused(f"read failed ({errno.errorcode.get(err.errno, err.errno)})")
+            if not chunk:
+                raise Refused(f"shrank below {size} bytes while it was copied")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+secrets = set()
+sources = {}
+
+
+def add_secret(value):
+    """Remember a key value; True when it is long enough to be one."""
+    if not isinstance(value, str):
+        return False
+    value = value.strip()
+    if value[:2].lower() == "0x":
+        value = value[2:]
+    if len(value) < 16:
+        return False
+    secrets.add(value)
+    return True
+
+
+# the two SP key files differ only in how a key is written: sp_export.json is
+# export_sps output, one `mocad keys export --unarmored-hex` value per field
+# (bare hex, leading zeros may be dropped); moca/sp.json is that file after
+# normalize_sp_private_keys, which pads the fields it lists to 64 bare hex
+# digits and leaves the rest (FundingPrivateKey) as exported
+EXPORTED_KEY = ("1 to 64 hex digits", re.compile(r"[0-9A-Fa-f]{1,64}"))
+PADDED_KEY = ("64 hex digits", re.compile(r"[0-9A-Fa-f]{64}"))
+PADDED_FIELDS = {"OperatorPrivateKey", "SealPrivateKey", "ApprovalPrivateKey", "GcPrivateKey",
+                 "MaintenancePrivateKey", "BlsPrivateKey"}
+
+
+def key_format(rel, field):
+    if rel == "moca/sp.json" and field in PADDED_FIELDS:
+        return PADDED_KEY
+    return EXPORTED_KEY
+
+
+def walk_json(node, rel):
+    """Collect values under key-named fields; returns how many were keys.
+
+    Every key-named field must hold a key in the format its file is written
+    in. Anything else (null, a number, an object, a string that is not hex)
+    means the redaction set would be missing that key, so it fails rather
+    than being skipped.
+    """
+    found = 0
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if KEY_WORD.search(str(key)):
+                if not isinstance(value, str):
+                    fail(f"cannot read SP keys from {rel}: {key} holds a {type(value).__name__}, not a key")
+                what, pattern = key_format(rel, str(key))
+                if not pattern.fullmatch(value):
+                    fail(f"cannot read SP keys from {rel}: {key} is not {what}")
+                if not add_secret(value):
+                    fail(f"cannot read SP keys from {rel}: {key} is too short to redact")
+                found += 1
+                continue
+            found += walk_json(value, rel)
+    elif isinstance(node, list):
+        for value in node:
+            found += walk_json(value, rel)
+    return found
+
+
+HEX_KEY = re.compile(r"(?i)(0x)?[0-9a-f]{64}")
+
+
+def is_hex_key(line):
+    return bool(HEX_KEY.fullmatch(line.strip()))
+
+
+def is_mnemonic(line):
+    return bool(WORD_LINE.match(line))
+
+
+def is_secret_line(line):
+    return is_hex_key(line) or is_mnemonic(line)
+
+
+# what prepare_sdk_suite_accounts writes and the go-sdk suite reads (its last
+# non-empty line): validator0/info a `mocad keys mnemonic` line,
+# challenger0/challenger_info the exported hex key (the patched suite also
+# takes a mnemonic there)
+KEY_FILE_FORMATS = {"info": ("a mnemonic", is_mnemonic),
+                    "challenger_info": ("a hex key or mnemonic", is_secret_line)}
+
+
+def read_key_source(rel):
+    # a key source we cannot read means we cannot know its keys: fail
+    try:
+        data = snapshot(rel, FILE_LIMIT)
+    except Refused as err:
+        fail(f"cannot read key source {rel}: {err}")
+    if data is None:
+        sources[rel] = "unavailable"
+        return None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        fail(f"cannot read key source {rel}: not valid UTF-8")
+    sources[rel] = "read"
+    return text
+
+
+add_secret(os.environ.get("E2E_REDACT_KEY_1", ""))
+add_secret(os.environ.get("E2E_REDACT_KEY_2", ""))
+for rel in ("moca/sp.json", "moca/deployment/localup/.local/sp_export.json"):
+    text = read_key_source(rel)
+    if text is None:
+        continue
+    try:
+        parsed = json.loads(text)
+    except ValueError as err:
+        fail(f"cannot read SP keys from {rel}: {type(err).__name__}")
+    # both files are export_sps output with *PrivateKey fields; one that
+    # parses but holds no key cannot be the file we need to redact against
+    if not walk_json(parsed, rel):
+        fail(f"cannot read SP keys from {rel}: no private key fields")
+LOCAL = "moca/deployment/localup/.local"
+local_dir = WORKSPACE / LOCAL
+if local_dir.is_symlink():
+    fail(f"cannot read key sources: {LOCAL} is a symlink")
+if local_dir.is_dir():
+    for child in sorted(local_dir.iterdir()):
+        for name in ("info", "challenger_info"):
+            if os.path.lexists(child / name):
+                rel = f"{LOCAL}/{child.name}/{name}"
+                text = read_key_source(rel)
+                if text is None:
+                    continue
+                lines = [line for line in text.splitlines() if line.strip()]
+                what, valid = KEY_FILE_FORMATS[name]
+                if not lines or not valid(lines[-1]):
+                    fail(f"cannot read key source {rel}: last line is not {what}")
+                for line in lines:
+                    if is_secret_line(line):
+                        add_secret(line)
+# the two files prepare_sdk_suite_accounts writes: say so when a run never got
+# that far, instead of leaving them out of the manifest
+for rel in (f"{LOCAL}/validator0/info", f"{LOCAL}/challenger0/challenger_info"):
+    sources.setdefault(rel, "unavailable")
+
+# ---- known secrets: cover every occurrence, then replace (begin) ----
+# Each known secret s is redacted where the old per-line (?i)(0x)?<s> pattern
+# would match it, but the file is searched as a whole, once per secret, at C
+# speed. Bytes are compared after folding case the way re's IGNORECASE does;
+# every occurrence (overlapping ones too, and an optional 0x in front) marks
+# the edges inside it in a one-byte-per-offset table, and each run of marked
+# edges becomes one MARK. Memory is a few copies of the file, however many
+# occurrences there are.
+FOLD = bytes(ord(chr(b).lower()) if len(chr(b).lower()) == 1 and ord(chr(b).lower()) < 256 else b
+             for b in range(256))
+LATIN1 = "".join(map(chr, range(256)))
+OX = b"0x"
+
+
+def canon_key(secret):
+    """Folded bytes of a secret; None if it cannot occur in latin-1 text,
+    "fallback" if re matches one of its characters against a set of bytes
+    that is not one FOLD class (then the secret is searched with re itself).
+    Asked of the running interpreter's re, so it holds on any Python."""
+    out = bytearray()
+    for c in secret:
+        matched = {ord(m.group()) for m in re.finditer("(?i)" + re.escape(c), LATIN1)}
+        if not matched:
+            return None
+        folds = {FOLD[b] for b in matched}
+        if len(folds) != 1 or {b for b in range(256) if FOLD[b] in folds} != matched:
+            return "fallback"
+        out.append(folds.pop())
+    return bytes(out)
+
+
+def mark(edge, canon, j, size):
+    start = j - 2 if j >= 2 and canon[j - 2:j] == OX else j
+    edge[start + 1:j + size] = b"\x01" * (j + size - start - 1)
+
+
+def has_border(s):
+    # a proper prefix that is also a suffix: s can overlap itself
+    return any(s[:i] == s[-i:] for i in range(1, len(s)))
+
+
+def subsumed(canon, s, done, counts):
+    """Every occurrence of s lies inside one of an already covered longer key
+    K, so it cannot mark a new edge. Neither may overlap itself: count() then
+    finds every occurrence and K's occurrences are disjoint. An occurrence of
+    s at offset 1 of K may carry a 0x that K does not when K starts with x."""
+    if has_border(s):
+        return False
+    for key in done:
+        if len(key) <= len(s) or s not in key or has_border(key):
+            continue
+        offsets = [o for o in range(len(key) - len(s) + 1) if key.startswith(s, o)]
+        if 1 in offsets and key[0] == 0x78:
+            continue
+        if s not in counts:
+            counts[s] = canon.count(s)
+        if key not in counts:
+            counts[key] = canon.count(key)
+        if counts[s] == len(offsets) * counts[key]:
+            return True
+    return False
+
+
+def cover(canon, keys, edge):
+    """Mark the edges inside every occurrence of keys (folded, longest first)."""
+    done, counts = [], {}
+    for s in keys:
+        size = len(s)
+        skip = subsumed(canon, s, done, counts)
+        done.append(s)
+        if skip:
+            continue
+        j = canon.find(s)
+        while j != -1:
+            mark(edge, canon, j, size)
+            # before any skip: an occurrence at j+1 behind "0x" also covers
+            # edge j, which the skips below do not account for
+            if s[0] == 0x78 and j >= 1 and canon[j - 1] == 0x30 and canon.startswith(s, j + 1):
+                j += 1
+                mark(edge, canon, j, size)
+            # occurrences starting at j+2 or later carry their 0x inside the
+            # covered run; skip the ones whose edges are all covered already
+            gap = edge.find(0, j + 1)
+            if gap > j + size:
+                j = canon.find(s, gap - size + 1)
+                continue
+            # the farthest occurrence overlapping j covers all between them
+            k = canon.rfind(s, j + 1, j + 2 * size - 1)
+            j = k if k != -1 else canon.find(s, j + size)
+
+
+def cover_fallback(text, patterns, edge, canon):
+    for pattern in patterns:
+        m = pattern.search(text)
+        while m:
+            mark(edge, canon, m.start(), m.end() - m.start())
+            m = pattern.search(text, m.start() + 1)
+
+
+RUN = re.compile(rb"\x01+")
+
+
+def replace_covered(data, edge):
+    out, pos, mark_bytes = bytearray(), 0, MARK.encode()
+    for m in RUN.finditer(edge):
+        out += data[pos:m.start() - 1]
+        out += mark_bytes
+        pos = m.end()
+    out += data[pos:]
+    return bytes(out)
+
+
+def prepare_secrets(values):
+    keys, fallback = [], []
+    for value in sorted(values, key=len, reverse=True):
+        folded = canon_key(value)
+        if folded is None:
+            continue
+        if folded == "fallback":
+            fallback.append(re.compile("(?i)" + re.escape(value)))
+        else:
+            keys.append(folded)
+    keys = sorted(set(keys), key=len, reverse=True)
+    # only a secret holding [ or ] can meet a MARK just written
+    bracketed = any("[" in value or "]" in value for value in values)
+    return keys, fallback, bracketed
+
+
+def scrub_known(data, prepared, on_pass=None):
+    keys, fallback, bracketed = prepared
+    while True:
+        canon = data.translate(FOLD)
+        edge = bytearray(len(data) + 1)
+        cover(canon, keys, edge)
+        if fallback:
+            cover_fallback(data.decode("latin-1"), fallback, edge, canon)
+        if 1 not in edge:
+            return data
+        data = replace_covered(data, edge)
+        if on_pass:
+            on_pass()
+        # each pass replaces 16 or more bytes (the shortest secret) with
+        # the 10 of a MARK, so this ends
+        if not bracketed:
+            return data
+# ---- known secrets (end) ----
+
+
+progress = {"phase": "prepare", "file": "", "files_done": 0, "files_verified": 0, "source_bytes": 0,
+            "known_secrets": len(secrets), "passes": 0}
+PREPARED = prepare_secrets(secrets)
+progress["phase"] = "files"
+
+
+def count_pass():
+    progress["passes"] += 1
+
+
+def scrub_line(line):
+    body = line.rstrip("\r\n")
+    if WORD_LINE.match(body):
+        return MARK + line[len(body):]
+    if KEY_WORD.search(line):
+        line = WORD_RUN.sub(MARK, LONG_HEX.sub(MARK, line))
+    return line
+
+
+def scrub(data):
+    known = scrub_known(data, PREPARED, count_pass).decode("latin-1")
+    return "".join(scrub_line(line) for line in known.splitlines(keepends=True)).encode("latin-1")
+
+
+def leftover(written):
+    # a plain substring test per folded secret: shares the folding with the
+    # code above, not its search, skips or replacement
+    keys, fallback, _ = PREPARED
+    folded = written.translate(FOLD)
+    for s in keys:
+        if s in folded:
+            return "known secret"
+    text = written.decode("latin-1")
+    for pattern in fallback:
+        if pattern.search(text):
+            return "known secret"
+    for line in text.splitlines():
+        if WORD_LINE.match(line):
+            return "mnemonic line"
+        if KEY_WORD.search(line) and (LONG_HEX.search(line) or WORD_RUN.search(line)):
+            return "hex value or word run on a key line"
+    return None
+
+
+# the job's own "Record stage results" step appends stage.<id>=<outcome>
+stages = {}
+try:
+    meta = snapshot(METADATA, FILE_LIMIT) or b""
+except Refused as err:
+    fail(f"{METADATA}: {err}")
+for line in meta.decode("latin-1").splitlines():
+    key, sep, value = line.partition("=")
+    if sep and key.startswith("stage."):
+        stages[key[len("stage."):]] = value.strip()
+
+STAGING.mkdir(parents=True)
+manifest = [f"profile={PROFILE}", f"limits.file_bytes={FILE_LIMIT}", f"limits.total_bytes={TOTAL_LIMIT}",
+            f"limits.seconds={TIME_LIMIT:g}"]
+manifest += [f"stage.{key}={value}" for key, value in sorted(stages.items())]
+manifest += [f"key_source.{rel}={state}" for rel, state in sorted(sources.items())]
+problems = []
+total = captured = 0
+for rel, stage, at_start in PROFILES[PROFILE]:
+    outcome = "always" if stage is None else stages.get(stage, "UNKNOWN")
+    ran = stage is None or outcome in ("success", "failure")
+    required = stage is None or (at_start and ran)
+    entry = f"file.{rel}"
+    manifest += [f"{entry}.stage={outcome}", f"{entry}.required={'yes' if required else 'no'}"]
+    try:
+        data = snapshot(rel, min(FILE_LIMIT, TOTAL_LIMIT - total))
+    except Refused as err:
+        manifest += [f"{entry}.status=failed", f"{entry}.reason={err}"]
+        problems.append(f"{rel}: {err}")
+        continue
+    if data is None:
+        reason = "not produced" if ran else "step did not run"
+        manifest += [f"{entry}.status=missing", f"{entry}.reason={reason}",
+                     f"{entry}.evidence={'FAIL' if required else 'UNKNOWN'}"]
+        if required:
+            problems.append(f"{rel}: required but missing")
+        continue
+    total += len(data)
+    progress.update(phase="files", file=rel, source_bytes=total, passes=0)
+    scrubbed = scrub(data)
+    target = STAGING / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(scrubbed)
+    written = target.read_bytes()
+    progress["phase"] = "verify"
+    problem = leftover(written)
+    progress["files_done"] += 1
+    if written != scrubbed or problem:
+        manifest += [f"{entry}.status=failed", f"{entry}.reason=redacted copy did not verify: {problem}"]
+        problems.append(f"{rel}: redacted copy did not verify: {problem}")
+        continue
+    captured += 1
+    progress["files_verified"] += 1
+    manifest += [f"{entry}.status=captured", f"{entry}.redacted={'yes' if written != data else 'no'}",
+                 f"{entry}.bytes={len(written)}", f"{entry}.sha256={hashlib.sha256(written).hexdigest()}"]
+
+manifest += [f"files.captured={captured}", f"files.source_bytes={total}",
+             f"elapsed_seconds={time.monotonic() - START:.1f}"]
+if problems:
+    remove(STAGING)
+    print("\n".join(manifest))
+    fail("; ".join(problems))
+manifest.append("result=success")
+(STAGING / "manifest.txt").write_text("\n".join(manifest) + "\n")
+signal.setitimer(signal.ITIMER_REAL, 0)
+os.rename(STAGING, BUNDLE)
+print("\n".join(manifest))
+print(f"published {captured} redacted file(s) against {len(secrets)} known secret(s) to {BUNDLE}")
+PY
+}
+
+# moca-go-sdk and moca-cmd at their pinned 1.2.x refs require sonic v1.14.0,
+# which does not build with Go 1.26: its internal/rt/stubs.go uses
+# GoMapIterator, which only its pre-1.26 map files define. Pin the sonic
+# release that supports Go 1.26 (the SP module and the chain already select
+# these versions) in each consumer's own module graph, then check what the
+# graph actually selected. Exact versions only, never @latest or -u.
+E2E_SONIC_VERSION="v1.15.1"
+E2E_SONIC_LOADER_VERSION="v0.5.1"
+function pin_go126_deps() {
+  go mod edit \
+    -require="github.com/bytedance/sonic@${E2E_SONIC_VERSION}" \
+    -require="github.com/bytedance/sonic/loader@${E2E_SONIC_LOADER_VERSION}"
+}
+
+# The only modules the pin may move, with the version each must end at ("-":
+# the pin drops it): sonic and loader, the two modules sonic v1.15.1 requires
+# at a higher version, and the three that only sonic v1.14.0 pulled in. Every
+# other module in the graph must keep the version it had before the pin.
+E2E_GO126_ALLOWED_DRIFT="github.com/bytedance/sonic=${E2E_SONIC_VERSION} github.com/bytedance/sonic/loader=${E2E_SONIC_LOADER_VERSION} github.com/bytedance/gopkg=v0.1.3 github.com/cloudwego/base64x=v0.1.6 github.com/cloudwego/iasm=- github.com/knz/go-libedit=- nullprogram.com/x/optparse=-"
+
+# run in the module dir before the pin: print the module graph its current
+# requirements select, resolved through a throwaway copy of go.mod/go.sum so
+# the module's own files are left untouched
+function go126_graph_before() {
+  local tmp rc=0
+
+  tmp=$(mktemp -d)
+  cp go.mod "${tmp}/go.mod"
+  if [ -f go.sum ]; then cp go.sum "${tmp}/go.sum"; fi
+  go list -mod=mod -modfile="${tmp}/go.mod" -m all || rc=$?
+  rm -rf "${tmp}"
+  return "${rc}"
+}
+
+# run in the module dir after go mod tidy; fails when the graph did not
+# select exactly the pinned versions, or when any module outside
+# E2E_GO126_ALLOWED_DRIFT changed against the graph from before the pin
+function check_go126_deps() {
+  local label=$1 before=$2
+  local sonic loader graph drift
+
+  sonic=$(go list -m -f '{{.Version}}' github.com/bytedance/sonic) || return 1
+  loader=$(go list -m -f '{{.Version}}' github.com/bytedance/sonic/loader) || return 1
+  graph=$(go list -m all) || return 1
+  drift=$(E2E_GRAPH_BEFORE="${before}" E2E_GRAPH_AFTER="${graph}" E2E_GO126_ALLOWED_DRIFT="${E2E_GO126_ALLOWED_DRIFT}" python3 -I -c '
+import os
+def graph(name):
+    rows = (line.split() for line in os.environ[name].splitlines())
+    return {row[0]: row[1] if len(row) > 1 else "" for row in rows if row}
+before, after = graph("E2E_GRAPH_BEFORE"), graph("E2E_GRAPH_AFTER")
+allowed = dict(item.split("=", 1) for item in os.environ["E2E_GO126_ALLOWED_DRIFT"].split())
+for path in sorted(set(before) | set(after)):
+    old, new = before.get(path, "-"), after.get(path, "-")
+    if old != new and allowed.get(path) != new:
+        print("%s %s -> %s" % (path, old, new))
+') || return 1
+  record_evidence "${label}.go_version" "$(go env GOVERSION)"
+  record_evidence "${label}.sonic_selected" "${sonic}"
+  record_evidence "${label}.sonic_loader_selected" "${loader}"
+  record_evidence "${label}.module_graph_before_sha256" "$(printf '%s\n' "${before}" | sha256sum | cut -d ' ' -f 1)"
+  record_evidence "${label}.module_graph_sha256" "$(printf '%s\n' "${graph}" | sha256sum | cut -d ' ' -f 1)"
+  # the raw graph names cmd's local go-sdk replace by absolute path, so its
+  # hash changes with the runner's workspace; this one is comparable across
+  # runners (the workspace prefix is written as the literal ${GITHUB_WORKSPACE})
+  local portable=${graph}
+  if [ -n "${workspace}" ]; then
+    # shellcheck disable=SC2016 # the token is written literally
+    portable=${graph//"${workspace}"/'${GITHUB_WORKSPACE}'}
+  fi
+  record_evidence "${label}.module_graph_portable_sha256" "$(printf '%s\n' "${portable}" | sha256sum | cut -d ' ' -f 1)"
+  local ok=1
+  if [ "${sonic}" != "${E2E_SONIC_VERSION}" ] || [ "${loader}" != "${E2E_SONIC_LOADER_VERSION}" ]; then
+    echo "${label}: selected sonic ${sonic} / loader ${loader}, expected ${E2E_SONIC_VERSION} / ${E2E_SONIC_LOADER_VERSION}" >&2
+    ok=0
+  fi
+  if [ -n "${drift}" ]; then
+    echo "${label}: the sonic pin moved modules outside the allowed set:" >&2
+    printf '  %s\n' "${drift}" >&2
+    record_evidence "${label}.go126_unexpected_drift" "$(printf '%s\n' "${drift}" | wc -l)"
+    ok=0
+  fi
+  if [ "${ok}" -ne 1 ]; then
+    record_evidence "${label}.go126_deps_check" "FAIL"
+    return 1
+  fi
+  record_evidence "${label}.go126_deps_check" "PASS"
 }
 
 function prepare_moca_go_sdk() {
   set -e
-  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}"
+  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}" "${MOCA_GO_SDK_EXPECTED_SHA:-}" sdk
 
   SP_REQUEST_HOST="${SP_REQUEST_HOST}" python3 - <<'PY'
 import os
@@ -249,6 +1110,13 @@ if migrate_test.exists():
         migrate_test.write_text(mt)
 PY
 
+  local graph_before
+  graph_before=$(go126_graph_before)
+  pin_go126_deps
+  go mod tidy
+  check_go126_deps sdk "${graph_before}"
+  record_tree_diff sdk "${workspace}/moca-go-sdk"
+  record_go_mod_digest sdk "${workspace}/moca-go-sdk"
   cd "${workspace}"
 }
 
@@ -287,10 +1155,16 @@ function moca_chain() {
   set -e
   # build Moca chain
   echo "${workspace}"
-  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
+  # check every pinned ref before the chain starts; the go-sdk and moca-cmd
+  # checkouts are synced (and checked) again where they are used
+  sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}" "${MOCA_GO_SDK_EXPECTED_SHA:-}" sdk
+  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}" "${MOCA_CMD_EXPECTED_SHA:-}" cmd
+  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}" "${MOCA_EXPECTED_SHA:-}" chain
   cd "${workspace}"/moca/
   make proto-gen &
   make build
+  record_go_mod_digest chain "${workspace}/moca"
+  record_binary chain.mocad "${workspace}/moca/build/mocad"
 
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
@@ -324,6 +1198,7 @@ function moca_sp() {
   cd "${workspace}"
   make install-tools
   make build
+  record_binary sp.moca-sp "${workspace}/build/moca-sp"
   sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
@@ -348,17 +1223,32 @@ function moca_sp() {
 ############################################
 # build Moca cmd and set cmd config  #
 ############################################
+# check out moca-cmd against the prepared local go-sdk and build it
+function prepare_moca_cmd() {
+  set -e
+  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}" "${MOCA_CMD_EXPECTED_SHA:-}" cmd
+  cd "${workspace}"/moca-cmd/
+  go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
+  # the replaced go-sdk already requires the pinned versions; pin them in
+  # cmd's own go.mod too and check cmd's graph, which is the one make builds
+  local graph_before
+  graph_before=$(go126_graph_before)
+  pin_go126_deps
+  go mod tidy
+  check_go126_deps cmd "${graph_before}"
+  record_evidence "cmd.go_sdk_replace" "$(go mod edit -json | jq -r '.Replace[]? | select(.Old.Path == "github.com/mocachain/moca-go-sdk") | .New.Path')"
+  record_tree_diff cmd "${workspace}/moca-cmd"
+  record_go_mod_digest cmd "${workspace}/moca-cmd"
+  make build
+  record_binary cmd.moca-cmd "${workspace}/moca-cmd/build/moca-cmd"
+}
+
 function build_cmd() {
   set -e
   cd "${workspace}"
   prepare_moca_go_sdk
-  # build sp
-  sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
-  cd "${workspace}"/moca-cmd/
-  go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
-  go mod tidy
-  make build
-  cd build/
+  prepare_moca_cmd
+  cd "${workspace}"/moca-cmd/build/
 
   # generate a keystore file to manage private key information
   touch key.txt &
@@ -635,6 +1525,12 @@ function main() {
   --runSDKE2E)
     build_moca-go-sdk
     run_go_sdk_e2e
+    ;;
+  --recordMetadata)
+    record_run_metadata
+    ;;
+  --redactEvidence)
+    redact_evidence "$2"
     ;;
   esac
 }

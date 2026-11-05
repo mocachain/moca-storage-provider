@@ -17,6 +17,13 @@ jobs:
         go-version: [ 1.26.10 ]
         os: [ ubuntu-latest ]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Frozen e2e stack for release/1.4.x. sync_repo_ref fails the job before
+      # anything is built if a checkout does not resolve to these commits.
+      MOCA_TAG: 0ca947f9e753df2e00f6de914dd8893d2978cefa  # mocachain/moca release/v1.4.x (= v1.4.3)
+      MOCA_CMD_TAG: 806a8738ff54f8723456a24b396bedf17812953c  # mocachain/moca-cmd v1.2.0-rc1
+      MOCA_GO_SDK_TAG: 85dae194d6be723f9dc5bf83a1ae3c7ae4e97156  # mocachain/moca-go-sdk v1.2.0-rc1
 
     steps:
       - name: Install Go
@@ -26,10 +33,19 @@ jobs:
       # Checkout Moca-SP
       - name: Checkout Moca-SP
         uses: actions/checkout@v4
+      - name: Record test metadata
+        id: metadata
+        env:
+          E2E_PR_NUMBER: ${{ github.event.pull_request.number }}
+          E2E_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          E2E_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          bash ./test/e2e/spworkflow/e2e_test.sh --recordMetadata
       # Run MySQL
       - name: Run MySQL
+        id: mysql
         run: |
-          sudo /etc/init.d/mysql start
+          sudo systemctl start mysql.service
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -42,42 +58,76 @@ jobs:
         id: generate-private-key
       - name: set private key and account address as job variables
         run: |
-          echo "Private key: ${{ steps.generate-private-key.outputs.private_key }}"
           echo "Account address: ${{ steps.generate-private-key.outputs.account_address }}"
           echo "PRIVATE_KEY=${{ steps.generate-private-key.outputs.private_key }}" >> "$GITHUB_ENV"
           echo "ACCOUNT_ADDR=${{ steps.generate-private-key.outputs.account_address }}" >> "$GITHUB_ENV"
       # Build and Start Moca Blockchain
       - name: Build and Start Moca Blockchain
+        id: start-chain
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --startChain 2>&1 | tee .github/action-logs/sp-e2e-start-chain.log
       # Build and Start Moca SP
       - name: Build and Start Moca SP
+        id: start-sp
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --startSP 2>&1 | tee .github/action-logs/sp-e2e-start-sp.log
       # Build Moca Cmd
       - name: Build Moca Cmd
+        id: build-cmd
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --buildCmd 2>&1 | tee .github/action-logs/sp-e2e-build-cmd.log
       # Use Moca Cmd Running SP E2E Test
       - name: Run Moca SP E2E Test
+        id: run-test
         run: |
           mkdir -p .github/action-logs
           set -o pipefail
           bash ./test/e2e/spworkflow/e2e_test.sh --runTest 2>&1 | tee .github/action-logs/sp-e2e-run-test.log
+      - name: Record stage results
+        if: always()
+        env:
+          STAGE_METADATA: ${{ steps.metadata.outcome }}
+          STAGE_MYSQL: ${{ steps.mysql.outcome }}
+          STAGE_START_CHAIN: ${{ steps.start-chain.outcome }}
+          STAGE_START_SP: ${{ steps.start-sp.outcome }}
+          STAGE_BUILD_CMD: ${{ steps.build-cmd.outcome }}
+          STAGE_RUN_TEST: ${{ steps.run-test.outcome }}
+        run: |
+          mkdir -p .github/action-logs
+          {
+            echo "stage.metadata=${STAGE_METADATA:-UNKNOWN}"
+            echo "stage.mysql=${STAGE_MYSQL:-UNKNOWN}"
+            echo "stage.start-chain=${STAGE_START_CHAIN:-UNKNOWN}"
+            echo "stage.start-sp=${STAGE_START_SP:-UNKNOWN}"
+            echo "stage.build-cmd=${STAGE_BUILD_CMD:-UNKNOWN}"
+            echo "stage.run-test=${STAGE_RUN_TEST:-UNKNOWN}"
+          } >> .github/action-logs/e2e-metadata.txt
+      # copy this job's allowlisted logs into a static bundle and scrub keys
+      # from the copy before anything leaves the runner; when this step
+      # fails, no bundle exists and nothing is uploaded
+      - name: Redact diagnostics
+        id: redact
+        if: always()
+        run: |
+          bash ./test/e2e/spworkflow/e2e_test.sh --redactEvidence sp-e2e
+      # Only the bundle built by the Redact diagnostics step is uploaded. Its
+      # allowlist (profile sp-e2e in e2e_test.sh) is the file list this step
+      # used to name; never add config files, keystores, account directories,
+      # SP data/ or sp.json (they hold test keys).
       - name: Upload SP E2E diagnostics
-        if: failure()
+        if: always() && steps.redact.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: sp-e2e-diagnostics
-          if-no-files-found: ignore
-          path: |
-            .github/action-logs/
-            deployment/localup/local_env/**/log.txt
-            moca/deployment/localup/.local/**/*.log
-            moca/sp.json
+          if-no-files-found: error
+          retention-days: 30
+          # the bundle lives under .github/, which upload-artifact@v4 skips
+          # unless hidden files are enabled
+          include-hidden-files: true
+          path: .github/e2e-diagnostics/
