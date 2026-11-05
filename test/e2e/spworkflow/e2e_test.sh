@@ -12,15 +12,32 @@ workspace=${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must point at the checkout}
 MOCA_TAG="${MOCA_TAG:-main}"
 MOCA_CMD_TAG="${MOCA_CMD_TAG:-main}"
 MOCA_GO_SDK_TAG="${MOCA_GO_SDK_TAG:-main}"
+# mocad is copied out of this image when it can be pulled; an empty value builds it from source
+MOCA_IMAGE="${MOCA_IMAGE-ghcr.io/mocachain/mocad:${MOCA_TAG}}"
+# mocad, moca-sp, moca-cmd and moca-go-sdk-e2e.test found here are used instead of building them,
+# and the build modes write them here
+E2E_BIN_DIR="${E2E_BIN_DIR:-}"
+if [ -n "${E2E_BIN_DIR}" ] && [ "${E2E_BIN_DIR:0:1}" != "/" ]; then
+  E2E_BIN_DIR="${PWD}/${E2E_BIN_DIR}"
+fi
 SDK_E2E_RUN="${SDK_E2E_RUN:-TestBucketMigrateTestSuiteTestSuite}"
 MYSQL_USER="root"
 MYSQL_PASSWORD="root"
 MYSQL_ADDRESS="127.0.0.1:3306"
-TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR:?ACCOUNT_ADDR must be the test account address}
-TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY:?PRIVATE_KEY must be the test account private key}
+case "${1:-}" in
+--buildChain | --buildSP | --buildClients)
+  # the build modes use no test account
+  TEST_ACCOUNT_ADDRESS=""
+  TEST_ACCOUNT_PRIVATE_KEY=""
+  ;;
+*)
+  TEST_ACCOUNT_ADDRESS=${ACCOUNT_ADDR:?ACCOUNT_ADDR must be the test account address}
+  TEST_ACCOUNT_PRIVATE_KEY=${PRIVATE_KEY:?PRIVATE_KEY must be the test account private key}
+  echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
+  echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
+  ;;
+esac
 DEV_ACCOUNT_PRIVATE_KEY="2228e392584d902843272c37fd62b8c73c10c81a5ecb901773c9ebe366e937bb"
-echo "TEST_ACCOUNT_ADDRESS is ""$TEST_ACCOUNT_ADDRESS"
-echo "TEST_ACCOUNT_PRIVATE_KEY is ""$TEST_ACCOUNT_PRIVATE_KEY"
 
 BUCKET_NAME="spbucket"
 SP_REQUEST_HOST="${SP_REQUEST_HOST:-gnfd.test-sp.com}"
@@ -177,7 +194,7 @@ function sync_repo_ref() {
 
   cd "${repo_dir}"
   git fetch --tags --prune origin "${repo_ref}"
-  git checkout -B codex-ci-ref FETCH_HEAD
+  git checkout -f -B codex-ci-ref FETCH_HEAD
 }
 
 function prepare_moca_go_sdk() {
@@ -252,17 +269,67 @@ function normalize_sp_private_keys() {
   mv "${tmp_file}" "${sp_json_file}"
 }
 
+############################################
+# binaries taken from E2E_BIN_DIR or kept there #
+############################################
+# succeeds when E2E_BIN_DIR holds the executable $1
+function prebuilt() {
+  [ -n "${E2E_BIN_DIR}" ] && [ -x "${E2E_BIN_DIR}/$1" ]
+}
+
+# copies the binary $1 to E2E_BIN_DIR as $2
+function keep_binary() {
+  mkdir -p "${E2E_BIN_DIR:?E2E_BIN_DIR must name the directory the build modes write to}"
+  cp "$1" "${E2E_BIN_DIR}/$2"
+}
+
+# copies mocad out of the image $1 to $2: /usr/local/bin/mocad in the main images, /usr/bin/mocad in the release ones
+function copy_mocad_from_image() {
+  local image=$1
+  local dest=$2
+  local cid rc=0
+
+  docker pull -q "${image}" || return 1
+  cid=$(docker create "${image}") || return 1
+  docker cp "${cid}:/usr/local/bin/mocad" "${dest}" 2>/dev/null || docker cp "${cid}:/usr/bin/mocad" "${dest}" || rc=$?
+  docker rm -f "${cid}" >/dev/null || true
+  return "${rc}"
+}
+
+#########################################
+# build Moca blockchain #
+#########################################
+# moca/build/mocad from E2E_BIN_DIR, MOCA_IMAGE or source, with the moca checkout
+# at the commit mocad was built from
+function build_mocad() {
+  set -e
+  local commit
+  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
+  cd "${workspace}"/moca/
+  mkdir -p build
+  if prebuilt mocad; then
+    cp "${E2E_BIN_DIR}/mocad" ./build/mocad
+  elif [ -n "${MOCA_IMAGE}" ] && copy_mocad_from_image "${MOCA_IMAGE}" ./build/mocad; then
+    echo "mocad copied from ${MOCA_IMAGE}"
+  else
+    make build
+  fi
+  commit=$(./build/mocad version --long --output json | jq -r '.commit // empty')
+  if [ -n "${commit}" ] && [ "${commit}" != "$(git rev-parse HEAD)" ]; then
+    git cat-file -e "${commit}^{commit}" 2>/dev/null || git fetch -q origin "${commit}"
+    git checkout -q -B codex-ci-ref "${commit}"
+  fi
+  echo "mocad ${commit:-without a commit}, moca checkout at $(git rev-parse HEAD)"
+}
+
 #########################################
 # build and start Moca blockchain #
 #########################################
 function moca_chain() {
   set -e
-  # build Moca chain
   echo "${workspace}"
-  sync_repo_ref https://github.com/mocachain/moca.git "${workspace}/moca" "${MOCA_TAG}"
+  build_mocad
   cd "${workspace}"/moca/
-  make proto-gen
-  make build
 
   # start Moca chain
   bash ./deployment/localup/localup.sh all 1 "${E2E_SP_NUM}"
@@ -303,16 +370,30 @@ function transfer_account() {
 #################################
 # build and start Moca SP #
 #################################
-function moca_sp() {
+# build/moca-sp from E2E_BIN_DIR or source
+function build_sp() {
   set -e
   cd "${workspace}"
-  make install-tools
-  make build
+  if prebuilt moca-sp; then
+    mkdir -p build
+    cp "${E2E_BIN_DIR}/moca-sp" ./build/moca-sp
+  else
+    make build
+  fi
+}
+
+function moca_sp() {
+  set -e
+  build_sp
+  cd "${workspace}"
   sed -i -e "s/^SP_NUM=.*/SP_NUM=${E2E_SP_NUM}/g" ./deployment/localup/env.info
+  # localup deploys build/moca-sp without building it again
+  export SKIP_SP_BUILD=true
   bash ./deployment/localup/localup.sh generate "${workspace}"/moca/sp.json ${MYSQL_USER} ${MYSQL_PASSWORD} ${MYSQL_ADDRESS}
   bash ./deployment/localup/localup.sh reset
   start_sp_stack
-  sleep 30
+  local -a quota_pids=()
+  local quota_pid quota_failed=0
   for sp_dir in ./deployment/localup/local_env/sp*; do
     if [ ! -d "${sp_dir}" ]; then
       continue
@@ -322,9 +403,17 @@ function moca_sp() {
     sp_bin="${sp_dir}/moca-${sp_name}"
     sp_config="${sp_dir}/config.toml"
     if [ -x "${sp_bin}" ] && [ -f "${sp_config}" ]; then
-      update_sp_quota "${sp_name}" "${sp_bin}" "${sp_config}"
+      update_sp_quota "${sp_name}" "${sp_bin}" "${sp_config}" &
+      quota_pids+=("$!")
     fi
   done
+  for quota_pid in "${quota_pids[@]}"; do
+    wait "${quota_pid}" || quota_failed=1
+  done
+  if [ "${quota_failed}" -ne 0 ]; then
+    echo "the quota update of a storage provider failed"
+    exit 1
+  fi
   dump_sp_logs
   ps -ef | grep moca-sp | wc -l
 }
@@ -332,17 +421,55 @@ function moca_sp() {
 ############################################
 # build Moca cmd and set cmd config  #
 ############################################
-function build_cmd() {
+# moca-cmd/build/moca-cmd from E2E_BIN_DIR or source, built against the patched moca-go-sdk
+function build_moca_cmd_binary() {
   set -e
+  if prebuilt moca-cmd; then
+    mkdir -p "${workspace}"/moca-cmd/build
+    cp "${E2E_BIN_DIR}/moca-cmd" "${workspace}"/moca-cmd/build/moca-cmd
+    return 0
+  fi
   cd "${workspace}"
   prepare_moca_go_sdk
-  # build sp
   sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
   cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
+  # moca-cmd also takes the moca-common replace of moca-go-sdk
+  local common
+  common=$(cd "${workspace}"/moca-go-sdk && go mod edit -json |
+    jq -r '.Replace[]? | select(.Old.Path == "github.com/mocachain/moca-common/go") | .New.Path + (if .New.Version then "@" + .New.Version else "" end)')
+  if [ -n "${common}" ]; then
+    go mod edit -replace "github.com/mocachain/moca-common/go=${common}"
+  fi
   go mod tidy
   make build
-  cd build/
+}
+
+# the moca-go-sdk e2e test binary $1, built from the patched moca-go-sdk
+function build_go_sdk_e2e_binary() {
+  set -e
+  prepare_moca_go_sdk
+  cd "${workspace}"/moca-go-sdk/
+  go test -c -o "$1" ./e2e
+}
+
+# moca-cmd and the moca-go-sdk e2e test binary in E2E_BIN_DIR
+function build_clients() {
+  set -e
+  if ! prebuilt moca-cmd; then
+    build_moca_cmd_binary
+    keep_binary "${workspace}"/moca-cmd/build/moca-cmd moca-cmd
+  fi
+  if ! prebuilt moca-go-sdk-e2e.test; then
+    mkdir -p "${E2E_BIN_DIR:?E2E_BIN_DIR must name the directory the build modes write to}"
+    build_go_sdk_e2e_binary "${E2E_BIN_DIR}/moca-go-sdk-e2e.test"
+  fi
+}
+
+function build_cmd() {
+  set -e
+  build_moca_cmd_binary
+  cd "${workspace}"/moca-cmd/build/
 
   # generate a keystore file to manage private key information
   touch key.txt &
@@ -1260,7 +1387,7 @@ function test_delegated_object() {
 #######################
 # run sp workflow e2e #
 #######################
-function run_e2e() {
+function run_storage_e2e() {
   set -e
   echo 'run test_create_bucket'
   test_create_bucket
@@ -1270,6 +1397,11 @@ function run_e2e() {
   test_file_size_greater_than_16_mb
   echo 'run list buckets and objects through the SP metadata service'
   test_list_via_metadata
+}
+
+function run_e2e() {
+  set -e
+  run_storage_e2e
   echo 'run storage fee reclaim lifecycle'
   test_storage_fee_reclaim
   echo 'run delegated object put and update'
@@ -1314,15 +1446,22 @@ function run_go_sdk_e2e() {
   set +e
   local log="${workspace}/.github/action-logs/go-sdk-e2e-go-test.log"
   local rc
+  local -a test_cmd
 
-  cd "${workspace}"/moca-go-sdk/
+  if prebuilt moca-go-sdk-e2e.test; then
+    cd "${workspace}"
+    test_cmd=("${E2E_BIN_DIR}/moca-go-sdk-e2e.test" -test.count=1 -test.timeout=30m -test.v -test.run "${SDK_E2E_RUN}")
+  else
+    cd "${workspace}"/moca-go-sdk/
+    test_cmd=(go test -count=1 -timeout 30m -v ./e2e -run "${SDK_E2E_RUN}")
+  fi
   echo 'run moca go sdk e2e test'
   export MOCA_E2E_ENDPOINT="http://localhost:26657"
   export MOCA_E2E_EVM_ENDPOINT="http://localhost:8545"
   export MOCA_E2E_CHAIN_ID="moca_5151-1"
   export MOCA_E2E_LOCALUP_DIR="${workspace}/moca/deployment/localup/.local"
   mkdir -p "$(dirname "${log}")"
-  go test -count=1 -timeout 30m -v ./e2e -run "${SDK_E2E_RUN}" 2>&1 | tee "${log}"
+  "${test_cmd[@]}" 2>&1 | tee "${log}"
   rc=${PIPESTATUS[0]}
   if [ "${rc}" -ne 0 ]; then
     dump_sp_logs
@@ -1338,6 +1477,17 @@ function run_go_sdk_e2e() {
 function main() {
   CMD=${1:-}
   case ${CMD} in
+  --buildChain)
+    build_mocad
+    keep_binary "${workspace}"/moca/build/mocad mocad
+    ;;
+  --buildSP)
+    build_sp
+    keep_binary "${workspace}"/build/moca-sp moca-sp
+    ;;
+  --buildClients)
+    build_clients
+    ;;
   --startChain)
     moca_chain
     ;;
@@ -1350,6 +1500,9 @@ function main() {
   --runTest)
     run_e2e
     ;;
+  --runStorage)
+    run_storage_e2e
+    ;;
   --runFeeReclaim)
     test_storage_fee_reclaim
     ;;
@@ -1360,7 +1513,9 @@ function main() {
     run_sp_exit_e2e
     ;;
   --runSDKE2E)
-    build_moca-go-sdk
+    if ! prebuilt moca-go-sdk-e2e.test; then
+      build_moca-go-sdk
+    fi
     run_go_sdk_e2e
     ;;
   *)
