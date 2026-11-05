@@ -16,13 +16,13 @@ jobs:
   p2p-test:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
           go-version: 1.26.10
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Run P2P coverage gate
         run: make check-p2p-coverage
