@@ -373,3 +373,6 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
+
+// Superseded by v1.5.0-rc0.
+retract [v1.3.0-rc0, v1.3.0-rc1]
