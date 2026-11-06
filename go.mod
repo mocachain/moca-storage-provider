@@ -30,7 +30,7 @@ require (
 	github.com/lib/pq v1.12.0
 	github.com/libp2p/go-libp2p v0.33.0
 	github.com/mocachain/moca-common/go v1.3.0-rc1
-	github.com/mocachain/moca/v2 v2.0.0-rc1
+	github.com/mocachain/moca/v2 v2.0.0-rc3
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pkg/sftp v1.13.6
@@ -75,7 +75,7 @@ require (
 	github.com/cockroachdb/redact v1.1.6 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/cosmos/cosmos-db v1.1.3 // indirect
-	github.com/cosmos/evm v0.6.3 // indirect
+	github.com/cosmos/evm v0.6.4 // indirect
 	github.com/cosmos/ibc-go/v10 v10.3.1-0.20250909102629-ed3b125c7b6f // indirect
 	github.com/cosmos/ics23/go v0.11.0 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
@@ -351,17 +351,18 @@ replace (
 	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.4.0-rc0.0.20261029124406-176ec71f8cf4
 	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0.0.20261029124406-176ec71f8cf4
 	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
-	// use cosmos fork of keyring, matching mocachain/moca v2.0.0-rc1
+	// use cosmos fork of keyring, matching mocachain/moca v2.0.0-rc3
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.3.0-rc1
 	github.com/confio/ics23/go => github.com/cosmos/ics23/go v0.10.0
 	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.4.0-rc1
-	// cosmos/evm v0.6.3 plus the snapshotmulti CacheMultiStore branch fix (mocachain/cosmos-evm#1),
-	// matching mocachain/moca v2.0.0-rc1; drop once upstream releases it
-	github.com/cosmos/evm => github.com/mocachain/cosmos-evm v0.6.3-moca.0
-	// use Cosmos geth fork, matching mocachain/moca v2.0.0-rc1
+	// cosmos/evm v0.6.4 plus the snapshotmulti CacheMultiStore branch fix (mocachain/cosmos-evm#2) and the gas
+	// charge for a failed precompile action (mocachain/cosmos-evm#3, #4), matching mocachain/moca v2.0.0-rc3;
+	// drop once upstream releases them
+	github.com/cosmos/evm => github.com/mocachain/cosmos-evm v0.6.4-moca.2
+	// use Cosmos geth fork, matching mocachain/moca v2.0.0-rc3
 	github.com/ethereum/go-ethereum => github.com/cosmos/go-ethereum v1.16.2-cosmos-1
 	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc2
 	// Security Advisory https://github.com/advisories/GHSA-h395-qcrw-5vmq
@@ -373,3 +374,6 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
 )
+
+// Superseded by v1.5.0-rc0.
+retract [v1.3.0-rc0, v1.3.0-rc1]

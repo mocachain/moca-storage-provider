@@ -907,8 +907,8 @@ github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyua
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/mitchellh/pointerstructure v1.2.0 h1:O+i9nHnXS3l/9Wu7r4NrEdwA2VFTicjUEN1uBnDo34A=
 github.com/mitchellh/pointerstructure v1.2.0/go.mod h1:BRAsLI5zgXmw97Lf6s25bs8ohIXc3tViBH44KcwB2g4=
-github.com/mocachain/cosmos-evm v0.6.3-moca.0 h1:Vs9EtZrWPAxcUEk1rnjtISmmXSCVc4a44pmDgNYZs5Y=
-github.com/mocachain/cosmos-evm v0.6.3-moca.0/go.mod h1:QnaJDtxqon2mywiYqxM8VwW8FKeFazi0au0qzVpFAG8=
+github.com/mocachain/cosmos-evm v0.6.4-moca.2 h1:hDJJeE20ZvKScFi1aSMz7Y0mp/XlrMJadP9apK6Ofj8=
+github.com/mocachain/cosmos-evm v0.6.4-moca.2/go.mod h1:QnaJDtxqon2mywiYqxM8VwW8FKeFazi0au0qzVpFAG8=
 github.com/mocachain/moca-cometbft v1.3.0-rc1 h1:6xSRlLiH2f425p48uoL4h5szQLGK18taHy2nC1D10SU=
 github.com/mocachain/moca-cometbft v1.3.0-rc1/go.mod h1:SKfrdeoojPLDk+rRyBtyRpaCW8jjHK3R6YMtgq7PJdc=
 github.com/mocachain/moca-common/go v1.3.0-rc1 h1:aWXcrn1VLNRVlLZ9mmpzuYarG/SnSCQ6L6kO/BUeBVQ=
@@ -935,8 +935,8 @@ github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0.0.20261029124406-176ec71f8c
 github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0.0.20261029124406-176ec71f8cf4/go.mod h1:br6Za5a0wln9liahVkSOwDrlPlrH8sAOw7O+YhQxRSk=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc2 h1:bkn0TpDecncfSU+n4IXq+tqvspfcm6sdiJ1DfN2sUpc=
 github.com/mocachain/moca-juno/v4 v4.2.0-rc2/go.mod h1:brFV4gAosGqrhzZG8Ae2vRtcejOuEoFllqpmB8/avBY=
-github.com/mocachain/moca/v2 v2.0.0-rc1 h1:r452257BiEGgSxe6zOdWnupUqh0tx+qyz1ZvwlXn1Z8=
-github.com/mocachain/moca/v2 v2.0.0-rc1/go.mod h1:dCKOkRBuCAF8PIYauxY9zAJkILPirIcZK9qiAWKd1aU=
+github.com/mocachain/moca/v2 v2.0.0-rc3 h1:lWyJEKr/kqEt1ZyZAi/eQY2W+w1oSApoJjIZaFCFxrw=
+github.com/mocachain/moca/v2 v2.0.0-rc3/go.mod h1:8vBheijg4cpHhlleMAihkn+xWoc8Y79G/Kc31f5aj6c=
 github.com/mocachain/polygon-edge v1.3.3-moca.1 h1:YtHnpIxMOUkCFp6Z+BHt8wCb+35+HpCVMZ/dFUylzBs=
 github.com/mocachain/polygon-edge v1.3.3-moca.1/go.mod h1:bDvHrg7QQKSx31K588TEWgHICl5dCPkotffzK9CE6IE=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
