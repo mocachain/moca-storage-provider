@@ -1293,8 +1293,8 @@ github.com/tyler-smith/go-bip39 v1.1.0 h1:5eUemwrMargf3BSLRRCalXT93Ns6pQJIjYQN2n
 github.com/tyler-smith/go-bip39 v1.1.0/go.mod h1:gUYDtqQw1JS3ZJ8UWVcGTGqqr6YIN3CWg+kkNaLt55U=
 github.com/ulikunitz/xz v0.5.15 h1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=
 github.com/ulikunitz/xz v0.5.15/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
-github.com/ulule/limiter/v3 v3.11.1 h1:wm6YaA2JwIXc0S+z8TK8/neWMOTf4m20I5jL1dwLRcw=
-github.com/ulule/limiter/v3 v3.11.1/go.mod h1:4nk/9RHEJthkjD+mmkqYxaPfD4pkB91PTH7k8ozB80g=
+github.com/ulule/limiter/v3 v3.11.2 h1:P4yOrxoEMJbOTfRJR2OzjL90oflzYPPmWg+dvwN2tHA=
+github.com/ulule/limiter/v3 v3.11.2/go.mod h1:QG5GnFOCV+k7lrL5Y8kgEeeflPH3+Cviqlqa8SVSQxI=
 github.com/umbracle/ethgo v0.1.4-0.20231006072852-6b068360fc97 h1:BAVsVHkgvBlQcE+/vUG58w/p7vAhgYaY/yUo4eHTfc8=
 github.com/umbracle/ethgo v0.1.4-0.20231006072852-6b068360fc97/go.mod h1:J+OZNfRCtbaYW3AEc0m47GhwAzlNJjcr9vO86nzOr6E=
 github.com/umbracle/fastrlp v0.1.1-0.20230504065717-58a1b8a9929d h1:HAg1Kpr9buwRxEiC2UXU9oT2AU8uCU7o3/WTH+Lt5wo=
