@@ -38,7 +38,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.11.1
-	github.com/ulule/limiter/v3 v3.11.1
+	github.com/ulule/limiter/v3 v3.11.2
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/viki-org/dnscache v0.0.0-20130720023526-c70c1f23c5d8
 	go.opentelemetry.io/otel/trace v1.45.0
