@@ -22,15 +22,15 @@ require (
 	github.com/forbole/juno/v4 v4.2.0-rc0.0.20260320043135-b1f1e6fd4e65
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gorilla/mux v1.8.1
-	github.com/grpc-ecosystem/go-grpc-middleware/providers/openmetrics/v2 v2.0.0-rc.3
+	github.com/grpc-ecosystem/go-grpc-middleware/providers/openmetrics/v2 v2.0.0-20220913044829-782d4b3284fe
 	github.com/hashicorp/golang-lru v1.0.2
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-ds-leveldb v0.5.0
 	github.com/json-iterator/go v1.1.12
 	github.com/lib/pq v1.12.0
 	github.com/libp2p/go-libp2p v0.33.0
-	github.com/mocachain/moca-common/go v1.3.0-rc1
-	github.com/mocachain/moca/v2 v2.0.0-rc3
+	github.com/mocachain/moca-common/go v1.3.0-rc0.0.20261105073704-74a045be8483
+	github.com/mocachain/moca/v2 v2.0.0-rc2.0.20261106134621-9bbd4786dcfd
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pkg/sftp v1.13.6
@@ -317,7 +317,7 @@ require (
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.uber.org/dig v1.17.1 // indirect
 	go.uber.org/fx v1.20.1 // indirect
-	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/mod v0.41.0
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
@@ -350,26 +350,27 @@ replace (
 	cosmossdk.io/x/feegrant => github.com/mocachain/moca-cosmos-sdk/x/feegrant v1.4.0-rc0.0.20261029124406-176ec71f8cf4
 	cosmossdk.io/x/nft => github.com/mocachain/moca-cosmos-sdk/x/nft v1.4.0-rc0.0.20261029124406-176ec71f8cf4
 	cosmossdk.io/x/tx => github.com/mocachain/moca-cosmos-sdk/x/tx v1.4.0-rc0.0.20261029124406-176ec71f8cf4
-	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v1.3.3-moca.1
+	github.com/0xPolygon/polygon-edge v1.3.3 => github.com/mocachain/polygon-edge v0.0.0-20240909101200-6bec9fa64975
 	// use cosmos fork of keyring, matching mocachain/moca v2.0.0-rc3
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.2.0
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.1
 	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.4
-	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.3.0-rc1
+	github.com/cometbft/cometbft => github.com/mocachain/moca-cometbft v1.2.0-rc1.0.20261029072347-5bcd60f0aea5
 	github.com/confio/ics23/go => github.com/cosmos/ics23/go v0.10.0
-	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.4.0-rc1
+	github.com/cosmos/cosmos-proto => github.com/cosmos/cosmos-proto v1.0.0-beta.4.0.20240418101419-0748a2ad4a5c
+	github.com/cosmos/cosmos-sdk => github.com/mocachain/moca-cosmos-sdk v1.4.0-rc0.0.20261029124406-176ec71f8cf4
 	// cosmos/evm v0.6.4 plus the snapshotmulti CacheMultiStore branch fix (mocachain/cosmos-evm#2) and the gas
 	// charge for a failed precompile action (mocachain/cosmos-evm#3, #4), matching mocachain/moca v2.0.0-rc3;
 	// drop once upstream releases them
-	github.com/cosmos/evm => github.com/mocachain/cosmos-evm v0.6.4-moca.2
+	github.com/cosmos/evm => github.com/mocachain/cosmos-evm v0.6.4-moca.1.0.20261106131451-2157a8d670fd
 	// use Cosmos geth fork, matching mocachain/moca v2.0.0-rc3
-	github.com/ethereum/go-ethereum => github.com/cosmos/go-ethereum v1.16.2-cosmos-1
-	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc2
+	github.com/ethereum/go-ethereum => github.com/cosmos/go-ethereum v0.0.0-20250820152315-9a3ffad54df1
+	github.com/forbole/juno/v4 => github.com/mocachain/moca-juno/v4 v4.2.0-rc1.0.20261104114722-31ec90965d72
 	// Security Advisory https://github.com/advisories/GHSA-h395-qcrw-5vmq
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.9.1
-	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
+	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.2-alpha.regen.4.0.20210115161208-8a70ddfdaf94
 	github.com/lyft/protoc-gen-validate => github.com/bufbuild/protoc-gen-validate v0.0.13
-	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.3.0-rc0
+	github.com/mocachain/moca-go-sdk => github.com/mocachain/moca-go-sdk v1.2.0-rc1.0.20260722170405-40d6d25d224a
 	github.com/quic-go/quic-go => github.com/quic-go/quic-go v0.41.0
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	nhooyr.io/websocket => nhooyr.io/websocket v1.8.17
