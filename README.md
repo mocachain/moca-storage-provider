@@ -20,13 +20,13 @@ When users want to write an object into Moca, they or the client software they u
 
 ## Quick Started
 
-*Note*: Requires [Go 1.26.10+](https://go.dev/dl/)
+*Note*: Requires [Go 1.26.11+](https://go.dev/dl/)
 
 ## Compile SP
 
 Compilation dependencies:
 
-- [Golang](https://go.dev/dl): SP is written in Golang, you need to install it. Golang version requires `1.26.10+`.
+- [Golang](https://go.dev/dl): SP is written in Golang, you need to install it. Golang version requires `1.26.11+`.
 - [Buf](https://buf.build/docs/installation/): A new way of working with Protocol Buffers. SP uses Buf to manage proto files.
 - [protoc-gen-gocosmos](https://github.com/cosmos/gogoproto): Protocol Buffers for Go with Gadgets. SP uses this protobuf compiler to generate pb.go files.
 - [mockgen](https://github.com/uber-go/mock): A mocking framework for the Go programming language that is used in unit test.

@@ -301,6 +301,7 @@ stop-dc:
 ###############################################################################
 
 PACKAGE_NAME:=github.com/mocachain/moca-storage-provider
+# Release builds pin the Go compiler with GOTOOLCHAIN in the docker run targets below.
 GOLANG_CROSS_VERSION  = v1.26.10
 GOPATH ?= $(HOME)/go
 release-dry-run:
@@ -308,6 +309,7 @@ release-dry-run:
 		--rm \
 		--privileged \
 		-e CGO_ENABLED=1 \
+		-e GOTOOLCHAIN=go1.26.11 \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v `pwd`:/go/src/$(PACKAGE_NAME) \
 		-v ${GOPATH}/pkg:/go/pkg \
@@ -324,6 +326,7 @@ release:
 		--rm \
 		--privileged \
 		-e CGO_ENABLED=1 \
+		-e GOTOOLCHAIN=go1.26.11 \
 		--env-file .release-env \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v `pwd`:/go/src/$(PACKAGE_NAME) \
