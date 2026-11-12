@@ -8,6 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/mocachain/moca-storage-provider/base/types/gfspp2p"
 	"github.com/mocachain/moca-storage-provider/base/types/gfspserver"
@@ -215,25 +217,6 @@ func TestGfSpBaseApp_GfSpSignSuccess11(t *testing.T) {
 	assert.Equal(t, mockSig, result.GetSignature())
 }
 
-func TestGfSpBaseApp_GfSpSignSuccess12(t *testing.T) {
-	t.Log("Success case description: sign create global virtual group")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
-		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
-			VirtualGroupFamilyId: 1,
-			Deposit:              &coin,
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
 func TestGfSpBaseApp_GfSpSignSuccess13(t *testing.T) {
 	t.Log("Success case description: sign recover piece task")
 	g := setup(t)
@@ -266,23 +249,6 @@ func TestGfSpBaseApp_GfSpSignSuccess14(t *testing.T) {
 	assert.Equal(t, mockSig, result.GetSignature())
 }
 
-func TestGfSpBaseApp_GfSpSignSuccess15(t *testing.T) {
-	t.Log("Success case description: sign complete migrate bucket")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
-		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
-			BucketName: "mockBucketName",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
 func TestGfSpBaseApp_GfSpSignSuccess16(t *testing.T) {
 	t.Log("Success case description: sign secondary sp bls migration bucket")
 	g := setup(t)
@@ -298,108 +264,6 @@ func TestGfSpBaseApp_GfSpSignSuccess16(t *testing.T) {
 	result, err := g.GfSpSign(context.TODO(), req)
 	assert.Nil(t, err)
 	assert.Equal(t, mockSig, result.GetSignature())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess17(t *testing.T) {
-	t.Log("Success case description: sign swap out")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
-		SwapOut: &virtual_types.MsgSwapOut{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess18(t *testing.T) {
-	t.Log("Success case description: sign swap out approval")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SignSwapOut(gomock.Any(), gomock.Any()).Return(mockSig, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SignSwapOut{
-		SignSwapOut: &virtual_types.MsgSwapOut{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockSig, result.GetSignature())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess19(t *testing.T) {
-	t.Log("Success case description: sign complete swap out")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteSwapOutEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapOut{
-		CompleteSwapOut: &virtual_types.MsgCompleteSwapOut{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess20(t *testing.T) {
-	t.Log("Success case description: sign sp exit")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
-		SpExit: &virtual_types.MsgStorageProviderExit{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess21(t *testing.T) {
-	t.Log("Success case description: sign complete sp exit")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
-		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
-}
-
-func TestGfSpBaseApp_GfSpSignSuccess22(t *testing.T) {
-	t.Log("Success case description: sign update sp price")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return(mockTxHash, nil).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
-		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
-			SpAddress: "mockSpAddress",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockTxHash, result.GetTxHash())
 }
 
 func TestGfSpBaseApp_GfSpSignFailure1(t *testing.T) {
@@ -602,25 +466,6 @@ func TestGfSpBaseApp_GfSpSignFailure12(t *testing.T) {
 	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
 }
 
-func TestGfSpBaseApp_GfSpSignFailure13(t *testing.T) {
-	t.Log("Failure case description: failed to sign create global virtual group")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CreateGlobalVirtualGroupEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	coin := sdk.NewCoin("mock", sdkmath.NewInt(1))
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
-		CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
-			VirtualGroupFamilyId: 1,
-			Deposit:              &coin,
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
-
 func TestGfSpBaseApp_GfSpSignFailure14(t *testing.T) {
 	t.Log("Failure case description: failed to sign recover piece")
 	g := setup(t)
@@ -653,23 +498,6 @@ func TestGfSpBaseApp_GfSpSignFailure15(t *testing.T) {
 	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
 }
 
-func TestGfSpBaseApp_GfSpSignFailure16(t *testing.T) {
-	t.Log("Failure case description: failed to sign complete migrate bucket")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteMigrateBucketEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
-		CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
-			BucketName: "mockBucketName",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
-
 func TestGfSpBaseApp_GfSpSignFailure17(t *testing.T) {
 	t.Log("Failure case description: failed to sign secondary sp bls migration bucket")
 	g := setup(t)
@@ -687,104 +515,133 @@ func TestGfSpBaseApp_GfSpSignFailure17(t *testing.T) {
 	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
 }
 
-func TestGfSpBaseApp_GfSpSignFailure18(t *testing.T) {
-	t.Log("Failure case description: failed to sign swap out")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SwapOutEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
-		SwapOut: &virtual_types.MsgSwapOut{
-			StorageProvider: "mockSP",
+func TestGfSpBaseApp_GfSpSignRejectsRequestsWithoutContentAuthorization(t *testing.T) {
+	deposit := sdk.NewCoin("amoca", sdkmath.NewInt(1))
+	tests := []struct {
+		name    string
+		request *gfspserver.GfSpSignRequest
+	}{
+		{
+			name: "create global virtual group with deposit and members",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup{
+				CreateGlobalVirtualGroup: &gfspserver.GfSpCreateGlobalVirtualGroup{
+					VirtualGroupFamilyId: 1,
+					SecondarySpIds:       []uint32{2, 3},
+					Deposit:              &deposit,
+				},
+			}},
 		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
+		{
+			name: "complete bucket migration with target GVG membership",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteMigrateBucket{
+				CompleteMigrateBucket: &storagetypes.MsgCompleteMigrateBucket{
+					GlobalVirtualGroupFamilyId: 1,
+					GvgMappings: []*storagetypes.GVGMapping{{
+						SrcGlobalVirtualGroupId: 2,
+						DstGlobalVirtualGroupId: 3,
+					}},
+				},
+			}},
+		},
+		{
+			name: "swap out with successor target",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SwapOut{
+				SwapOut: &virtual_types.MsgSwapOut{SuccessorSpId: 2, GlobalVirtualGroupIds: []uint32{3}},
+			}},
+		},
+		{
+			name: "sign swap out approval with successor target",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SignSwapOut{
+				SignSwapOut: &virtual_types.MsgSwapOut{SuccessorSpId: 2, GlobalVirtualGroupIds: []uint32{3}},
+			}},
+		},
+		{
+			name: "complete swap out state",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapOut{
+				CompleteSwapOut: &virtual_types.MsgCompleteSwapOut{GlobalVirtualGroupIds: []uint32{1}},
+			}},
+		},
+		{
+			name: "start storage provider exit",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
+				SpExit: &virtual_types.MsgStorageProviderExit{StorageProvider: "operator"},
+			}},
+		},
+		{
+			name: "complete storage provider exit for target",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
+				CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{StorageProvider: "target"},
+			}},
+		},
+		{
+			name: "update storage prices",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
+				SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
+					ReadPrice:  sdkmath.LegacyNewDec(1),
+					StorePrice: sdkmath.LegacyNewDec(2),
+				},
+			}},
+		},
+		{
+			name: "reject target bucket migration",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_RejectMigrateBucket{
+				RejectMigrateBucket: &storagetypes.MsgRejectMigrateBucket{BucketName: "target-bucket"},
+			}},
+		},
+		{
+			name: "reserve swap in for target SP",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_ReserveSwapIn{
+				ReserveSwapIn: &virtual_types.MsgReserveSwapIn{TargetSpId: 2, GlobalVirtualGroupId: 3},
+			}},
+		},
+		{
+			name: "complete swap in state",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapIn{
+				CompleteSwapIn: &virtual_types.MsgCompleteSwapIn{GlobalVirtualGroupId: 3},
+			}},
+		},
+		{
+			name: "cancel swap in state",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CancelSwapIn{
+				CancelSwapIn: &virtual_types.MsgCancelSwapIn{GlobalVirtualGroupId: 3},
+			}},
+		},
+		{
+			name: "deposit caller controlled amount",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_Deposit{
+				Deposit: &virtual_types.MsgDeposit{GlobalVirtualGroupId: 1, Deposit: deposit},
+			}},
+		},
+		{
+			name: "delete target global virtual group",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DeleteGlobalVirtualGroup{
+				DeleteGlobalVirtualGroup: &virtual_types.MsgDeleteGlobalVirtualGroup{GlobalVirtualGroupId: 1},
+			}},
+		},
+		{
+			name: "delegate object creation to recipient",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DelegateCreateObject{
+				DelegateCreateObject: &storagetypes.MsgDelegateCreateObject{Creator: "recipient"},
+			}},
+		},
+		{
+			name: "delegate object update to recipient",
+			request: &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_DelegateUpdateObjectContent{
+				DelegateUpdateObjectContent: &storagetypes.MsgDelegateUpdateObjectContent{Updater: "recipient"},
+			}},
+		},
+	}
 
-func TestGfSpBaseApp_GfSpSignFailure19(t *testing.T) {
-	t.Log("Failure case description: failed to sign swap out approval")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SignSwapOut(gomock.Any(), gomock.Any()).Return(nil, mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SignSwapOut{
-		SignSwapOut: &virtual_types.MsgSwapOut{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			g := setup(t)
+			g.SetOperatorAddress(sdk.AccAddress(make([]byte, 20)).String())
+			g.signer = module.NewMockSigner(gomock.NewController(t))
 
-func TestGfSpBaseApp_GfSpSignFailure20(t *testing.T) {
-	t.Log("Failure case description: failed to sign complete swap out")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteSwapOutEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSwapOut{
-		CompleteSwapOut: &virtual_types.MsgCompleteSwapOut{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
+			resp, err := g.GfSpSign(context.Background(), test.request)
 
-func TestGfSpBaseApp_GfSpSignFailure21(t *testing.T) {
-	t.Log("Failure case description: failed to sign sp exit")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().SPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpExit{
-		SpExit: &virtual_types.MsgStorageProviderExit{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
-
-func TestGfSpBaseApp_GfSpSignFailure22(t *testing.T) {
-	t.Log("Failure case description: failed to sign complete sp exit")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().CompleteSPExitEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_CompleteSpExit{
-		CompleteSpExit: &virtual_types.MsgCompleteStorageProviderExit{
-			StorageProvider: "mockSP",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
-}
-
-func TestGfSpBaseApp_GfSpSignFailure23(t *testing.T) {
-	t.Log("Failure case description: failed to sign update sp price")
-	g := setup(t)
-	ctrl := gomock.NewController(t)
-	m := module.NewMockSigner(ctrl)
-	g.signer = m
-	m.EXPECT().UpdateSPPriceEvm(gomock.Any(), gomock.Any()).Return("", mockErr).Times(1)
-	req := &gfspserver.GfSpSignRequest{Request: &gfspserver.GfSpSignRequest_SpStoragePrice{
-		SpStoragePrice: &sptypes.MsgUpdateSpStoragePrice{
-			SpAddress: "mockSpAddress",
-		},
-	}}
-	result, err := g.GfSpSign(context.TODO(), req)
-	assert.Nil(t, err)
-	assert.Equal(t, mockErr.Error(), result.GetErr().GetDescription())
+			assert.Nil(t, resp)
+			assert.Equal(t, codes.PermissionDenied, status.Code(err))
+		})
+	}
 }
