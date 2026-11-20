@@ -142,6 +142,17 @@ function sync_repo_ref() {
   git checkout -B codex-ci-ref FETCH_HEAD
 }
 
+# moca-go-sdk and moca-cmd at their pinned 1.2.x tags require sonic v1.14.0,
+# which does not compile on Go 1.26 (the CI toolchain since #205). Raise both
+# checkouts to the sonic release the SP module itself already uses.
+SONIC_VERSION="v1.15.1"
+SONIC_LOADER_VERSION="v0.5.1"
+function pin_sonic() {
+  go mod edit \
+    -require="github.com/bytedance/sonic@${SONIC_VERSION}" \
+    -require="github.com/bytedance/sonic/loader@${SONIC_LOADER_VERSION}"
+}
+
 function prepare_moca_go_sdk() {
   set -e
   sync_repo_ref https://github.com/mocachain/moca-go-sdk.git "${workspace}/moca-go-sdk" "${MOCA_GO_SDK_TAG}"
@@ -249,6 +260,9 @@ if migrate_test.exists():
         migrate_test.write_text(mt)
 PY
 
+  pin_sonic
+  go mod tidy
+  go list -m github.com/bytedance/sonic github.com/bytedance/sonic/loader
   cd "${workspace}"
 }
 
@@ -356,7 +370,9 @@ function build_cmd() {
   sync_repo_ref https://github.com/mocachain/moca-cmd.git "${workspace}/moca-cmd" "${MOCA_CMD_TAG}"
   cd "${workspace}"/moca-cmd/
   go mod edit -replace github.com/mocachain/moca-go-sdk="${workspace}/moca-go-sdk"
+  pin_sonic
   go mod tidy
+  go list -m github.com/bytedance/sonic github.com/bytedance/sonic/loader
   make build
   cd build/
 
