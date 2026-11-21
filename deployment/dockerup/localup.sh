@@ -264,8 +264,8 @@ function reset_sql_db() {
     source db.info
     hostname=$(echo "${ADDRESS}" | cut -d : -f 1)
     port=$(echo "${ADDRESS}" | cut -d : -f 2)
-    mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "drop database if exists ${DATABASE}"
-    mysql -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "create database ${DATABASE}"
+    mysql --skip-ssl-verify-server-cert -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "drop database if exists ${DATABASE}"
+    mysql --skip-ssl-verify-server-cert -u "${USER}" -h "${hostname}" -P "${port}" -p"${PWD}" -e "create database ${DATABASE}"
     echo "succeed to reset sql db in ""${sp_dir}"
     cd - >/dev/null || exit
   done
@@ -312,13 +312,13 @@ function reset_sp() {
 function main() {
   CMD=$1
   case ${CMD} in
-  generate)
+  generate | --generate)
     generate_sp_db_info "$2" "$3" "$4" "$5"
     ;;
   config)
     make_config
     ;;
-  reset)
+  reset | --reset)
     reset_sp
     ;;
   start)
