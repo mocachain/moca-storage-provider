@@ -312,13 +312,13 @@ function reset_sp() {
 function main() {
   CMD=$1
   case ${CMD} in
-  generate)
+  generate | --generate)
     generate_sp_db_info "$2" "$3" "$4" "$5"
     ;;
   config)
     make_config
     ;;
-  reset)
+  reset | --reset)
     reset_sp
     ;;
   start)
