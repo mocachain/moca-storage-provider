@@ -2,7 +2,7 @@ module github.com/mocachain/moca-storage-provider
 
 go 1.23.6
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	cosmossdk.io/errors v1.0.1
