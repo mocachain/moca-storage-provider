@@ -44,6 +44,7 @@ jobs:
           make install-tools
           make buf-gen
           go mod tidy
+          git diff --exit-code -- go.mod go.sum
           go mod download
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
