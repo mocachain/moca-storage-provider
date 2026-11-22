@@ -10,16 +10,61 @@ import (
 	"github.com/mocachain/moca-storage-provider/pkg/log"
 	"github.com/mocachain/moca-storage-provider/pkg/metrics"
 	virtualgrouptypes "github.com/mocachain/moca/v2/x/virtualgroup/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var ErrSingTaskDangling = gfsperrors.Register(BaseCodeSpace, http.StatusBadRequest, 991001, "OoooH... request lost")
 
 var _ gfspserver.GfSpSignServiceServer = &GfSpBaseApp{}
 
+func signerRequestRequiringContentAuthorization(req *gfspserver.GfSpSignRequest) string {
+	switch req.GetRequest().(type) {
+	case *gfspserver.GfSpSignRequest_CreateGlobalVirtualGroup:
+		return "create global virtual group"
+	case *gfspserver.GfSpSignRequest_CompleteMigrateBucket:
+		return "complete bucket migration"
+	case *gfspserver.GfSpSignRequest_SwapOut:
+		return "swap out"
+	case *gfspserver.GfSpSignRequest_SignSwapOut:
+		return "sign swap out approval"
+	case *gfspserver.GfSpSignRequest_CompleteSwapOut:
+		return "complete swap out"
+	case *gfspserver.GfSpSignRequest_SpExit:
+		return "storage provider exit"
+	case *gfspserver.GfSpSignRequest_CompleteSpExit:
+		return "complete storage provider exit"
+	case *gfspserver.GfSpSignRequest_SpStoragePrice:
+		return "update storage price"
+	case *gfspserver.GfSpSignRequest_RejectMigrateBucket:
+		return "reject bucket migration"
+	case *gfspserver.GfSpSignRequest_ReserveSwapIn:
+		return "reserve swap in"
+	case *gfspserver.GfSpSignRequest_CompleteSwapIn:
+		return "complete swap in"
+	case *gfspserver.GfSpSignRequest_CancelSwapIn:
+		return "cancel swap in"
+	case *gfspserver.GfSpSignRequest_Deposit:
+		return "deposit to global virtual group"
+	case *gfspserver.GfSpSignRequest_DeleteGlobalVirtualGroup:
+		return "delete global virtual group"
+	case *gfspserver.GfSpSignRequest_DelegateCreateObject:
+		return "delegate object creation"
+	case *gfspserver.GfSpSignRequest_DelegateUpdateObjectContent:
+		return "delegate object update"
+	default:
+		return ""
+	}
+}
+
 func (g *GfSpBaseApp) GfSpSign(ctx context.Context, req *gfspserver.GfSpSignRequest) (*gfspserver.GfSpSignResponse, error) {
 	if req == nil || req.GetRequest() == nil {
 		log.Error("failed to sign msg due to pointer dangling")
 		return &gfspserver.GfSpSignResponse{Err: ErrSingTaskDangling}, nil
+	}
+	if operation := signerRequestRequiringContentAuthorization(req); operation != "" {
+		log.CtxWarnw(ctx, "rejecting signer request without content authorization", "operation", operation)
+		return nil, status.Errorf(codes.PermissionDenied, "%s is disabled without explicit content authorization", operation)
 	}
 	var (
 		signature []byte
